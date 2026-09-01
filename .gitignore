@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Environment and local runtime state
+.env
+*.db
+*.sqlite3
+
+# Streamlit
+.streamlit/secrets.toml
