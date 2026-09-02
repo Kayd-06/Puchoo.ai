@@ -1,6 +1,6 @@
-# Pucho.ai
+# Puchoo.ai
 
-Pucho.ai turns natural-language analytics questions into transparent SQL proposals. This first slice is a Streamlit UI MVP: it demonstrates the deliberate **ask → review → run** flow using safe, local demo data. It does not connect to or execute against a database yet.
+Puchoo.ai turns natural-language analytics questions into transparent SQL proposals. This first slice is a Streamlit UI MVP: it demonstrates the deliberate **ask → review → run** flow using safe, local demo data. It does not connect to or execute against a database yet.
 
 ## What is included
 
