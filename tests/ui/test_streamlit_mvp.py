@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - dependency-free test environme
 ROOT = Path(__file__).resolve().parents[2]
 HOME_PAGE = ROOT / "apps" / "ui" / "Home.py"
 ASK_PAGE = ROOT / "apps" / "ui" / "pages" / "1_Ask_a_Question.py"
+MY_DATA_PAGE = ROOT / "apps" / "ui" / "pages" / "4_My_Data.py"
 
 
 @unittest.skipIf(AppTest is None, "Streamlit is not installed")
@@ -29,6 +30,7 @@ class StreamlitMVPTests(unittest.TestCase):
             ASK_PAGE,
             ROOT / "apps" / "ui" / "pages" / "2_Query_History.py",
             ROOT / "apps" / "ui" / "pages" / "3_Guardrail_Settings.py",
+            MY_DATA_PAGE,
         ]
 
         for page in pages:
@@ -40,7 +42,7 @@ class StreamlitMVPTests(unittest.TestCase):
     def test_home_accepts_a_user_question_without_fabricating_a_result(self) -> None:
         app = AppTest.from_file(str(HOME_PAGE))
         app.run()
-        app.text_area[0].input("What is the latest revenue?")
+        app.text_input[0].input("What is the latest revenue?")
         app.button[0].click()
         app.run()
 
@@ -72,6 +74,23 @@ class StreamlitMVPTests(unittest.TestCase):
         ):
             with self.subTest(fabricated_value=fabricated_value):
                 self.assertNotIn(fabricated_value, source)
+
+    def test_my_data_stages_server_metadata_without_retaining_a_password(self) -> None:
+        app = AppTest.from_file(str(MY_DATA_PAGE))
+        app.run()
+
+        app.text_input[1].input("Warehouse")
+        app.text_input[2].input("db.example.com")
+        app.text_input[3].input("analytics")
+        app.text_input[4].input("reader")
+        app.text_input[5].input("not-stored")
+        next(button for button in app.button if button.label == "Save connection details").click()
+        app.run()
+
+        self.assertEqual([], list(app.exception))
+        self.assertEqual("Warehouse", app.session_state["my_data_server_draft"]["name"])
+        self.assertEqual("db.example.com", app.session_state["my_data_server_draft"]["host"])
+        self.assertEqual("", app.session_state["my_data_server_password"])
 
     def test_query_is_reviewed_before_it_can_run(self) -> None:
         app = AppTest.from_file(str(ASK_PAGE))
