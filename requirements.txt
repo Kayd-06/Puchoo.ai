@@ -1,3 +1,9 @@
 # Streamlit MVP frontend
 streamlit>=1.62,<2
 pandas>=2.0,<3
+
+# Text-to-SQL Core Engine
+groq>=0.11.0,<1
+SQLAlchemy>=2.0,<3
+sqlglot>=25.10.0,<26
+python-dotenv>=1.0.0,<2
