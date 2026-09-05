@@ -42,3 +42,23 @@ python -m unittest discover -s tests
 - No credentials, database connection, schema payload, or source data are included.
 
 When the FastAPI layer is ready, replace `apps/ui/data/demo_data.py` calls with a client that maps to `POST /query`, `GET /history`, and `POST /queries/:id/feedback`. Keep the explicit approval boundary in the UI; SQL parsing, guardrails, row limits, and execution authorization must be enforced server-side.
+
+## Core SQL proposal and guardrail modules
+
+The core modules provide the server-side pieces needed by that future boundary:
+
+```python
+from apps.core.guardrails import SQLGuardrails
+from apps.core.llm_client import LLMClient
+from apps.core.schema_reader import SchemaReader
+
+schema = SchemaReader().get_schema()
+proposal = LLMClient().generate_sql(schema=schema, question="Revenue by region")
+safe_sql = SQLGuardrails(max_limit=500, dialect="sqlite").validate(proposal)
+```
+
+Set `GROQ_API_KEY` in the environment (or a local uncommitted `.env`) before
+creating `LLMClient`. It makes a real Groq Chat Completions request and never
+substitutes a canned result. The returned proposal remains untrusted until
+`SQLGuardrails` parses it with SQLGlot, accepts exactly one read-only `SELECT`,
+and adds or clamps its outermost `LIMIT`.
