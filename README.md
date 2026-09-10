@@ -1,21 +1,25 @@
 # Puchoo.ai
 
-Puchoo.ai turns natural-language analytics questions into transparent SQL proposals. This first slice is a Streamlit UI MVP: it demonstrates the deliberate **ask → review → run** flow using safe, local demo data. It does not connect to or execute against a database yet.
+Puchoo.ai turns natural-language analytics questions into transparent SQL proposals. It implements a deliberate **ask → review → run → verify** workflow over an existing, workspace-scoped SQLite database. It never seeds, fabricates, or mutates source data.
 
 ## What is included
 
 ```text
-apps/ui/
-├── Home.py                         # Interactive first page; no fabricated results
-├── pages/
-│   ├── 1_Ask_a_Question.py          # Draft, review, explicitly run a query
-│   ├── 2_Query_History.py           # Session-local audit history and feedback
-│   └── 3_Guardrail_Settings.py      # Result limits and visible safety controls
-├── components/app_shell.py          # Shared theme, sidebar, session state
-└── data/demo_data.py                # Safe demo responses; no DB access
+apps/
+├── core/executor.py                 # Guarded read-only database execution boundary
+├── core/verification.py             # Independent Claude describe-and-compare pass
+├── core/workspaces.py               # Workspace validation and schema inspection
+└── ui/
+    ├── Home.py                      # Activity derived from the active workspace
+    ├── components/app_shell.py      # Shared theme, sidebar, session state
+    └── pages/
+        ├── 1_Ask_a_Question.py      # Draft, review, execute, and verify
+        ├── 2_Query_History.py       # Workspace-local audit trail
+        ├── 3_Guardrail_Settings.py  # Result limits and safety controls
+        └── 4_My_Data.py             # SQLite workspace setup and schema view
 ```
 
-The page layout follows the UI portion of the proposed application architecture. The backend-facing concerns—connection management, SQL validation, execution, history persistence, authentication, and tenancy—remain intentionally outside this MVP.
+Workspaces and histories are isolated in the current Streamlit session. Production persistence, authentication, and tenancy remain backend concerns.
 
 ## Run locally
 
@@ -34,31 +38,21 @@ To run the lightweight safety-flow tests:
 python -m unittest discover -s tests
 ```
 
-## Safety behavior in this MVP
+## Safe execution and verification
 
 - Generated SQL is shown for review and never runs automatically.
-- The demo includes a simple natural-language preflight for write-oriented requests. It is illustrative UI behavior—not SQL validation or a security boundary.
-- Demo history is stored only in the current Streamlit session.
-- No credentials, database connection, schema payload, or source data are included.
+- The execution boundary parses SQL with SQLGlot, accepts one `SELECT` only, rejects data-changing CTEs and multiple statements, and clamps the outermost `LIMIT`.
+- SQLite is also set to `query_only` for execution.
+- A separate Claude call describes and compares the question, SQL, and bounded result sample. `VERIFICATION_MISMATCH` is surfaced as an unsafe result; unavailable verification is never represented as a confidence score.
+- No credentials or source data are stored in the UI.
 
-When the FastAPI layer is ready, replace `apps/ui/data/demo_data.py` calls with a client that maps to `POST /query`, `GET /history`, and `POST /queries/:id/feedback`. Keep the explicit approval boundary in the UI; SQL parsing, guardrails, row limits, and execution authorization must be enforced server-side.
+## Configuration
 
-## Core SQL proposal and guardrail modules
+Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. `ANTHROPIC_API_KEY` powers Claude Sonnet 5 SQL generation and Claude Haiku 4.5 verification; `SARVAM_API_KEY` enables optional Indian-language voice input plus answer translation/transliteration. Without either key, the relevant UI control explains what is unavailable and never fabricates output.
 
-The core modules provide the server-side pieces needed by that future boundary:
+## Model routing
 
-```python
-from apps.core.guardrails import SQLGuardrails
-from apps.core.llm_client import LLMClient
-from apps.core.schema_reader import SchemaReader
-
-schema = SchemaReader().get_schema()
-proposal = LLMClient().generate_sql(schema=schema, question="Revenue by region")
-safe_sql = SQLGuardrails(max_limit=500, dialect="sqlite").validate(proposal)
-```
-
-Set `GROQ_API_KEY` in the environment (or a local uncommitted `.env`) before
-creating `LLMClient`. It makes a real Groq Chat Completions request and never
-substitutes a canned result. The returned proposal remains untrusted until
-`SQLGuardrails` parses it with SQLGlot, accepts exactly one read-only `SELECT`,
-and adds or clamps its outermost `LIMIT`.
+- SQL proposal generation: Claude Sonnet 5 (`claude-sonnet-5`)
+- Result verification and lightweight answer checks: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`)
+- Indian-language voice input: Sarvam Saaras (`saaras:v3`)
+- Regional-language output: Sarvam Translate (`sarvam-translate:v1`) and transliteration
