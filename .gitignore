@@ -9,6 +9,7 @@ venv/
 
 # Environment and local runtime state
 .env
+.pucho/
 *.db
 *.sqlite3
 

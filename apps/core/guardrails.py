@@ -103,6 +103,18 @@ class SQLGuardrails:
     def validate(self, sql: str) -> str:
         return self.validate_and_clamp(sql).sql
 
+    def requires_confirmation(self, sql: str) -> bool:
+        """Return whether a safe query has joins or nested SELECTs.
+
+        This is an experience safeguard, not a reason to reject valid analysis:
+        callers can require an additional explicit approval for more complex SQL.
+        """
+
+        statement = _only_one_select(sql, self.dialect)
+        joins = sum(1 for node in statement.walk() if isinstance(node, exp.Join))
+        nested_selects = sum(1 for node in statement.walk() if isinstance(node, exp.Select)) - 1
+        return joins > 1 or nested_selects > 0
+
 
 def validate_and_clamp_sql(
     sql: str, *, max_limit: int = 500, dialect: str | None = "sqlite"
