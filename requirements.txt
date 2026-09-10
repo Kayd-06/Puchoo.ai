@@ -1,9 +1,14 @@
 # Streamlit MVP frontend
 streamlit>=1.62,<2
 pandas>=2.0,<3
+openpyxl>=3.1,<4
+xlrd>=2.0,<3
 
-# Text-to-SQL Core Engine
-groq>=0.11.0,<1
+# Text-to-SQL, verification, and Indian-language voice/output
+anthropic>=0.40,<1
+sarvamai>=0.1.28,<0.2
 SQLAlchemy>=2.0,<3
+psycopg[binary]>=3.2,<4
+PyMySQL>=1.1,<2
 sqlglot>=25.10.0,<26
 python-dotenv>=1.0.0,<2
