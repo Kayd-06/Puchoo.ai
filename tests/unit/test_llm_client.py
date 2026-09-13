@@ -5,7 +5,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from apps.core.llm_client import LLMClient, SQLGenerationError, build_prompt
+from apps.core.llm_client import (
+    LLMClient,
+    SQLGenerationError,
+    _extract_sql,
+    build_prompt,
+    english_only_question,
+    local_semantic_feedback,
+)
 
 
 class _FakeMessages:
@@ -43,3 +50,20 @@ class LLMClientTests(unittest.TestCase):
         client = LLMClient(client=_FakeClient(None))
         with self.assertRaises(SQLGenerationError):
             client.generate_sql(schema="Table: orders", question="List ids")
+
+    def test_extract_sql_removes_local_chat_end_marker(self) -> None:
+        self.assertEqual(
+            "SELECT id FROM orders;",
+            _extract_sql("SELECT id FROM orders;<|im_end|>"),
+        )
+
+    def test_english_only_question_rejects_indic_script(self) -> None:
+        with self.assertRaises(SQLGenerationError):
+            english_only_question("मुझे सभी छात्रों को दिखाओ")
+
+    def test_invoice_status_feedback_requires_case_normalization(self) -> None:
+        feedback = local_semantic_feedback(
+            "Show all unpaid invoices ordered by total amount from highest to lowest.",
+            "SELECT * FROM invoices WHERE payment_status = 'Unpaid'",
+        )
+        self.assertEqual(["Filter unpaid invoices with LOWER(payment_status) = 'unpaid'."], feedback)

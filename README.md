@@ -23,12 +23,26 @@ Workspaces and histories are isolated in the current Streamlit session. Producti
 
 ## Run locally
 
-Use Python 3.10 or newer.
+Use Python 3.10 or newer. The English-only local-model pilot requires Apple
+Silicon and the MLX dependencies already installed in the project's model
+training environment.
+
+First start the local SQL model in one Terminal window:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cd /Volumes/ssd/Puchoo.ai
+source model_training/.venv_ssd/bin/activate
+HF_HOME=/Volumes/ssd/Puchoo.ai/model_training/hf_cache \
+caffeinate -dimsu mlx_lm.server \
+  --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit \
+  --host 127.0.0.1 --port 8080 --temp 0 --max-tokens 350
+```
+
+Then, in a second Terminal window, start Puchoo:
+
+```bash
+cd /Volumes/ssd/Puchoo.ai
+source model_training/.venv_ssd/bin/activate
 streamlit run apps/ui/Home.py
 ```
 
@@ -40,19 +54,19 @@ python -m unittest discover -s tests
 
 ## Safe execution and verification
 
-- Generated SQL is shown for review and never runs automatically.
+- A question is answered automatically only after its SQL passes the read-only guardrails and database query-plan validation. The generated SQL remains available in an optional “How this answer was retrieved” panel.
 - The execution boundary parses SQL with SQLGlot, accepts one `SELECT` only, rejects data-changing CTEs and multiple statements, and clamps the outermost `LIMIT`.
 - SQLite is also set to `query_only` for execution.
+- Before execution, the local model proposal is parsed by the guardrails and compiled with `EXPLAIN` against the connected database. It can receive up to two repair attempts using only validation feedback.
 - A separate Claude call describes and compares the question, SQL, and bounded result sample. `VERIFICATION_MISMATCH` is surfaced as an unsafe result; unavailable verification is never represented as a confidence score.
 - No credentials or source data are stored in the UI.
 
 ## Configuration
 
-Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. `ANTHROPIC_API_KEY` powers Claude Sonnet 5 SQL generation and Claude Haiku 4.5 verification; `SARVAM_API_KEY` enables optional Indian-language voice input plus answer translation/transliteration. Without either key, the relevant UI control explains what is unavailable and never fabricates output.
+Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. The default SQL provider is the local MLX server, so it needs no model API key. `ANTHROPIC_API_KEY` keeps the independent post-execution verifier available. Sarvam settings are retained for a later multilingual release; voice input and translation are intentionally disabled in this English-only pilot.
 
 ## Model routing
 
-- SQL proposal generation: Claude Sonnet 5 (`claude-sonnet-5`)
+- SQL proposal generation: local Qwen2.5-Coder-7B-Instruct-4bit through MLX (`127.0.0.1:8080` by default)
 - Result verification and lightweight answer checks: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`)
-- Indian-language voice input: Sarvam Saaras (`saaras:v3`)
-- Regional-language output: Sarvam Translate (`sarvam-translate:v1`) and transliteration
+- Voice and translation: disabled for this English-only pilot; Sarvam is reserved for the later multilingual release

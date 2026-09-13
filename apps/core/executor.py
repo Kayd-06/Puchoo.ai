@@ -70,8 +70,30 @@ class ReadOnlyExecutor:
 
         return self.guardrails.validate_and_clamp(proposed_sql)
 
+    def validate_query_plan(self, proposed_sql: str) -> GuardedSQL:
+        """Validate a guarded query against the connected database without running it.
+
+        This catches unknown tables, columns, and aggregate misuse before the
+        proposal reaches the execution step. It is a compile/plan check only;
+        :meth:`execute` validates the SQL again immediately before execution.
+        """
+
+        guarded = self.prepare(proposed_sql)
+        try:
+            with self.engine.connect() as connection:
+                if self.database_uri.startswith("sqlite"):
+                    connection.exec_driver_sql("PRAGMA query_only = ON")
+                    connection.exec_driver_sql(f"EXPLAIN QUERY PLAN {guarded.sql}")
+                else:
+                    connection.execute(text(f"EXPLAIN {guarded.sql}"))
+        except SQLAlchemyError as exc:
+            raise QueryExecutionError(f"Query-plan validation failed: {exc}") from exc
+        finally:
+            self.engine.dispose()
+        return guarded
+
     def execute(self, proposed_sql: str) -> QueryResult:
-        """Validate and run a query after the caller's explicit approval."""
+        """Validate and run a query after the caller's safety workflow."""
 
         guarded = self.prepare(proposed_sql)
         started = perf_counter()

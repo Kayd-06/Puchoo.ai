@@ -1,0 +1,13 @@
+invoice_id,invoice_date,customer_name,city,region,product_category,product_name,sales_person,quantity,unit_price,total_amount,payment_status
+INV-1001,2026-01-05,Alpha Books,Pune,West,Stationery,Notebooks,Aarav,120,75,9000,paid
+INV-1002,2026-01-12,Beta Labs,Mumbai,West,Electronics,Tablets,Diya,8,25000,200000,partial
+INV-1003,2026-01-22,Cedar Stores,Pune,West,Furniture,Office Chairs,Rohan,15,6500,97500,unpaid
+INV-1004,2026-02-03,Delta Traders,Delhi,North,Electronics,Printers,Aarav,6,18000,108000,paid
+INV-1005,2026-02-14,Evergreen School,Bengaluru,South,Stationery,Whiteboards,Diya,10,9000,90000,partial
+INV-1006,2026-02-28,Falcon Foods,Mumbai,West,Packaging,Cartons,Rohan,500,120,60000,paid
+INV-1007,2026-03-04,Green Mart,Pune,West,Electronics,Barcode Scanners,Aarav,20,4500,90000,unpaid
+INV-1008,2026-03-11,Horizon Clinic,Chennai,South,Furniture,Desks,Diya,12,11000,132000,partial
+INV-1009,2026-03-19,Indigo Textiles,Delhi,North,Packaging,Labels,Rohan,1000,35,35000,paid
+INV-1010,2026-03-27,Juniper Cafe,Bengaluru,South,Electronics,POS Terminals,Aarav,4,30000,120000,unpaid
+INV-1011,2026-04-02,Kaveri Supplies,Pune,West,Stationery,Printer Paper,Diya,300,280,84000,paid
+INV-1012,2026-04-16,Lotus Pharmacy,Mumbai,West,Electronics,Label Printers,Rohan,5,22000,110000,partial

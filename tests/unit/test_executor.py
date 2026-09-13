@@ -37,3 +37,11 @@ class ReadOnlyExecutorTests(unittest.TestCase):
         connection = sqlite3.connect(self.path)
         self.assertEqual(3, connection.execute("SELECT COUNT(*) FROM metrics").fetchone()[0])
         connection.close()
+
+    def test_query_plan_validation_rejects_unknown_columns_before_approval(self) -> None:
+        with self.assertRaisesRegex(Exception, "Query-plan validation failed"):
+            self.executor.validate_query_plan("SELECT missing_column FROM metrics")
+
+    def test_query_plan_validation_returns_guarded_sql(self) -> None:
+        guarded = self.executor.validate_query_plan("SELECT id FROM metrics")
+        self.assertIn("LIMIT 2", guarded.sql)
