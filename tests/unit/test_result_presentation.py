@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from apps.core.result_presentation import build_result_presentation
+from apps.core.result_presentation import build_result_presentation, order_category_rows
 
 
 class ResultPresentationTests(unittest.TestCase):
@@ -30,3 +30,18 @@ class ResultPresentationTests(unittest.TestCase):
         result = build_result_presentation("Show missing values.", ["name"], [])
         self.assertEqual("No matching data was found.", result.headline)
         self.assertEqual([], result.highlights)
+
+    def test_category_breakdown_keeps_categories_separate_and_calculates_a_total(self) -> None:
+        result = build_result_presentation(
+            "What is the monthly budget of Sales and Finance departments?",
+            ["department", "monthly_budget"],
+            [{"department": "Finance", "monthly_budget": 500000}, {"department": "Sales", "monthly_budget": 775000}],
+        )
+        self.assertEqual("Monthly Budget by Department", result.headline)
+        self.assertEqual(("Total Monthly Budget", "1,275,000"), result.total)
+        self.assertEqual("department", result.category_column)
+        self.assertEqual(
+            ["Sales", "Finance"],
+            [row["department"] for row in order_category_rows("Sales and Finance budget", [{"department": "Finance"}, {"department": "Sales"}], "department")],
+        )
+        self.assertEqual(3, len(result.recommendations))

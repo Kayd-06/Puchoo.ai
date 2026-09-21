@@ -1,0 +1,7 @@
+{
+  "purpose": "Schema-grounded education and finance Text-to-SQL training",
+  "train_examples": 8781,
+  "valid_examples": 324,
+  "test_examples": 324,
+  "hard_test_reserved": "Grade 10 / attendance < 75 / average marks < 60 / unpaid fees > 10000"
+}

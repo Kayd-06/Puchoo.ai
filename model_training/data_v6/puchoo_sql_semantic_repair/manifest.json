@@ -1,0 +1,7 @@
+{
+  "purpose": "Repair HAVING/AVG and unpaid-fee semantic errors",
+  "train_examples": 13491,
+  "valid_examples": 259,
+  "test_examples": 259,
+  "reserved_hard_test": "Grade 10, attendance < 75, average < 60, unpaid > 10000"
+}

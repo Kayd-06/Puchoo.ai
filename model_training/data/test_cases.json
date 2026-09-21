@@ -1,0 +1,36 @@
+[
+  {
+    "schema": "ledger_entries(id INTEGER, entry_date TEXT, account TEXT, debit REAL, credit REAL)",
+    "question": "Calculate total debit and total credit for every account in 2025.",
+    "sql": "SELECT account, SUM(debit) AS total_debit, SUM(credit) AS total_credit FROM ledger_entries WHERE entry_date >= '2025-01-01' AND entry_date < '2026-01-01' GROUP BY account ORDER BY account",
+    "setup": [
+      "INSERT INTO ledger_entries VALUES (1, '2025-01-05', 'Cash', 100, 0)",
+      "INSERT INTO ledger_entries VALUES (2, '2025-02-01', 'Cash', 0, 40)",
+      "INSERT INTO ledger_entries VALUES (3, '2025-03-01', 'Sales', 0, 300)",
+      "INSERT INTO ledger_entries VALUES (4, '2024-12-31', 'Cash', 25, 0)"
+    ]
+  },
+  {
+    "schema": "courses(id INTEGER, title TEXT); assignments(id INTEGER, course_id INTEGER, due_date TEXT); submissions(id INTEGER, assignment_id INTEGER, student_id INTEGER, submitted_at TEXT)",
+    "question": "List assignments that had no submissions by their due date.",
+    "sql": "SELECT a.id, a.course_id, a.due_date FROM assignments AS a LEFT JOIN submissions AS s ON s.assignment_id = a.id AND s.submitted_at <= a.due_date WHERE s.id IS NULL ORDER BY a.id",
+    "setup": [
+      "INSERT INTO courses VALUES (1, 'Math')",
+      "INSERT INTO assignments VALUES (1, 1, '2025-03-10')",
+      "INSERT INTO assignments VALUES (2, 1, '2025-03-12')",
+      "INSERT INTO submissions VALUES (1, 1, 10, '2025-03-09')",
+      "INSERT INTO submissions VALUES (2, 2, 11, '2025-03-15')"
+    ]
+  },
+  {
+    "schema": "course_sessions(course_id INTEGER, session_date TEXT, scheduled_count INTEGER, attended_count INTEGER)",
+    "question": "Which courses had an attendance rate below 80 percent in March 2025?",
+    "sql": "SELECT course_id, SUM(attended_count) * 100.0 / SUM(scheduled_count) AS attendance_rate FROM course_sessions WHERE session_date >= '2025-03-01' AND session_date < '2025-04-01' GROUP BY course_id HAVING SUM(attended_count) * 100.0 / SUM(scheduled_count) < 80 ORDER BY course_id",
+    "setup": [
+      "INSERT INTO course_sessions VALUES (1, '2025-03-01', 20, 15)",
+      "INSERT INTO course_sessions VALUES (1, '2025-03-08', 20, 16)",
+      "INSERT INTO course_sessions VALUES (2, '2025-03-01', 20, 18)",
+      "INSERT INTO course_sessions VALUES (3, '2025-04-01', 20, 0)"
+    ]
+  }
+]

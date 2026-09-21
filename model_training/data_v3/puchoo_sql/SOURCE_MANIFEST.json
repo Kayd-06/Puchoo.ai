@@ -1,0 +1,27 @@
+{
+  "purpose": "Puchoo Text-to-SQL adapter only: schema + question -> one SQLite SELECT.",
+  "sources": [
+    {
+      "name": "Spider",
+      "path": "sources/spider_full/spider_data",
+      "license": "CC BY-SA 4.0",
+      "use": "generic schema-grounded Text-to-SQL"
+    },
+    {
+      "name": "Puchoo synthetic Finance/Education SQL",
+      "path": "data",
+      "license": "project-generated",
+      "use": "domain-specific SQLite SQL"
+    }
+  ],
+  "counts": {
+    "train": 6740,
+    "valid": 530,
+    "test": 1037
+  },
+  "constraints": [
+    "Assistant output must begin with SELECT.",
+    "No customer, student, or institute data is in this training set.",
+    "Runtime SQL guardrails remain mandatory after model generation."
+  ]
+}

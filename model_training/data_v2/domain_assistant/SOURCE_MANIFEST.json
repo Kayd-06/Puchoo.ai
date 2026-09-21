@@ -1,0 +1,36 @@
+{
+  "purpose": "Separate finance-and-education domain-assistant adapter; do not mix with the SQL-generator adapter.",
+  "sources": [
+    {
+      "name": "FinQA",
+      "path": "sources/finqa/dataset",
+      "task": "financial-report reasoning",
+      "dataset_license": "CC BY 4.0 (FinQA dataset site)",
+      "repository_license": "MIT"
+    },
+    {
+      "name": "TAT-QA",
+      "path": "sources/tat-qa/dataset_raw",
+      "task": "financial table-and-text QA",
+      "dataset_license": "CC BY 4.0",
+      "repository_license": "MIT"
+    },
+    {
+      "name": "OpenBookQA",
+      "path": "sources/openbookqa/data/OpenBookQA-V1-Sep2018",
+      "task": "elementary science education QA",
+      "dataset_license": "Apache-2.0",
+      "repository_license": "Apache-2.0"
+    }
+  ],
+  "counts": {
+    "train": 2400,
+    "valid": 400,
+    "test": 400
+  },
+  "rules": [
+    "No PII or customer data.",
+    "Retain source attribution when distributing data or derivative artifacts.",
+    "Use retrieved, dated sources for live financial facts; do not treat this training data as current advice."
+  ]
+}

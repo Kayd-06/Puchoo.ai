@@ -1,0 +1,3 @@
+# Standalone Apple-Silicon training environment. This is intentionally not part
+# of Puchoo.ai's application dependencies.
+mlx-lm[train]

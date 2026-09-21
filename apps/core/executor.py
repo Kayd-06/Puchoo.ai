@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -68,7 +68,12 @@ class ReadOnlyExecutor:
     def prepare(self, proposed_sql: str) -> GuardedSQL:
         """Parse, reject writes/multiple statements, and apply an outer LIMIT."""
 
-        return self.guardrails.validate_and_clamp(proposed_sql)
+        try:
+            inspector = inspect(self.engine)
+            source_tables = set(inspector.get_table_names()) | set(inspector.get_view_names())
+        except SQLAlchemyError as exc:
+            raise QueryExecutionError("Could not inspect the uploaded workspace data.") from exc
+        return self.guardrails.validate_and_clamp(proposed_sql, source_table_names=source_tables)
 
     def validate_query_plan(self, proposed_sql: str) -> GuardedSQL:
         """Validate a guarded query against the connected database without running it.

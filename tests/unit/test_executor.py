@@ -45,3 +45,7 @@ class ReadOnlyExecutorTests(unittest.TestCase):
     def test_query_plan_validation_returns_guarded_sql(self) -> None:
         guarded = self.executor.validate_query_plan("SELECT id FROM metrics")
         self.assertIn("LIMIT 2", guarded.sql)
+
+    def test_rejects_literal_answer_even_when_the_model_supplies_text(self) -> None:
+        with self.assertRaises(SQLGuardrailError):
+            self.executor.execute("SELECT 'The prime minister of India is Narendra Modi' AS result")

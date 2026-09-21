@@ -12,12 +12,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from apps.core.workspaces import (
     create_server_workspace,
     create_sqlite_workspace,
-    create_tabular_workspace,
+    create_tabular_workspace_from_uploads,
     create_uploaded_sqlite_workspace,
     get_schema_metrics,
     get_schema_snapshot,
     get_schema_table_stats,
 )
+from apps.core.vector_store import VectorStoreError, index_workspace_schema
 from apps.ui.components.app_shell import active_workspace, initialize_app, page_header, persist_app_state
 
 
@@ -31,13 +32,19 @@ def activate_workspace(workspace: object) -> None:
     st.session_state.active_workspace_id = workspace_data["id"]
     st.session_state.active_proposal = None
     persist_app_state()
+    try:
+        index_workspace_schema(workspace_data["id"], workspace_data["database_uri"])
+    except VectorStoreError:
+        # Schema retrieval is an accuracy enhancement. The normal, guarded SQL
+        # flow remains available if a local Chroma index is temporarily offline.
+        pass
 
 
 initialize_app("My Data")
 page_header(
     "Workspace ingestion",
     "Connect your data",
-    "Upload a CSV or Excel workbook, or connect a PostgreSQL/MySQL server. Pucho reads approved sources in read-only mode.",
+    "Create a Business or Education collection, upload related files together, and ask questions across the entire collection in one chat.",
 )
 
 st.markdown(
@@ -51,25 +58,33 @@ st.write("")
 file_tab, server_tab, sqlite_tab = st.tabs(["Upload CSV or Excel", "Connect database server", "SQLite file"])
 
 with file_tab:
-    st.subheader("Local spreadsheet importer")
-    st.caption("CSV files become one queryable table. Each non-empty Excel sheet becomes its own table. The local workspace remains available after browser refresh.")
-    tabular_upload = st.file_uploader(
-        "Choose a CSV or Excel file",
+    st.subheader("Collection uploader")
+    st.caption("Create one collection for a business or one school/college. Upload all related CSV and Excel files together; every non-empty file or sheet becomes queryable in the same chat.")
+    data_domain = st.selectbox(
+        "Collection type",
+        options=["Business", "Education (school or college)"],
+        help="Business and education uploads are kept in separate workspaces and never share a chat or query database.",
+    )
+    tabular_uploads = st.file_uploader(
+        "Choose CSV or Excel files",
         type=["csv", "xlsx", "xls"],
         key="tabular_file",
+        accept_multiple_files=True,
         help="Supported formats: .csv, .xlsx, and .xls.",
     )
-    import_name = st.text_input("Workspace name", placeholder="Defaults to the uploaded file name", key="tabular_workspace_name")
-    if st.button("Create workspace from file", type="primary", disabled=tabular_upload is None):
-        if tabular_upload is not None:
+    import_name = st.text_input("Collection name", placeholder="e.g. Northstar Retail inventory", key="tabular_workspace_name")
+    if tabular_uploads:
+        st.caption(f"{len(tabular_uploads):,} file(s) selected · all will be available in one chat.")
+    if st.button("Create collection workspace", type="primary", disabled=not tabular_uploads):
+        if tabular_uploads:
             try:
-                workspace = create_tabular_workspace(
-                    import_name.strip() or Path(tabular_upload.name).stem,
-                    tabular_upload.name,
-                    tabular_upload.getvalue(),
+                workspace = create_tabular_workspace_from_uploads(
+                    import_name.strip() or Path(tabular_uploads[0].name).stem,
+                    [(upload.name, upload.getvalue()) for upload in tabular_uploads],
+                    data_domain="education" if data_domain.startswith("Education") else "business",
                 )
                 activate_workspace(workspace)
-                st.success(f"{workspace.name} is ready for read-only questions.")
+                st.success(f"{workspace.name} is ready. Ask one question across all uploaded files.")
             except ValueError as exc:
                 st.error(str(exc))
 
@@ -141,11 +156,12 @@ if workspace:
     with st.container(border=True):
         st.markdown("<span class='status status-ok'>CONNECTED &amp; INSPECTED</span>", unsafe_allow_html=True)
         st.subheader(workspace["name"])
-        source_label = {"spreadsheet": "CSV / Excel workspace", "server": "Database server", "file": "SQLite file"}.get(workspace.get("source_type"), "Data source")
-        st.caption(f"{source_label} · all values below are read from the currently connected source. No sample records are used.")
+        source_label = {"spreadsheet": "CSV / Excel workspace", "spreadsheet_collection": "CSV / Excel collection", "server": "Database server", "file": "SQLite file"}.get(workspace.get("source_type"), "Data source")
+        domain_label = "Education" if workspace.get("data_domain") == "education" else "Business"
+        st.caption(f"{domain_label} collection · {source_label} · all values below are read from the currently connected source. No sample records are used.")
         try:
             metrics = get_schema_metrics(workspace["database_uri"])
-            local_source = workspace.get("source_type") in {"spreadsheet", "file"}
+            local_source = workspace.get("source_type") in {"spreadsheet", "spreadsheet_collection", "file"}
             table_stats = get_schema_table_stats(workspace["database_uri"], include_row_counts=local_source)
             stat_one, stat_two, stat_three = st.columns(3)
             stat_one.metric("Tables indexed", metrics["tables"])

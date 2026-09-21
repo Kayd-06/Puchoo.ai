@@ -21,13 +21,13 @@ apps/
 
 Workspaces and histories are isolated in the current Streamlit session. Production persistence, authentication, and tenancy remain backend concerns.
 
-## Run locally
+## Start Puchoo locally (macOS / Apple Silicon)
 
 Use Python 3.10 or newer. The English-only local-model pilot requires Apple
 Silicon and the MLX dependencies already installed in the project's model
 training environment.
 
-First start the local SQL model in one Terminal window:
+Open **Terminal 1** and start the local SQL model. Keep this Terminal open while using Puchoo:
 
 ```bash
 cd /Volumes/ssd/Puchoo.ai
@@ -38,12 +38,52 @@ caffeinate -dimsu mlx_lm.server \
   --host 127.0.0.1 --port 8080 --temp 0 --max-tokens 350
 ```
 
-Then, in a second Terminal window, start Puchoo:
+When it prints `Starting httpd at 127.0.0.1 on port 8080`, open **Terminal 2** and start Puchoo:
 
 ```bash
 cd /Volumes/ssd/Puchoo.ai
 source model_training/.venv_ssd/bin/activate
 streamlit run apps/ui/Home.py
+```
+
+Open `http://localhost:8501` in a browser. To confirm that the model server is available before starting the app, run this in a third Terminal window:
+
+```bash
+curl http://127.0.0.1:8080/v1/models
+```
+
+It should list `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`. Press `Control + C` in each Terminal window when you want to stop the model server or the app.
+
+### SQL-specialist local model (recommended on a 16 GB Mac)
+
+SQLCoder2 (15B) needs at least 20 GB of unified memory even when quantized, so
+do not run it on this machine. Use the smaller SQL-specialist SQLCoder-7B-2
+instead. Its official Q5 model is about 4.8 GB and has an OpenAI-compatible
+local server. Run SQLCoder on port `8081` as the sole local model:
+
+```bash
+cd /Volumes/ssd/Puchoo.ai
+source model_training/.venv_ssd/bin/activate
+CMAKE_ARGS="-DGGML_METAL=on" pip install "llama-cpp-python[server]"
+mkdir -p model_training/models/sqlcoder-7b-2
+hf download defog/sqlcoder-7b-2 sqlcoder-7b-q5_k_m.gguf \
+  --local-dir model_training/models/sqlcoder-7b-2
+python -m llama_cpp.server \
+  --model model_training/models/sqlcoder-7b-2/sqlcoder-7b-q5_k_m.gguf \
+  --host 127.0.0.1 --port 8081 --n_ctx 4096
+```
+
+Set these local, uncommitted `.env` values. The `completion` mode is
+deliberate: SQLCoder is trained for a completion prompt, not a Qwen chat
+template. A 16 GB Mac should run one local 7B model at a time; keeping Qwen
+and SQLCoder resident together caused a verified Metal out-of-memory failure
+during a schema-rich query.
+
+```dotenv
+LOCAL_SQL_MODEL_URL=http://127.0.0.1:8081/v1/completions
+LOCAL_SQL_MODEL_NAME=defog/sqlcoder-7b-2
+LOCAL_SQL_REQUEST_STYLE=completion
+LOCAL_SQL_REPAIR_MODEL_URL=
 ```
 
 To run the lightweight safety-flow tests:
@@ -67,6 +107,6 @@ Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. T
 
 ## Model routing
 
-- SQL proposal generation: local Qwen2.5-Coder-7B-Instruct-4bit through MLX (`127.0.0.1:8080` by default)
+- SQL proposal generation: any configured local OpenAI-compatible SQL model (Qwen/MLX by default; SQLCoder-7B-2 is supported through llama-cpp-python)
 - Result verification and lightweight answer checks: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`)
 - Voice and translation: disabled for this English-only pilot; Sarvam is reserved for the later multilingual release

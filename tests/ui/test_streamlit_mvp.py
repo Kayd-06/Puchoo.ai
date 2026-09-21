@@ -65,6 +65,19 @@ class StreamlitMVPTests(unittest.TestCase):
         self.assertEqual(["Your question"], [element.label for element in app.text_area])
         self.assertIn("Generate answer", [element.label for element in app.button])
 
+    def test_shared_header_uses_a_responsive_grid_without_negative_floating_positioning(self) -> None:
+        shell_source = (ROOT / "apps" / "ui" / "components" / "app_shell.py").read_text(encoding="utf-8")
+        self.assertIn("page-header-grid", shell_source)
+        self.assertNotIn("float:right;margin-top:-4.9rem", shell_source)
+
+    def test_ask_page_does_not_reuse_an_answer_for_a_different_question(self) -> None:
+        source = ASK_PAGE.read_text(encoding="utf-8")
+        self.assertIn('record.get("question") == question.strip()', source)
+        self.assertIn("st.session_state.last_execution = None", source)
+        self.assertNotIn("conversation_context=continuation_context", source)
+        self.assertNotIn("previous_chat_context", source)
+        self.assertNotIn("retrieve_workspace_schema", source)
+
     def test_connection_page_exposes_all_supported_source_paths(self) -> None:
         app = AppTest.from_file(str(MY_DATA_PAGE))
         app.run()
@@ -74,6 +87,6 @@ class StreamlitMVPTests(unittest.TestCase):
             [element.label for element in app.tabs],
         )
         self.assertEqual(
-            ["Choose a CSV or Excel file", "Upload a SQLite database"],
+            ["Choose CSV or Excel files", "Upload a SQLite database"],
             [element.label for element in app.file_uploader],
         )

@@ -12,3 +12,4 @@ psycopg[binary]>=3.2,<4
 PyMySQL>=1.1,<2
 sqlglot>=25.10.0,<26
 python-dotenv>=1.0.0,<2
+chromadb>=1.0,<2

@@ -6,11 +6,26 @@ __pycache__/
 htmlcov/
 .venv/
 venv/
+.DS_Store
+
+# Local model runtime files are large machine-specific artifacts, not source.
+model_training/models/
+model_training/.venv/
+model_training/.venv_ssd/
+model_training/hf_cache/
+model_training/logs/
+model_training/adapters/
+model_training/evaluation/reports/
+model_training/sources/
+output/
+outputs/
+*.ses
 
 # Environment and local runtime state
 .env
 .pucho/
 *.db
+*.sqlite
 *.sqlite3
 
 # Streamlit

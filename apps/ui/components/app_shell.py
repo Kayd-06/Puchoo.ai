@@ -23,6 +23,9 @@ def initialize_app(page_title: str) -> None:
         "workspace_guardrails": persisted.get("workspace_guardrails", {}),
         "query_history": persisted.get("query_history", {}),
         "active_proposal": None,
+        # This is intentionally session-only: it makes one selected history
+        # result available as follow-up context without persisting its chat UI.
+        "chat_context": None,
         "profile": {"name": "", "email": "", "department": "", "timezone": "Asia/Kolkata", **persisted.get("profile", {})},
     }
     for key, value in defaults.items():
@@ -47,6 +50,8 @@ def initialize_app(page_title: str) -> None:
         .eyebrow { color:#1365eb; font-weight:750; font-size:.72rem; text-transform:uppercase; letter-spacing:.07em; }
         .hero-title { color:#101b39; font-size:2.45rem; font-weight:800; line-height:1.1; letter-spacing:-.06em; margin:.25rem 0 .45rem; }
         .muted { color:#59637b; max-width:690px; line-height:1.55; }
+        .page-header-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(170px,250px); align-items:start; gap:1.25rem; margin:.15rem 0 1.25rem; }
+        .page-header-grid .workspace-chip { margin-top:.2rem; }
         .metric-card, .surface-card { background:#fff; border:1px solid #e7ebf7; box-shadow:0 7px 18px rgba(28,46,92,.045); border-radius:15px; padding:1.05rem 1.15rem; }
         .metric-card { min-height:94px; }.metric-label { color:#65708b; font-size:.77rem; font-weight:700; }.metric-value { color:#142143; font-size:1.65rem; font-weight:800; margin-top:.23rem; }.workspace-value { color:#142143; font-size:1.08rem; font-weight:800; line-height:1.3; margin-top:.35rem; overflow-wrap:anywhere; }
         .status { display:inline-block; padding:.24rem .58rem; border-radius:999px; font-size:.69rem; letter-spacing:.015em; font-weight:800; }.status-ok { background:#d9faeb; color:#087d58; }.status-warn { background:#fff1d6; color:#9b5d00; }.status-bad { background:#ffeaee; color:#c62442; }
@@ -62,7 +67,8 @@ def initialize_app(page_title: str) -> None:
         @media (max-width: 900px) {
           .block-container { padding:1rem 1rem 2.5rem; }
           .hero-title { font-size:2rem; letter-spacing:-.045em; }
-          .workspace-chip[style] { float:none !important; margin:1rem 0 0 !important; max-width:none !important; }
+          .page-header-grid { grid-template-columns:1fr; gap:.35rem; }
+          .page-header-grid .workspace-chip { max-width:none; margin:.25rem 0 0; }
           .metric-card { min-height:auto; }
         }
         </style>""",
@@ -154,11 +160,11 @@ def page_header(eyebrow: str, title: str, subtitle: str) -> None:
     workspace = active_workspace()
     target = escape(workspace["name"]) if workspace else "No data source connected"
     st.markdown(
-        f'<div class="eyebrow">{escape(eyebrow)}</div><div class="hero-title">{escape(title)}</div>'
-        f'<div class="muted">{escape(subtitle)}</div><div class="workspace-chip" style="float:right;margin-top:-4.9rem;max-width:250px;"><div class="small-label">Target workspace</div>{target}</div>',
+        f'<div class="page-header-grid"><div><div class="eyebrow">{escape(eyebrow)}</div>'
+        f'<div class="hero-title">{escape(title)}</div><div class="muted">{escape(subtitle)}</div></div>'
+        f'<div class="workspace-chip"><div class="small-label">Target workspace</div>{target}</div></div>',
         unsafe_allow_html=True,
     )
-    st.write("")
 
 
 def require_workspace() -> dict[str, Any] | None:
