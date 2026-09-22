@@ -114,6 +114,14 @@ class LLMClientTests(unittest.TestCase):
         self.assertIn("AVG", feedback[0])
         self.assertIn("HAVING", feedback[1])
 
+    def test_average_in_cte_can_be_filtered_by_alias(self) -> None:
+        feedback = local_semantic_feedback(
+            "List students with overall attendance greater than 75 percent",
+            "WITH totals AS (SELECT student_id, AVG(attendance_percentage) AS attendance_average "
+            "FROM attendance GROUP BY student_id) SELECT * FROM totals WHERE attendance_average > 75",
+        )
+        self.assertEqual([], feedback)
+
     def test_pending_bill_requires_outstanding_invoice_statuses(self) -> None:
         feedback = local_semantic_feedback(
             "List customers having pending bill payment",

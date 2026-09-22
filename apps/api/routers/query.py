@@ -23,6 +23,12 @@ from apps.core.llm_client import (
 )
 from apps.core.verification import ClaudeVerifier, VerificationStatus, verification_unavailable
 from apps.core.workspaces import get_schema_snapshot
+from apps.core.semantic_layer import (
+    build_query_plan,
+    plan_semantic_feedback,
+    render_planned_question,
+    select_relevant_schema,
+)
 from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard
 
@@ -51,6 +57,9 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                 "question": question,
                 **clarification,
             }
+        intent_plan = build_query_plan(schema, question)
+        focused_schema = select_relevant_schema(schema, intent_plan)
+        planned_question = render_planned_question(intent_plan)
         executor = ReadOnlyExecutor(
             workspace["database_uri"], 
             max_rows=controls["max_rows"], 
@@ -81,8 +90,8 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                 )
                 try:
                     generated_sql = attempt_client.generate_sql(
-                        schema=schema,
-                        question=question,
+                        schema=focused_schema,
+                        question=planned_question,
                         feedback=feedback if feedback else None,
                         previous_sql=previous_sql,
                     )
@@ -91,19 +100,20 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                         if repair_client is None:
                             raise
                         generated_sql = repair_client.generate_sql(
-                            schema=schema,
-                            question=question,
+                            schema=focused_schema,
+                            question=planned_question,
                             feedback=feedback if feedback else None,
                             previous_sql=previous_sql,
                         )
                     else:
                         generated_sql = client.generate_sql(
-                            schema=schema,
-                            question=question,
+                            schema=focused_schema,
+                            question=planned_question,
                             feedback=feedback if feedback else None,
                             previous_sql=previous_sql,
                         )
                 feedback = local_semantic_feedback(question, generated_sql, schema)
+                feedback.extend(plan_semantic_feedback(intent_plan, generated_sql))
                 try:
                     guarded = executor.validate_query_plan(generated_sql)
                 except (SQLGuardrailError, QueryExecutionError) as exc:
@@ -119,6 +129,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                     generated_sql = fallback_sql
                     guarded = executor.validate_query_plan(generated_sql)
                     feedback = local_semantic_feedback(question, generated_sql, schema)
+                    feedback.extend(plan_semantic_feedback(intent_plan, generated_sql))
                     attempt = max_attempts + 1
                 if guarded is None or feedback:
                     raise SQLGenerationError(
@@ -127,7 +138,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                     )
         else:
             attempt = 1
-            generated_sql = client.generate_sql(schema=schema, question=question)
+            generated_sql = client.generate_sql(schema=focused_schema, question=planned_question)
             guarded = executor.validate_query_plan(generated_sql)
 
         proposal = {
@@ -139,6 +150,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             "created_at": utc_now(),
             "model_attempts": attempt,
             "generation_method": "schema-guided fallback" if attempt > max_attempts else "local model",
+            "intent_plan": intent_plan.as_dict(),
             "status": "proposed"
         }
         session_manager.active_proposals[workspace_id] = proposal

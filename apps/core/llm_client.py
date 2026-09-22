@@ -188,8 +188,17 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
             question_lower,
         ))
         if asks_to_filter_average:
+            average_alias_match = re.search(r"avg\s*\([^)]*\)\s+as\s+([a-z_][\w]*)", sql_lower)
+            filters_average_alias = bool(
+                average_alias_match
+                and re.search(
+                    rf"\bwhere\b[\s\S]*\b{re.escape(average_alias_match.group(1))}\b\s*(?:>|<|>=|<=)",
+                    sql_lower,
+                )
+            )
             if "having" not in sql_lower:
-                feedback.append("Filter an aggregate average with HAVING AVG(...), not WHERE.")
+                if not filters_average_alias:
+                    feedback.append("Filter an aggregate average with HAVING AVG(...) or filter its CTE alias in an outer WHERE.")
             elif "avg(" not in sql_lower.split("having", 1)[1]:
                 feedback.append("The HAVING clause must compare AVG(...) to the requested limit.")
     if re.search(r"\bunpaid\s+(?:fee|fees|amount|balance)\b", question_lower):

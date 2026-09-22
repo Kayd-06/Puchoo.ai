@@ -7,11 +7,12 @@ from typing import Any
 
 try:
     from sqlglot import exp, parse
-    from sqlglot.errors import ParseError
+    from sqlglot.errors import ParseError, TokenError
 except ImportError:  # pragma: no cover - only reached without installed dependencies
     exp = None  # type: ignore[assignment]
     parse = None  # type: ignore[assignment]
     ParseError = Exception
+    TokenError = Exception
 
 
 class SQLGuardrailError(ValueError):
@@ -47,7 +48,7 @@ def _only_one_select(sql: str, dialect: str | None) -> Any:
     _require_sqlglot()
     try:
         statements = parse(sql, read=dialect)
-    except ParseError as exc:
+    except (ParseError, TokenError) as exc:
         raise SQLGuardrailError("SQL could not be parsed.") from exc
     if len(statements) != 1:
         raise SQLGuardrailError("Exactly one SQL statement is allowed.")
