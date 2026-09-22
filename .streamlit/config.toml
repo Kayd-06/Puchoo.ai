@@ -1,7 +1,0 @@
-[theme]
-base = "light"
-primaryColor = "#2563EB"
-backgroundColor = "#F8F8FF"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#102044"
-font = "sans serif"
