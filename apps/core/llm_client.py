@@ -290,12 +290,19 @@ def compact_plan_feedback(error: Exception, sql: str) -> str:
         return f"Table {table_match.group(1)} does not exist. Rebuild using an exact table name from the schema."
     column_match = re.search(r"no such column:\s*([^\s\]]+)", message, re.IGNORECASE)
     if column_match:
+        missing_column = column_match.group(1)
+        if re.search(rf"\bover\s*\([^)]*\border\s+by\s+{re.escape(missing_column)}\b", sql, re.IGNORECASE | re.DOTALL):
+            return (
+                f"SQLite cannot use aggregate alias {missing_column} inside a window ORDER BY in the same SELECT. "
+                "Either repeat the aggregate expression inside the window ORDER BY, or calculate all metrics in a CTE "
+                "and rank them in an outer SELECT that also projects every requested column."
+            )
         if sql.lstrip().lower().startswith("with"):
             return (
-                f"Column {column_match.group(1)} is unavailable in the final SELECT. "
+                f"Column {missing_column} is unavailable in the final SELECT. "
                 "Make the final SELECT read FROM the correct CTE and ensure that CTE projects every requested final column."
             )
-        return f"Column {column_match.group(1)} does not exist in that scope. Use an exact schema column with the correct alias."
+        return f"Column {missing_column} does not exist in that scope. Use an exact schema column with the correct alias."
     if "syntax error" in message.lower():
         return "SQLite rejected the syntax. Rebuild using SQLite syntax only; do not use INTERVAL."
     return "The database rejected the query plan. Rebuild a simpler query from the schema and preserve every requested output."

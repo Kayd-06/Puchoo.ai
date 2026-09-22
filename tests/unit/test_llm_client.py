@@ -59,6 +59,14 @@ class LLMClientTests(unittest.TestCase):
         )
         self.assertIn("FROM the correct CTE", feedback)
 
+    def test_window_alias_error_explains_sqlite_scope_rule(self) -> None:
+        feedback = compact_plan_feedback(
+            RuntimeError("no such column: total_sales [SQL: ...]"),
+            "SELECT SUM(amount) AS total_sales, RANK() OVER (ORDER BY total_sales DESC) FROM sales",
+        )
+        self.assertIn("window ORDER BY", feedback)
+        self.assertIn("repeat the aggregate expression", feedback)
+
     def test_prompt_keeps_schema_and_question_as_json_data(self) -> None:
         prompt = build_prompt("Table: orders", "Show revenue")
         self.assertIn("read-only SQL", prompt.system)
