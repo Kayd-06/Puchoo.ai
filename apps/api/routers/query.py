@@ -19,6 +19,7 @@ from apps.core.llm_client import (
     local_semantic_feedback,
     question_clarification,
     compact_plan_feedback,
+    schema_guided_fallback_sql,
 )
 from apps.core.verification import ClaudeVerifier, VerificationStatus, verification_unavailable
 from apps.core.workspaces import get_schema_snapshot
@@ -58,6 +59,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
         )
         client = get_sql_client()
         repair_client = get_local_sql_repair_client() if isinstance(client, LocalMLXSQLClient) else None
+        max_attempts = 1
         
         if isinstance(client, LocalMLXSQLClient):
             try:
@@ -112,10 +114,17 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
                 previous_sql = generated_sql
                 
             if guarded is None or feedback:
-                raise SQLGenerationError(
-                    "The local model could not produce a safe, executable query after repair attempts. "
-                    "Try rephrasing the question."
-                )
+                fallback_sql = schema_guided_fallback_sql(schema, question)
+                if fallback_sql:
+                    generated_sql = fallback_sql
+                    guarded = executor.validate_query_plan(generated_sql)
+                    feedback = local_semantic_feedback(question, generated_sql, schema)
+                    attempt = max_attempts + 1
+                if guarded is None or feedback:
+                    raise SQLGenerationError(
+                        "The local model could not produce a safe, executable query after repair attempts. "
+                        "Try rephrasing the question."
+                    )
         else:
             attempt = 1
             generated_sql = client.generate_sql(schema=schema, question=question)
@@ -129,6 +138,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             "limit": guarded.limit, 
             "created_at": utc_now(),
             "model_attempts": attempt,
+            "generation_method": "schema-guided fallback" if attempt > max_attempts else "local model",
             "status": "proposed"
         }
         session_manager.active_proposals[workspace_id] = proposal

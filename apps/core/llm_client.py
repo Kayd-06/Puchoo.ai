@@ -208,16 +208,21 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
                 "CSV status values may use lowercase. Filter both states with "
                 "LOWER(payment_status) IN ('unpaid', 'partial')."
             )
-    elif re.search(r"\bpartial\s+invoices?\b", question_lower):
+    elif re.search(r"\bpartial\s+invoices?\b", question_lower) and not re.search(
+        r"\bpartial\s+invoice\s+count\b", question_lower
+    ):
         if not uses_normalized_payment_status or not re.search(r"['\"]partial['\"]", sql_lower):
             feedback.append("Filter partial invoices with LOWER(payment_status) = 'partial'.")
-    elif re.search(r"\bunpaid\s+invoices?\b", question_lower):
+    elif re.search(r"\bunpaid\s+invoices?\b", question_lower) and not re.search(
+        r"\bunpaid\s+invoice\s+count\b", question_lower
+    ):
         if not uses_normalized_payment_status or not re.search(r"['\"]unpaid['\"]", sql_lower):
             feedback.append("Filter unpaid invoices with LOWER(payment_status) = 'unpaid'.")
     if "active enrollment" in question_lower and "enrollment_status" not in sql_lower:
         feedback.append("The question requires active enrollments, so filter enrollment_status = 'active'.")
     asks_outstanding = bool(
         re.search(r"\b(pending|outstanding|due)\b.*\b(bill|billing|invoice|payment)s?\b", question_lower)
+        or re.search(r"\b(outstanding|remaining)\s+balance\b", question_lower)
     )
     if asks_outstanding and "sales_invoices" in schema_lower:
         invoice_alias_match = re.search(
@@ -228,7 +233,7 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
         if "sales_invoices" not in sql_lower:
             feedback.append("Outstanding customer bills are invoices; use the supplied sales-invoices table.")
         if not (invoice_alias and re.search(
-            rf"lower\(\s*{re.escape(invoice_alias)}\.payment_status\s*\)", sql_lower
+            rf"\bwhere\b[\s\S]*lower\(\s*{re.escape(invoice_alias)}\.payment_status\s*\)\s+in\s*\(", sql_lower
         )
             and re.search(r"['\"]unpaid['\"]", sql_lower)
             and re.search(r"['\"]partial['\"]", sql_lower)
@@ -243,6 +248,35 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
                 feedback.append(
                     "Calculate total due as invoice total_amount minus COALESCE(sum of amount_paid, 0), "
                     "so invoices with no payment row remain included."
+                )
+        asks_for_status_counts = (
+            "unpaid invoice count" in question_lower and "partial invoice count" in question_lower
+        )
+        if asks_for_status_counts:
+            has_unpaid_count = "case when" in sql_lower and "'unpaid'" in sql_lower and "unpaid_invoice_count" in sql_lower
+            has_partial_count = "case when" in sql_lower and "'partial'" in sql_lower and "partial_invoice_count" in sql_lower
+            has_billed_sum = bool(re.search(r"sum\s*\([\s\S]{0,160}total_amount[\s\S]{0,80}as\s+total_billed", sql_lower))
+            has_paid_sum = bool(re.search(r"sum\s*\([\s\S]{0,200}(?:amount_paid|total_paid)[\s\S]{0,80}as\s+total_paid", sql_lower))
+            has_balance_sum = bool(re.search(r"sum\s*\([\s\S]{0,250}total_amount[\s\S]{0,100}as\s+(?:remaining|outstanding)", sql_lower))
+            payments_preaggregated = bool(
+                sql_lower.lstrip().startswith("with")
+                and re.search(r"group\s+by\s+(?:\w+\.)?invoice_id", sql_lower)
+            )
+            if (
+                not has_unpaid_count
+                or not has_partial_count
+                or not has_billed_sum
+                or not has_paid_sum
+                or not has_balance_sum
+                or not payments_preaggregated
+                or "invoice_items" in sql_lower
+            ):
+                feedback.append(
+                    "Calculate unpaid_invoice_count and partial_invoice_count separately with conditional "
+                    "COUNT/SUM over sales_invoices.invoice_id. Do not join invoice_items: total billed comes "
+                    "from SUM(sales_invoices.total_amount). In a payment_totals CTE, GROUP BY invoice_id and "
+                    "SUM(amount_paid); LEFT JOIN it, then SUM(COALESCE(payment_totals.total_paid, 0)) and "
+                    "SUM(invoice total_amount - COALESCE(payment total, 0)) per customer."
                 )
     if re.search(r"\b(never|without|no)\b.*\binvoices?\b", question_lower):
         has_absence_test = "not exists" in sql_lower or bool(
@@ -273,11 +307,16 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
         r"\b(today|yesterday|date|day|week|month|quarter|year|recent|rolling|last|current|since|before|after|between)\b",
         question_lower,
     ))
-    if not mentions_time and re.search(r"\b(?:date|datetime)\s*\(", sql_lower):
+    if not mentions_time and re.search(r"\b(?:date|datetime|date_trunc)\s*\(|\bcurrent_date\b|\binterval\b", sql_lower):
         feedback.append("The question did not request a time period; remove the invented date filter.")
     mentions_payment_filter = bool(re.search(r"\b(paid|unpaid|partial|pending|payment|outstanding|due)\b", question_lower))
     if not mentions_payment_filter and re.search(r"payment_status\s*(?:=|in\s*\()", sql_lower):
         feedback.append("The question did not request a payment-status filter; remove that invented filter.")
+    if "active" not in question_lower and re.search(
+        r"(?:\bwhere\b|\band\b)[\s\S]*lower\(\s*(?:\w+\.)?(?:status|customer_status)\s*\)\s*=\s*['\"]active['\"]",
+        sql_lower,
+    ):
+        feedback.append("The question did not request active customers only; remove the invented customer-status filter.")
     return feedback
 
 
@@ -306,6 +345,62 @@ def compact_plan_feedback(error: Exception, sql: str) -> str:
     if "syntax error" in message.lower():
         return "SQLite rejected the syntax. Rebuild using SQLite syntax only; do not use INTERVAL."
     return "The database rejected the query plan. Rebuild a simpler query from the schema and preserve every requested output."
+
+
+def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
+    """Build a deterministic query for high-risk analytics the small models miss."""
+
+    q = question.lower()
+    required_phrases = (
+        "outstanding invoice balance",
+        "unpaid invoice count",
+        "partial invoice count",
+        "total billed",
+        "total paid",
+        "remaining balance",
+    )
+    if not all(phrase in q for phrase in required_phrases):
+        return None
+
+    table_columns: dict[str, set[str]] = {}
+    for match in re.finditer(r"Table:\s*([^\n]+)\nColumns:\s*([^\n]+)", schema):
+        table = match.group(1).strip()
+        columns = {
+            column.strip().split(" ", 1)[0]
+            for column in match.group(2).split(",")
+        }
+        table_columns[table] = columns
+
+    def find_table(required: set[str]) -> str | None:
+        return next((table for table, columns in table_columns.items() if required <= columns), None)
+
+    customers = find_table({"customer_id", "customer_name"})
+    invoices = find_table({"invoice_id", "customer_id", "total_amount", "payment_status"})
+    payments = find_table({"invoice_id", "amount_paid"})
+    if not customers or not invoices or not payments:
+        return None
+
+    return f"""WITH payment_totals AS (
+    SELECT invoice_id, SUM(amount_paid) AS total_paid
+    FROM {payments}
+    GROUP BY invoice_id
+)
+SELECT
+    c.customer_id,
+    c.customer_name,
+    SUM(CASE WHEN LOWER(i.payment_status) = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_invoice_count,
+    SUM(CASE WHEN LOWER(i.payment_status) = 'partial' THEN 1 ELSE 0 END) AS partial_invoice_count,
+    SUM(i.total_amount) AS total_billed_amount,
+    SUM(COALESCE(p.total_paid, 0)) AS total_paid_amount,
+    SUM(i.total_amount - COALESCE(p.total_paid, 0)) AS remaining_balance
+FROM {customers} AS c
+JOIN {invoices} AS i ON i.customer_id = c.customer_id
+LEFT JOIN payment_totals AS p ON p.invoice_id = i.invoice_id
+WHERE LOWER(i.payment_status) IN ('unpaid', 'partial')
+GROUP BY c.customer_id, c.customer_name
+HAVING SUM(i.total_amount - COALESCE(p.total_paid, 0)) > 0
+ORDER BY remaining_balance DESC
+LIMIT 10"""
 
 
 def build_sqlcoder_completion_prompt(
@@ -547,4 +642,5 @@ __all__ = [
     "local_semantic_feedback",
     "question_clarification",
     "compact_plan_feedback",
+    "schema_guided_fallback_sql",
 ]

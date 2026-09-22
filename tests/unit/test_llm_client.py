@@ -17,6 +17,7 @@ from apps.core.llm_client import (
     local_semantic_feedback,
     question_clarification,
     compact_plan_feedback,
+    schema_guided_fallback_sql,
 )
 
 
@@ -122,6 +123,48 @@ class LLMClientTests(unittest.TestCase):
         self.assertEqual(2, len(feedback))
         self.assertIn("sales-invoices", feedback[0])
         self.assertIn("unpaid", feedback[1])
+
+    def test_outstanding_summary_requires_separate_invoice_status_counts(self) -> None:
+        feedback = local_semantic_feedback(
+            "Show unpaid invoice count, partial invoice count, total billed, total paid, and outstanding balance",
+            "SELECT COUNT(ii.invoice_item_id), SUM(ii.line_total) FROM sales_invoices si "
+            "JOIN invoice_items ii ON ii.invoice_id = si.invoice_id "
+            "WHERE LOWER(si.payment_status) IN ('unpaid', 'partial')",
+            "Table: sales_invoices\nTable: invoice_items\nTable: payments",
+        )
+        self.assertTrue(any("separately" in item for item in feedback))
+        self.assertFalse(any("Filter partial invoices" in item for item in feedback))
+
+    def test_customer_summary_rejects_scalar_invoice_totals_and_active_filter(self) -> None:
+        feedback = local_semantic_feedback(
+            "Top customers by outstanding invoice balance with unpaid invoice count, partial invoice count, total billed, total paid, and remaining balance",
+            "SELECT SUM(CASE WHEN LOWER(s.payment_status)='unpaid' THEN 1 ELSE 0 END) AS unpaid_invoice_count, "
+            "SUM(CASE WHEN LOWER(s.payment_status)='partial' THEN 1 ELSE 0 END) AS partial_invoice_count, "
+            "s.total_amount AS total_billed_amount, COALESCE(p.amount_paid,0) AS total_paid_amount, "
+            "s.total_amount-COALESCE(p.amount_paid,0) AS remaining_balance FROM customers c "
+            "JOIN sales_invoices s ON s.customer_id=c.customer_id LEFT JOIN payments p ON p.invoice_id=s.invoice_id "
+            "WHERE LOWER(c.status)='active' GROUP BY c.customer_id",
+            "Table: sales_invoices\nTable: payments\nTable: customers",
+        )
+        self.assertTrue(any("payment_totals CTE" in item for item in feedback))
+        self.assertTrue(any("active customers" in item for item in feedback))
+
+    def test_outstanding_customer_summary_has_schema_guided_fallback(self) -> None:
+        schema = """Table: customers\nColumns: customer_id (INTEGER), customer_name (TEXT)
+
+Table: invoices\nColumns: invoice_id (INTEGER), customer_id (INTEGER), total_amount (INTEGER), payment_status (TEXT)
+
+Table: payments\nColumns: payment_id (INTEGER), invoice_id (INTEGER), amount_paid (INTEGER)"""
+        sql = schema_guided_fallback_sql(
+            schema,
+            "Top customers by outstanding invoice balance with unpaid invoice count, partial invoice count, "
+            "total billed amount, total paid amount, and remaining balance",
+        )
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("WITH payment_totals", sql)
+        self.assertIn("SUM(i.total_amount)", sql)
+        self.assertNotIn("invoice_items", sql)
 
     def test_never_received_invoice_requires_an_absence_query(self) -> None:
         feedback = local_semantic_feedback(
