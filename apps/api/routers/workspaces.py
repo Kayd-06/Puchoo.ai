@@ -8,6 +8,7 @@ from apps.core.workspaces import (
     create_server_workspace,
     create_sqlite_workspace,
     create_tabular_workspace,
+    create_tabular_collection_workspace,
     create_uploaded_sqlite_workspace,
     get_schema_metrics,
     get_schema_snapshot,
@@ -74,6 +75,31 @@ async def upload_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.post("/upload-multiple")
+async def upload_multiple_files(
+    files: List[UploadFile] = File(...),
+    name: str = Form(""),
+) -> Dict[str, Any]:
+    if not files:
+        raise HTTPException(status_code=400, detail="Choose at least one CSV or Excel file")
+    payloads: list[tuple[str, bytes]] = []
+    for file in files:
+        filename = file.filename or "uploaded_file"
+        if not filename.lower().endswith((".csv", ".xlsx", ".xls")):
+            raise HTTPException(
+                status_code=400,
+                detail="Multiple upload supports CSV and Excel files only. Upload SQLite databases individually.",
+            )
+        payloads.append((filename, await file.read()))
+    workspace_name = name.strip() or f"{len(payloads)}-file workspace"
+    try:
+        workspace = create_tabular_collection_workspace(workspace_name, payloads)
+        ws_dict = workspace.as_dict()
+        session_manager.add_workspace(ws_dict)
+        return ws_dict
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 @router.get("/{workspace_id}")
 def get_workspace(workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
     return workspace
@@ -111,7 +137,7 @@ def get_metrics(workspace_id: str, workspace: Dict = Depends(get_workspace_guard
 
 @router.get("/{workspace_id}/tables")
 def get_tables(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> List[Dict[str, Any]]:
-    local_source = workspace.get("source_type") in {"spreadsheet", "file"}
+    local_source = workspace.get("source_type") in {"spreadsheet", "spreadsheet_collection", "file"}
     try:
         stats = get_schema_table_stats(workspace["database_uri"], include_row_counts=local_source)
         return stats # type: ignore

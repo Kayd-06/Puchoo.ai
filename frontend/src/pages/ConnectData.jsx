@@ -6,6 +6,34 @@ import { fetchApi } from '../api/client';
 export default function ConnectData() {
   const { workspaces, setWorkspaces, setActiveWorkspaceId } = useAppContext();
   const [activeTab, setActiveTab] = useState('upload');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const uploadFiles = async () => {
+    if (!selectedFiles.length) return;
+    setUploading(true);
+    setUploadError('');
+    try {
+      const form = new FormData();
+      const multiple = selectedFiles.length > 1;
+      selectedFiles.forEach(file => form.append(multiple ? 'files' : 'file', file));
+      form.append('name', workspaceName.trim());
+      const workspace = await fetchApi(multiple ? '/workspaces/upload-multiple' : '/workspaces/upload', {
+        method: 'POST',
+        body: form,
+      });
+      setWorkspaces([...workspaces, workspace]);
+      setActiveWorkspaceId(workspace.id);
+      setSelectedFiles([]);
+      setWorkspaceName('');
+    } catch (error) {
+      setUploadError(error.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
   
   return (
     <div>
@@ -59,10 +87,35 @@ export default function ConnectData() {
             {activeTab === 'upload' ? (
               <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
                 <Upload size={48} color="var(--bg-primary)" style={{ marginBottom: '1rem' }} />
-                <h3>Drag &amp; drop your database file here</h3>
-                <p className="text-muted" style={{ marginBottom: '2rem' }}>Encrypted locally in your browser hardware enclave. Read-only schema introspection runs in milliseconds.</p>
-                <input type="file" style={{ display: 'none' }} id="fileUpload" />
+                <h3>Upload one or more data files</h3>
+                <p className="text-muted" style={{ marginBottom: '1.5rem' }}>Select multiple CSV or Excel files to combine them into one queryable workspace. SQLite databases are uploaded individually.</p>
+                <input
+                  type="file"
+                  multiple
+                  accept=".csv,.xlsx,.xls,.db,.sqlite,.sqlite3"
+                  style={{ display: 'none' }}
+                  id="fileUpload"
+                  onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
+                />
                 <label htmlFor="fileUpload" className="btn btn-secondary" style={{ cursor: 'pointer' }}>Browse files</label>
+                {selectedFiles.length > 0 && (
+                  <div style={{ marginTop: '1.5rem', textAlign: 'left' }}>
+                    <input
+                      className="input"
+                      value={workspaceName}
+                      onChange={(event) => setWorkspaceName(event.target.value)}
+                      placeholder="Workspace name (optional)"
+                      style={{ marginBottom: '1rem' }}
+                    />
+                    <div className="text-muted text-xs" style={{ marginBottom: '1rem' }}>
+                      {selectedFiles.map(file => file.name).join(', ')}
+                    </div>
+                    {uploadError && <div style={{ color: 'var(--accent-red)', marginBottom: '1rem' }}>{uploadError}</div>}
+                    <button className="btn btn-primary" onClick={uploadFiles} disabled={uploading}>
+                      {uploading ? 'Uploading…' : `Create workspace from ${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'}`}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div>

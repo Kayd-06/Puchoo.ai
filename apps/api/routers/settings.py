@@ -27,6 +27,7 @@ def update_profile(request: ProfileRequest) -> Dict[str, str]:
         "department": request.department,
         "timezone": request.timezone
     }
+    session_manager.save()
     return session_manager.profile
 
 class GuardrailsRequest(BaseModel):
@@ -36,11 +37,7 @@ class GuardrailsRequest(BaseModel):
 
 @router.get("/guardrails/{workspace_id}")
 def get_guardrails(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
-    return session_manager.workspace_guardrails.get(workspace_id, {
-        "max_rows": 500,
-        "timeout_seconds": 30,
-        "confirm_complex_queries": False
-    })
+    return session_manager.get_guardrails(workspace_id)
 
 @router.put("/guardrails/{workspace_id}")
 def update_guardrails(workspace_id: str, request: GuardrailsRequest, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
@@ -50,4 +47,5 @@ def update_guardrails(workspace_id: str, request: GuardrailsRequest, workspace: 
         "confirm_complex_queries": request.confirm_complex_queries
     }
     session_manager.workspace_guardrails[workspace_id] = guardrails
+    session_manager.save(active_workspace_id=workspace_id)
     return guardrails

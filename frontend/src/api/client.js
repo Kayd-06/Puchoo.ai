@@ -12,11 +12,9 @@ function getCookie(name) {
 
 export async function fetchApi(endpoint, options = {}) {
     const url = `/api${endpoint}`;
-    
-    const headers = {
-        'Content-Type': 'application/json',
-        ...options.headers,
-    };
+    const isFormData = options.body instanceof FormData;
+    const headers = { ...options.headers };
+    if (!isFormData) headers['Content-Type'] = 'application/json';
 
     // Attach CSRF token for mutating requests
     if (options.method && options.method !== 'GET') {
@@ -39,10 +37,13 @@ export async function fetchApi(endpoint, options = {}) {
             return null;
         }
         
-        const data = await response.json();
+        const contentType = response.headers.get('content-type') || '';
+        const data = contentType.includes('application/json')
+            ? await response.json()
+            : { detail: (await response.text()).trim() };
         
         if (!response.ok) {
-            throw new Error(data.detail || data.message || 'API request failed');
+            throw new Error(data.detail || data.message || `API request failed (${response.status})`);
         }
         
         return data;

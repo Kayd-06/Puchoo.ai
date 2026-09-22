@@ -16,4 +16,5 @@ def get_history(workspace_id: str, workspace: Dict = Depends(get_workspace_guard
 def clear_history(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Response:
     session_manager.query_history[workspace_id] = []
     session_manager.active_proposals.pop(workspace_id, None)
+    session_manager.save(active_workspace_id=workspace_id)
     return Response(status_code=204)

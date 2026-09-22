@@ -4,19 +4,28 @@ import { useAppContext } from '../context/AppContext';
 import { fetchApi } from '../api/client';
 
 export default function AskData() {
-  const { activeWorkspaceId } = useAppContext();
+  const { activeWorkspaceId, refreshWorkspaces } = useAppContext();
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const [clarification, setClarification] = useState(null);
 
   const handleAsk = async () => {
     if (!question.trim() || !activeWorkspaceId) return;
     setLoading(true);
+    setError('');
+    setResult(null);
+    setClarification(null);
     try {
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
         body: JSON.stringify({ question })
       });
+      if (proposal.status === 'clarification_required') {
+        setClarification(proposal);
+        return;
+      }
       
       // Auto-execute for now as requested by HLD Phase 1 pilot flow logic
       const execResult = await fetchApi(`/query/${activeWorkspaceId}/execute`, {
@@ -26,7 +35,13 @@ export default function AskData() {
       
       setResult(execResult);
     } catch (err) {
-      alert(err.message || 'Error executing query');
+      const message = err.message || 'Error executing query';
+      if (message.toLowerCase().includes('workspace not found')) {
+        await refreshWorkspaces();
+        setError('The previous workspace was no longer active. Your saved workspaces were refreshed; please try again.');
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -38,6 +53,24 @@ export default function AskData() {
         <Sparkles size={20} />
         <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Deterministic Natural-SQL Engine</span>
       </div>
+
+      {clarification && (
+        <div className="card animate-fade-slide" style={{ marginBottom: '2rem', borderColor: 'var(--accent-amber)', background: 'var(--accent-amber-bg)' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>I need one detail before querying</h3>
+          <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>{clarification.message}</p>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {clarification.suggestions?.map(suggestion => (
+              <button key={suggestion} className="btn btn-secondary" onClick={() => setQuestion(current => `${current}. ${suggestion}`)}>{suggestion}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="card" role="alert" style={{ marginBottom: '2rem', color: '#b42318', borderColor: '#fda29b', backgroundColor: '#fff1f0' }}>
+          {error}
+        </div>
+      )}
       <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>What would you like to know?</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
         Ask in plain English. Pucho will safely generate, run, and verify a read-only query in an isolated sandbox.

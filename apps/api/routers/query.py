@@ -14,8 +14,11 @@ from apps.core.llm_client import (
     LocalMLXConfigurationError,
     LocalMLXSQLClient,
     SQLGenerationError,
+    get_local_sql_repair_client,
     get_sql_client,
     local_semantic_feedback,
+    question_clarification,
+    compact_plan_feedback,
 )
 from apps.core.verification import ClaudeVerifier, VerificationStatus, verification_unavailable
 from apps.core.workspaces import get_schema_snapshot
@@ -36,10 +39,17 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    controls = session_manager.workspace_guardrails.get(workspace_id, {"max_rows": 500, "timeout_seconds": 30})
+    controls = session_manager.get_guardrails(workspace_id)
     
     try:
         schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(workspace["database_uri"])
+        clarification = question_clarification(schema, question)
+        if clarification:
+            return {
+                "status": "clarification_required",
+                "question": question,
+                **clarification,
+            }
         executor = ReadOnlyExecutor(
             workspace["database_uri"], 
             max_rows=controls["max_rows"], 
@@ -47,10 +57,11 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             timeout_seconds=controls["timeout_seconds"]
         )
         client = get_sql_client()
+        repair_client = get_local_sql_repair_client() if isinstance(client, LocalMLXSQLClient) else None
         
         if isinstance(client, LocalMLXSQLClient):
             try:
-                max_attempts = max(1, min(int(os.getenv("LOCAL_SQL_MAX_ATTEMPTS", "3")), 3))
+                max_attempts = max(2, min(int(os.getenv("LOCAL_SQL_MAX_ATTEMPTS", "4")), 5))
             except ValueError:
                 max_attempts = 3
                 
@@ -61,17 +72,40 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             attempt = 1
             
             for attempt in range(1, max_attempts + 1):
-                generated_sql = client.generate_sql(
-                    schema=schema,
-                    question=question,
-                    feedback=feedback if feedback else None,
-                    previous_sql=previous_sql,
+                attempt_client = (
+                    repair_client
+                    if repair_client is not None and feedback and attempt % 2 == 0
+                    else client
                 )
-                feedback = local_semantic_feedback(question, generated_sql)
+                try:
+                    generated_sql = attempt_client.generate_sql(
+                        schema=schema,
+                        question=question,
+                        feedback=feedback if feedback else None,
+                        previous_sql=previous_sql,
+                    )
+                except LocalMLXConfigurationError:
+                    if attempt_client is client:
+                        if repair_client is None:
+                            raise
+                        generated_sql = repair_client.generate_sql(
+                            schema=schema,
+                            question=question,
+                            feedback=feedback if feedback else None,
+                            previous_sql=previous_sql,
+                        )
+                    else:
+                        generated_sql = client.generate_sql(
+                            schema=schema,
+                            question=question,
+                            feedback=feedback if feedback else None,
+                            previous_sql=previous_sql,
+                        )
+                feedback = local_semantic_feedback(question, generated_sql, schema)
                 try:
                     guarded = executor.validate_query_plan(generated_sql)
                 except (SQLGuardrailError, QueryExecutionError) as exc:
-                    feedback.insert(0, str(exc))
+                    feedback.insert(0, compact_plan_feedback(exc, generated_sql))
                     
                 if not feedback:
                     break
@@ -107,6 +141,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             "verification": {"status": "BLOCKED", "summary": "Blocked before execution.", "details": str(exc)},
         }
         session_manager.query_history.setdefault(workspace_id, []).insert(0, blocked_record)
+        session_manager.save(active_workspace_id=workspace_id)
         raise HTTPException(status_code=403, detail=f"Blocked for safety: {exc}")
         
     except (AnthropicConfigurationError, LocalMLXConfigurationError, QueryExecutionError, SQLGenerationError, ValueError) as exc:
@@ -122,7 +157,7 @@ def execute_query(workspace_id: str, request: ExecuteRequest, workspace: Dict = 
     if not proposal or proposal["id"] != request.proposal_id:
         raise HTTPException(status_code=400, detail="Invalid or expired proposal.")
 
-    controls = session_manager.workspace_guardrails.get(workspace_id, {"max_rows": 500, "timeout_seconds": 30})
+    controls = session_manager.get_guardrails(workspace_id)
     
     try:
         executor = ReadOnlyExecutor(
@@ -160,6 +195,7 @@ def execute_query(workspace_id: str, request: ExecuteRequest, workspace: Dict = 
         
         session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
         session_manager.active_proposals.pop(workspace_id, None)
+        session_manager.save(active_workspace_id=workspace_id)
         
         # Build presentation data to match the UI behavior
         from apps.core.result_presentation import build_result_presentation
