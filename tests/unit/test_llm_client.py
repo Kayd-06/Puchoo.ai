@@ -37,6 +37,27 @@ class _FakeClient:
 
 
 class LLMClientTests(unittest.TestCase):
+    def test_doing_well_students_requests_performance_definition(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id, marks, attendance_percentage",
+            "Show me the students who are doing well.",
+        )
+        self.assertEqual("ambiguous_education_metric", result["reason"])
+
+    def test_better_attendance_requests_comparison_baseline(self) -> None:
+        result = question_clarification(
+            "Table: attendance\nColumns: student_id, attendance_percentage",
+            "Show students with better attendance",
+        )
+        self.assertEqual("missing_comparison_baseline", result["reason"])
+
+    def test_promotion_eligibility_requests_policy(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id, marks",
+            "Show students eligible for promotion",
+        )
+        self.assertEqual("missing_policy_definition", result["reason"])
+
     def test_ambiguous_ranking_requests_a_metric(self) -> None:
         result = question_clarification("Table: customers\nColumns: revenue", "Who are our best customers?")
         self.assertEqual("ambiguous_metric", result["reason"])

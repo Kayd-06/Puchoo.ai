@@ -71,6 +71,38 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
     q = question.lower().strip()
     available = schema.lower()
 
+    education_subject = bool(re.search(r"\b(student|class|course|school|college)s?\b", q))
+    vague_education_outcome = bool(re.search(
+        r"\b(doing\s+well|need(?:s)?\s+attention|weakest|most\s+successful|doing\s+badly|performing\s+badly|serious\s+problems?)\b",
+        q,
+    ))
+    if education_subject and vague_education_outcome:
+        return {
+            "reason": "ambiguous_education_metric",
+            "message": "How should student performance be measured: average marks, attendance, fee status, enrollment status, or a combination?",
+            "suggestions": [
+                "Use average marks",
+                "Use overall attendance",
+                "Use both average marks and attendance",
+            ],
+        }
+
+    unclear_comparison = re.search(r"\b(better|worse|higher|lower|more|less)\s+(attendance|marks|fees?|performance|results?)\b", q)
+    if unclear_comparison and not re.search(r"\b(than|compared\s+with|versus|vs\.?|average)\b", q):
+        return {
+            "reason": "missing_comparison_baseline",
+            "message": f"What should {unclear_comparison.group(1)} {unclear_comparison.group(2)} be compared with—another student, class average, course average, or school average?",
+            "suggestions": ["Compare with class average", "Compare with course average", "Compare with school average"],
+        }
+
+    education_policy = re.search(r"\b(promotion|suspend(?:ed|sion)?|scholarship|graduate|acceptable\s+attendance)\b", q)
+    if education_subject and education_policy:
+        return {
+            "reason": "missing_policy_definition",
+            "message": f"What rules define {education_policy.group(1)} for this institution? The uploaded data does not contain that policy.",
+            "suggestions": ["Define rules using marks and attendance", "Define rules using fees and enrollment"],
+        }
+
     if re.search(r"\bfiscal\s+(?:year|quarter|month)\b", q) and not re.search(
         r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", q
     ):

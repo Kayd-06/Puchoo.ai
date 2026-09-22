@@ -10,6 +10,12 @@ export default function AskData() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [clarification, setClarification] = useState(null);
+  const verificationStatus = result?.record?.verification?.status;
+  const verificationBadge = verificationStatus === 'VERIFIED'
+    ? { className: 'badge badge-ok', label: 'Verified match' }
+    : verificationStatus === 'FAILED'
+      ? { className: 'badge badge-bad', label: 'Verification failed' }
+      : { className: 'badge badge-warn', label: 'Not independently verified' };
 
   const handleAsk = async () => {
     if (!question.trim() || !activeWorkspaceId) return;
@@ -135,7 +141,7 @@ export default function AskData() {
                 {result.presentation?.headline} - {result.presentation?.detail}
               </div>
             </div>
-            <span className="badge badge-ok">Verified match</span>
+            <span className={verificationBadge.className}>{verificationBadge.label}</span>
           </div>
 
           <div className="card" style={{ overflowX: 'auto' }}>
