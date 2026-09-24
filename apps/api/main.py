@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from apps.api.security import CSRFMiddleware
-from apps.api.routers import workspaces, query, history, settings, sarvam
+from apps.api.routers import workspaces, query, history, settings, sarvam, auth
 
 app = FastAPI(
     title="Puchoo.ai API",
@@ -37,6 +37,7 @@ app.include_router(query.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sarvam.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 @app.get("/api/health")
 def health_check():
