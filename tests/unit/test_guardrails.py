@@ -9,11 +9,15 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - dependency-free test environments
     sqlglot = None
 
-from apps.core.guardrails import SQLGuardrailError, SQLGuardrails
+from apps.core.guardrails import SQLGuardrailError, SQLGuardrails, SQLParseError
 
 
 @unittest.skipIf(sqlglot is None, "sqlglot is not installed")
 class SQLGuardrailsTests(unittest.TestCase):
+    def test_malformed_sql_is_recoverable_parse_error(self) -> None:
+        with self.assertRaises(SQLParseError):
+            self.guardrails.validate_and_clamp("SELECT * FROM (")
+
     def setUp(self) -> None:
         self.guardrails = SQLGuardrails(max_limit=100)
 

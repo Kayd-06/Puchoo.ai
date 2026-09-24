@@ -19,6 +19,10 @@ class SQLGuardrailError(ValueError):
     """Raised when untrusted SQL fails a server-side safety policy."""
 
 
+class SQLParseError(SQLGuardrailError):
+    """Raised when model output is incomplete or malformed, but not executable."""
+
+
 @dataclass(frozen=True)
 class GuardedSQL:
     sql: str
@@ -44,12 +48,12 @@ def _require_sqlglot() -> None:
 
 def _only_one_select(sql: str, dialect: str | None) -> Any:
     if not isinstance(sql, str) or not sql.strip():
-        raise SQLGuardrailError("SQL must be a non-empty string.")
+        raise SQLParseError("SQL must be a non-empty string.")
     _require_sqlglot()
     try:
         statements = parse(sql, read=dialect)
     except (ParseError, TokenError) as exc:
-        raise SQLGuardrailError("SQL could not be parsed.") from exc
+        raise SQLParseError("SQL could not be parsed.") from exc
     if len(statements) != 1:
         raise SQLGuardrailError("Exactly one SQL statement is allowed.")
 

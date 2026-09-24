@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from apps.core.llm_client import (
+    GroqSQLClient,
     LLMClient,
     LocalMLXSQLClient,
     SQLGenerationError,
     _extract_sql,
     build_prompt,
-    get_local_sql_repair_client,
     english_only_question,
     local_semantic_feedback,
     question_clarification,
@@ -37,6 +37,64 @@ class _FakeClient:
 
 
 class LLMClientTests(unittest.TestCase):
+    def test_groq_planner_uses_strict_json_schema_and_safe_headers(self) -> None:
+        class _Response:
+            def read(self) -> bytes:
+                return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+            def __enter__(self) -> "_Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+        with patch("apps.core.llm_client.urllib.request.urlopen", return_value=_Response()) as urlopen:
+            client = GroqSQLClient(api_key="test-secret", model="test-model")
+            client.generate_plan(schema="Table: orders\nColumns: id (INTEGER)", question="List orders")
+        request = urlopen.call_args.args[0]
+        payload = __import__("json").loads(request.data.decode("utf-8"))
+        self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+        self.assertEqual("PuchooAI/1.0", request.headers["User-agent"])
+        self.assertNotIn("test-secret", request.data.decode("utf-8"))
+
+    def test_student_trend_classification_requests_rules_and_periods(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id\n\nTable: grades\nColumns: student_id, marks_obtained",
+            "Compare each student's current academic performance with previous performance and attendance trend, then classify each student as improving, stable, or declining.",
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual("missing_performance_classification_definition", result["reason"])
+        self.assertIn("periods", result["message"])
+        self.assertIn("score change", result["message"])
+
+    def test_defined_student_trend_classification_can_proceed(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id\n\nTable: grades\nColumns: student_id, marks_obtained",
+            "Compare average marks and attendance in the latest 90 days with the prior 90 days; "
+            "classify at least +5 points as improving, at most -5 as declining, otherwise stable.",
+        )
+        self.assertIsNone(result)
+
+    def test_fee_and_enrollment_role_in_classification_is_clarified(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id",
+            "Compare student marks, attendance, fee-payment behavior, and enrollment status, then classify "
+            "them as improving, stable, or declining. Compare the latest 90 days with the prior 90 days; "
+            "classify at least +5 points as improving and at most -5 as declining.",
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual("missing_classification_factor_rules", result["reason"])
+
+    def test_display_only_fee_and_enrollment_rule_can_proceed(self) -> None:
+        result = question_clarification(
+            "Table: students\nColumns: student_id",
+            "Compare marks and attendance in the latest 90 days with the prior 90 days; classify at least +5 "
+            "points as improving and at most -5 as declining. Classify using marks and attendance only; "
+            "show fee-payment behavior and enrollment status separately.",
+        )
+        self.assertIsNone(result)
     def test_doing_well_students_requests_performance_definition(self) -> None:
         result = question_clarification(
             "Table: students\nColumns: student_id, marks, attendance_percentage",
@@ -88,6 +146,14 @@ class LLMClientTests(unittest.TestCase):
         )
         self.assertIn("window ORDER BY", feedback)
         self.assertIn("repeat the aggregate expression", feedback)
+
+    def test_ambiguous_column_error_requires_table_qualification(self) -> None:
+        feedback = compact_plan_feedback(
+            RuntimeError("ambiguous column name: course_id [SQL: ...]"),
+            "SELECT course_id FROM courses c JOIN enrollments e ON c.course_id=e.course_id",
+        )
+        self.assertIn("ambiguous", feedback)
+        self.assertIn("alias.course_id", feedback)
 
     def test_prompt_keeps_schema_and_question_as_json_data(self) -> None:
         prompt = build_prompt("Table: orders", "Show revenue")
@@ -143,6 +209,15 @@ class LLMClientTests(unittest.TestCase):
         )
         self.assertEqual([], feedback)
 
+    def test_average_cte_alias_can_be_compared_on_right_side(self) -> None:
+        feedback = local_semantic_feedback(
+            "Show students with fee balance above the class average",
+            "WITH balances AS (SELECT class_name, SUM(amount_due-amount_paid) AS balance FROM fees "
+            "GROUP BY class_name), class_avg AS (SELECT AVG(balance) AS avg_balance FROM balances) "
+            "SELECT * FROM balances b JOIN class_avg a ON 1=1 WHERE b.balance > a.avg_balance",
+        )
+        self.assertEqual([], feedback)
+
     def test_pending_bill_requires_outstanding_invoice_statuses(self) -> None:
         feedback = local_semantic_feedback(
             "List customers having pending bill payment",
@@ -195,6 +270,104 @@ Table: payments\nColumns: payment_id (INTEGER), invoice_id (INTEGER), amount_pai
         self.assertIn("SUM(i.total_amount)", sql)
         self.assertNotIn("invoice_items", sql)
 
+    def test_defined_student_marks_attendance_trend_has_deterministic_fallback(self) -> None:
+        schema = """Table: students
+Columns: student_id (INTEGER), full_name (TEXT)
+
+Table: attendance
+Columns: attendance_id (INTEGER), student_id (INTEGER), attendance_date (TEXT), attendance_percentage (REAL)
+
+Table: assessments
+Columns: assessment_id (INTEGER), assessment_date (TEXT), maximum_marks (INTEGER)
+
+Table: grades
+Columns: grade_id (INTEGER), student_id (INTEGER), assessment_id (INTEGER), marks_obtained (INTEGER)
+
+Table: fees
+Columns: fee_id (INTEGER), student_id (INTEGER), amount_due (REAL), amount_paid (REAL), payment_status (TEXT)
+
+Table: enrollments
+Columns: enrollment_id (INTEGER), student_id (INTEGER), enrollment_date (TEXT), enrollment_status (TEXT)"""
+        question = (
+            "Compare each student average marks percentage and attendance percentage in the latest 90 days "
+            "with the prior 90 days; average both changes, classify at least +5 points as improving, "
+            "at most -5 as declining, otherwise stable."
+            " Classify using marks and attendance only; show fee-payment behavior and enrollment status separately."
+        )
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("100.0 * g.marks_obtained", sql)
+        self.assertIn("'-180 days'", sql)
+        self.assertIn("AS trend_classification", sql)
+        self.assertIn("fee_payment_behavior", sql)
+        self.assertIn("enrollment_status", sql)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
+
+    def test_comprehensive_student_dashboard_has_deterministic_fallback(self) -> None:
+        schema = """Table: students
+Columns: student_id (INTEGER), full_name (TEXT), class_name (TEXT)
+
+Table: assessments
+Columns: assessment_id (INTEGER), course_id (INTEGER), maximum_marks (INTEGER)
+
+Table: grades
+Columns: student_id (INTEGER), assessment_id (INTEGER), marks_obtained (INTEGER), result_status (TEXT)
+
+Table: attendance
+Columns: student_id (INTEGER), attendance_percentage (REAL)
+
+Table: fees
+Columns: student_id (INTEGER), amount_due (REAL), amount_paid (REAL)
+
+Table: loans
+Columns: student_id (INTEGER), loan_status (TEXT)"""
+        question = (
+            "For every student, calculate average marks, marks relative to the course average, overall attendance, "
+            "attendance relative to the class average, total fees due, total paid, unpaid balance, failed assessment "
+            "count, overdue library-loan count, and rank students using marks, attendance, and unpaid balance."
+        )
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("a.assessment_id = g.assessment_id", sql)
+        self.assertIn("SUM(f.amount_due - f.amount_paid)", sql)
+        self.assertIn("ROW_NUMBER() OVER", sql)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
+
+    def test_student_marks_percentage_uses_name_and_maximum_marks(self) -> None:
+        schema = """Table: students
+Columns: student_id (INTEGER), full_name (TEXT)
+
+Table: assessments
+Columns: assessment_id (INTEGER), assessment_name (TEXT), maximum_marks (INTEGER)
+
+Table: grades
+Columns: grade_id (INTEGER), student_id (INTEGER), assessment_id (INTEGER), marks_obtained (INTEGER)"""
+        question = "Tell me which students scored marks greater than 80 percent and give their marks and name"
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("s.full_name AS student_name", sql)
+        self.assertIn("100.0 * g.marks_obtained / NULLIF(a.maximum_marks, 0)", sql)
+        self.assertIn("> 80", sql)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
+
+    def test_wrong_id_alias_and_raw_mark_threshold_are_rejected(self) -> None:
+        schema = """Table: students
+Columns: student_id (INTEGER), full_name (TEXT)
+Table: assessments
+Columns: assessment_id (INTEGER), maximum_marks (INTEGER)
+Table: grades
+Columns: student_id (INTEGER), assessment_id (INTEGER), marks_obtained (INTEGER)"""
+        feedback = local_semantic_feedback(
+            "Which students scored marks greater than 80 percent? Give marks and name",
+            "SELECT g.student_id AS student_name, g.marks_obtained FROM grades g WHERE g.marks_obtained > 80",
+            schema,
+        )
+        self.assertTrue(any("percentage" in item for item in feedback))
+        self.assertTrue(any("full_name" in item for item in feedback))
+
     def test_never_received_invoice_requires_an_absence_query(self) -> None:
         feedback = local_semantic_feedback(
             "List active customers who never received an invoice",
@@ -220,10 +393,19 @@ Table: payments\nColumns: payment_id (INTEGER), invoice_id (INTEGER), amount_pai
         self.assertEqual(1, len(feedback))
         self.assertIn("rolling window", feedback[0])
 
-    def test_completion_client_reads_sqlcoder_text_response(self) -> None:
+    def test_completion_only_sqlcoder_style_is_rejected(self) -> None:
+        with self.assertRaisesRegex(Exception, "must be 'chat'"):
+            LocalMLXSQLClient(request_style="completion")
+
+    def test_local_default_output_cap_supports_complex_sql(self) -> None:
+        with patch.dict("os.environ", {"LOCAL_SQL_MAX_TOKENS": "450"}, clear=False):
+            client = LocalMLXSQLClient(request_style="chat")
+        self.assertEqual(450, client.max_tokens)
+
+    def test_qwen_repair_prompt_contains_previous_sql_and_database_error(self) -> None:
         class _Response:
             def read(self) -> bytes:
-                return b'{"choices": [{"text": "SELECT id FROM orders;"}]}'
+                return b'{"choices": [{"message": {"content": "SELECT id FROM orders"}}]}'
 
             def __enter__(self) -> "_Response":
                 return self
@@ -232,25 +414,16 @@ Table: payments\nColumns: payment_id (INTEGER), invoice_id (INTEGER), amount_pai
                 return None
 
         with patch("apps.core.llm_client.urllib.request.urlopen", return_value=_Response()) as urlopen:
-            client = LocalMLXSQLClient(
-                endpoint="http://127.0.0.1:8081/v1/completions",
-                model="defog/sqlcoder-7b-2",
-                request_style="completion",
+            client = LocalMLXSQLClient(request_style="chat")
+            sql = client.generate_sql(
+                schema="Table: orders\nColumns: id (INTEGER)",
+                question="Original question plus structured plan",
+                previous_sql="SELECT missing FROM orders",
+                feedback=["Exact database error: no such column: missing"],
             )
-            sql = client.generate_sql(schema="CREATE TABLE orders (id INTEGER);", question="List orders")
-
-        self.assertEqual("SELECT id FROM orders;", sql)
+        self.assertEqual("SELECT id FROM orders", sql)
         payload = __import__("json").loads(urlopen.call_args.args[0].data.decode("utf-8"))
-        self.assertIn("prompt", payload)
-        self.assertNotIn("messages", payload)
-
-    def test_optional_repair_client_uses_configured_completion_endpoint(self) -> None:
-        with patch.dict("os.environ", {
-            "LOCAL_SQL_REPAIR_MODEL_URL": "http://127.0.0.1:8081/v1/completions",
-            "LOCAL_SQL_REPAIR_MODEL_NAME": "defog/sqlcoder-7b-2",
-            "LOCAL_SQL_REPAIR_REQUEST_STYLE": "completion",
-        }, clear=False):
-            client = get_local_sql_repair_client()
-        self.assertIsNotNone(client)
-        assert client is not None
-        self.assertEqual("completion", client.request_style)
+        prompt = payload["messages"][1]["content"]
+        self.assertIn("SELECT missing FROM orders", prompt)
+        self.assertIn("no such column: missing", prompt)
+        self.assertNotIn("prompt", payload)

@@ -23,6 +23,10 @@ from apps.core.guardrails import GuardedSQL, SQLGuardrailError, SQLGuardrails
 class QueryExecutionError(RuntimeError):
     """Raised when a guarded, read-only query cannot be executed."""
 
+    def __init__(self, message: str, *, database_error: str | None = None) -> None:
+        super().__init__(message)
+        self.database_error = database_error or message
+
 
 @dataclass(frozen=True)
 class QueryResult:
@@ -87,7 +91,9 @@ class ReadOnlyExecutor:
                 else:
                     connection.execute(text(f"EXPLAIN {guarded.sql}"))
         except SQLAlchemyError as exc:
-            raise QueryExecutionError(f"Query-plan validation failed: {exc}") from exc
+            raise QueryExecutionError(
+                "The read-only query failed database planning.", database_error=str(exc)
+            ) from exc
         finally:
             self.engine.dispose()
         return guarded
@@ -126,7 +132,9 @@ class ReadOnlyExecutor:
                 columns = list(result.keys())
                 rows = [dict(row) for row in result.mappings().all()]
         except SQLAlchemyError as exc:
-            raise QueryExecutionError("The read-only query could not be executed.") from exc
+            raise QueryExecutionError(
+                "The read-only query could not be executed.", database_error=str(exc)
+            ) from exc
         finally:
             # No transaction is committed: this executor is deliberately read-only.
             self.engine.dispose()

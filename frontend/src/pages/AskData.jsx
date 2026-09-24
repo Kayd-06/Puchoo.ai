@@ -64,6 +64,16 @@ export default function AskData() {
         <div className="card animate-fade-slide" style={{ marginBottom: '2rem', borderColor: 'var(--accent-amber)', background: 'var(--accent-amber-bg)' }}>
           <h3 style={{ marginBottom: '0.5rem' }}>I need one detail before querying</h3>
           <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>{clarification.message}</p>
+          {clarification.interpreted_request && (
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              Interpreted request: {clarification.interpreted_request}
+            </p>
+          )}
+          {clarification.assumptions?.length > 0 && (
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              Assumptions considered: {clarification.assumptions.join('; ')}
+            </p>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {clarification.suggestions?.map(suggestion => (
               <button key={suggestion} className="btn btn-secondary" onClick={() => setQuestion(current => `${current}. ${suggestion}`)}>{suggestion}</button>
@@ -131,6 +141,17 @@ export default function AskData() {
 
       {result && (
         <div className="animate-fade-slide">
+          {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
+            <div className="card" style={{ marginBottom: '1rem' }}>
+              <h3 style={{ marginBottom: '0.5rem' }}>How Pucho interpreted the request</h3>
+              <p>{result.record.interpreted_request || result.record.question}</p>
+              {result.record.assumptions?.length > 0 && (
+                <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  Assumptions: {result.record.assumptions.join('; ')}
+                </p>
+              )}
+            </div>
+          )}
           <div className="card" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
