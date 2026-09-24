@@ -270,6 +270,24 @@ Table: payments\nColumns: payment_id (INTEGER), invoice_id (INTEGER), amount_pai
         self.assertIn("SUM(i.total_amount)", sql)
         self.assertNotIn("invoice_items", sql)
 
+    def test_natural_pending_bill_question_has_schema_guided_fallback(self) -> None:
+        schema = """Table: customers_customers
+Columns: customer_id (INTEGER), customer_name (TEXT)
+
+Table: sales_invoices_sales_invoices
+Columns: invoice_id (INTEGER), customer_id (INTEGER), total_amount (INTEGER), payment_status (TEXT)
+
+Table: payments_payments
+Columns: payment_id (INTEGER), invoice_id (INTEGER), amount_paid (INTEGER)"""
+        question = "how many customers have pending bill give list with names and amount"
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("total_customers_with_pending_bills", sql)
+        self.assertIn("LOWER(i.payment_status) IN ('unpaid', 'partial')", sql)
+        self.assertIn("i.total_amount - COALESCE(p.total_paid, 0)", sql)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
+
     def test_defined_student_marks_attendance_trend_has_deterministic_fallback(self) -> None:
         schema = """Table: students
 Columns: student_id (INTEGER), full_name (TEXT)

@@ -707,6 +707,40 @@ ORDER BY full_name"""
         "total paid",
         "remaining balance",
     )
+    pending_customer_bills = bool(
+        re.search(r"\bcustomers?\b", q)
+        and re.search(r"\b(pending|outstanding|due|unpaid|remaining)\b", q)
+        and re.search(r"\b(bill|billing|invoice|payment|balance)s?\b", q)
+        and re.search(r"\b(name|names|list|amount|how many|count)\b", q)
+    )
+    if pending_customer_bills:
+        customers = find_table({"customer_id", "customer_name"})
+        invoices = find_table({"invoice_id", "customer_id", "total_amount", "payment_status"})
+        payments = find_table({"invoice_id", "amount_paid"})
+        if customers and invoices and payments:
+            return f"""WITH payment_totals AS (
+    SELECT p.invoice_id, SUM(p.amount_paid) AS total_paid
+    FROM {payments} AS p
+    GROUP BY p.invoice_id
+), customer_balances AS (
+    SELECT c.customer_id, c.customer_name,
+           COUNT(DISTINCT i.invoice_id) AS pending_invoice_count,
+           SUM(i.total_amount) AS billed_amount,
+           SUM(COALESCE(p.total_paid, 0)) AS paid_amount,
+           SUM(i.total_amount - COALESCE(p.total_paid, 0)) AS pending_amount
+    FROM {customers} AS c
+    JOIN {invoices} AS i ON i.customer_id = c.customer_id
+    LEFT JOIN payment_totals AS p ON p.invoice_id = i.invoice_id
+    WHERE LOWER(i.payment_status) IN ('unpaid', 'partial')
+    GROUP BY c.customer_id, c.customer_name
+    HAVING SUM(i.total_amount - COALESCE(p.total_paid, 0)) > 0
+)
+SELECT cb.customer_id, cb.customer_name,
+       COUNT(*) OVER () AS total_customers_with_pending_bills,
+       cb.pending_invoice_count, cb.billed_amount, cb.paid_amount, cb.pending_amount
+FROM customer_balances AS cb
+ORDER BY cb.pending_amount DESC, cb.customer_name"""
+
     if not all(phrase in q for phrase in required_phrases):
         return None
 

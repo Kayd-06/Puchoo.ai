@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import asdict, dataclass
+from io import BytesIO, TextIOWrapper
+from itertools import chain
 import re
 import sqlite3
 import tempfile
@@ -95,31 +98,35 @@ def create_tabular_workspace(
         with tempfile.NamedTemporaryFile(prefix="pucho_import_", suffix=".db", dir=destination, delete=False) as temporary_file:
             sqlite_path = Path(temporary_file.name)
 
-        if suffix == ".csv":
-            frame = pd.read_csv(_bytes_reader(contents))
-            dataframes = {Path(filename).stem: frame}
-        else:
-            dataframes = pd.read_excel(_bytes_reader(contents), sheet_name=None)
+        dataframes = None if suffix == ".csv" else pd.read_excel(_bytes_reader(contents), sheet_name=None)
     except (OSError, UnicodeDecodeError, ValueError, ImportError, BadZipFile, pd.errors.EmptyDataError) as exc:
         if sqlite_path:
             sqlite_path.unlink(missing_ok=True)
         raise ValueError("The spreadsheet could not be read. Check that it is a valid CSV or Excel file.") from exc
 
-    if not dataframes:
+    if suffix != ".csv" and not dataframes:
         raise ValueError("The uploaded spreadsheet contains no sheets or rows to query.")
 
     try:
         connection = sqlite3.connect(sqlite_path)
         try:
+            _configure_bulk_import(connection)
             written_tables: set[str] = set()
-            for sheet_name, frame in dataframes.items():
-                if frame.empty and len(frame.columns) == 0:
-                    continue
-                table_name = _unique_table_name(sheet_name, written_tables)
-                normalized = frame.copy()
-                normalized.columns = _unique_column_names(list(normalized.columns))
-                normalized.to_sql(table_name, connection, if_exists="fail", index=False)
+            if suffix == ".csv":
+                table_name = _unique_table_name(Path(filename).stem, written_tables)
+                _write_csv_to_sql(connection, table_name, contents)
                 written_tables.add(table_name)
+            else:
+                assert dataframes is not None
+                for sheet_name, frame in dataframes.items():
+                    if frame.empty and len(frame.columns) == 0:
+                        continue
+                    table_name = _unique_table_name(sheet_name, written_tables)
+                    normalized = frame.copy()
+                    normalized.columns = _unique_column_names(list(normalized.columns))
+                    normalized.to_sql(table_name, connection, if_exists="fail", index=False)
+                    written_tables.add(table_name)
+            _create_analytical_indexes(connection, written_tables)
             connection.commit()
         finally:
             connection.close()
@@ -161,6 +168,7 @@ def create_tabular_collection_workspace(
             sqlite_path = Path(temporary_file.name)
         connection = sqlite3.connect(sqlite_path)
         try:
+            _configure_bulk_import(connection)
             written_tables: set[str] = set()
             for filename, contents in files:
                 if not contents:
@@ -168,7 +176,10 @@ def create_tabular_collection_workspace(
                 suffix = Path(filename).suffix.lower()
                 file_stem = Path(filename).stem
                 if suffix == ".csv":
-                    frames = {file_stem: pd.read_csv(_bytes_reader(contents))}
+                    table_name = _unique_table_name(file_stem, written_tables)
+                    _write_csv_to_sql(connection, table_name, contents)
+                    written_tables.add(table_name)
+                    continue
                 elif suffix in {".xlsx", ".xls"}:
                     sheets = pd.read_excel(_bytes_reader(contents), sheet_name=None)
                     frames = {
@@ -186,6 +197,7 @@ def create_tabular_collection_workspace(
                     normalized.columns = _unique_column_names(list(normalized.columns))
                     normalized.to_sql(table_name, connection, if_exists="fail", index=False)
                     written_tables.add(table_name)
+            _create_analytical_indexes(connection, written_tables)
             connection.commit()
         finally:
             connection.close()
@@ -264,6 +276,93 @@ def _bytes_reader(contents: bytes):
     from io import BytesIO
 
     return BytesIO(contents)
+
+
+def _configure_bulk_import(connection: sqlite3.Connection) -> None:
+    """Tune a new, disposable workspace database for fast bulk ingestion."""
+
+    connection.execute("PRAGMA journal_mode=OFF")
+    connection.execute("PRAGMA synchronous=OFF")
+    connection.execute("PRAGMA temp_store=MEMORY")
+    connection.execute("PRAGMA cache_size=-65536")
+
+
+def _sqlite_type(values: list[str]) -> str:
+    populated = [value.strip() for value in values if value.strip()]
+    if not populated:
+        return "TEXT"
+    try:
+        for value in populated:
+            int(value)
+        return "INTEGER"
+    except ValueError:
+        try:
+            for value in populated:
+                float(value)
+            return "REAL"
+        except ValueError:
+            return "TEXT"
+
+
+def _write_csv_to_sql(connection: sqlite3.Connection, table_name: str, contents: bytes) -> None:
+    """Stream a CSV into SQLite in batches instead of materialising it in pandas."""
+
+    stream = TextIOWrapper(BytesIO(contents), encoding="utf-8-sig", newline="")
+    reader = csv.reader(stream)
+    try:
+        raw_columns = next(reader)
+    except StopIteration as exc:
+        raise ValueError("The uploaded CSV has no header row.") from exc
+    if not raw_columns or not any(str(column).strip() for column in raw_columns):
+        raise ValueError("The uploaded CSV has no queryable columns.")
+
+    columns = _unique_column_names(list(raw_columns))
+    sample = list(row for _, row in zip(range(1000), reader))
+    normalized_sample = [_normalize_csv_row(row, len(columns)) for row in sample]
+    types = [_sqlite_type([row[index] for row in normalized_sample]) for index in range(len(columns))]
+    quoted_table = _quote_sqlite_identifier(table_name)
+    definitions = ", ".join(
+        f"{_quote_sqlite_identifier(column)} {column_type}" for column, column_type in zip(columns, types)
+    )
+    connection.execute(f"CREATE TABLE {quoted_table} ({definitions})")
+    placeholders = ", ".join("?" for _ in columns)
+    insert_sql = f"INSERT INTO {quoted_table} VALUES ({placeholders})"
+    batch: list[list[object]] = []
+    for row in chain(normalized_sample, (_normalize_csv_row(row, len(columns)) for row in reader)):
+        batch.append([None if value == "" else value for value in row])
+        if len(batch) >= 10_000:
+            connection.executemany(insert_sql, batch)
+            batch.clear()
+    if batch:
+        connection.executemany(insert_sql, batch)
+
+
+def _normalize_csv_row(row: list[str], width: int) -> list[str]:
+    if len(row) < width:
+        return row + [""] * (width - len(row))
+    return row[:width]
+
+
+def _quote_sqlite_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _create_analytical_indexes(connection: sqlite3.Connection, tables: set[str]) -> None:
+    """Index common join/filter columns without guessing business-specific fields."""
+
+    for table in tables:
+        quoted_table = _quote_sqlite_identifier(table)
+        columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})")]
+        for column in columns:
+            lowered = column.lower()
+            if not lowered.endswith(("_id", "_date", "_status")):
+                continue
+            index_name = _safe_identifier(f"idx_{table}_{column}", "idx_column")
+            connection.execute(
+                f"CREATE INDEX IF NOT EXISTS {_quote_sqlite_identifier(index_name)} "
+                f"ON {quoted_table} ({_quote_sqlite_identifier(column)})"
+            )
+    connection.execute("PRAGMA optimize")
 
 
 def _safe_identifier(value: object, fallback: str) -> str:

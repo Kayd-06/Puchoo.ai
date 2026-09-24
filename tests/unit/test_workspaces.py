@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 from io import BytesIO
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -67,6 +68,28 @@ class TabularWorkspaceTests(unittest.TestCase):
         self.assertIn("Table: customers", schema)
         self.assertIn("Table: orders", schema)
         self.assertIn("customer_id: customers.customer_id, orders.customer_id", schema)
+
+    def test_csv_import_creates_indexes_for_common_join_and_filter_columns(self) -> None:
+        workspace = create_tabular_workspace(
+            "Invoices",
+            "invoices.csv",
+            b"invoice_id,customer_id,payment_status,total_amount\n1,10,unpaid,99.5\n2,11,paid,42\n",
+            storage_dir=Path(self.temp_dir.name),
+        )
+        database_path = workspace.database_uri.removeprefix("sqlite:///")
+        connection = sqlite3.connect(database_path)
+        try:
+            indexes = {row[1] for row in connection.execute("PRAGMA index_list(invoices)")}
+            types = {
+                row[1]: row[2]
+                for row in connection.execute("PRAGMA table_info(invoices)")
+            }
+        finally:
+            connection.close()
+        self.assertIn("idx_invoices_invoice_id", indexes)
+        self.assertIn("idx_invoices_customer_id", indexes)
+        self.assertIn("idx_invoices_payment_status", indexes)
+        self.assertEqual("REAL", types["total_amount"])
 
 
 class ServerWorkspaceTests(unittest.TestCase):
