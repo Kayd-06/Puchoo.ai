@@ -15,3 +15,9 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local models and large weights (keep weights on Hugging Face / release assets)
+model_training/models/
+*.gguf
+*.bin
+*.safetensors

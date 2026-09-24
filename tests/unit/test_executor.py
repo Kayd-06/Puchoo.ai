@@ -39,8 +39,9 @@ class ReadOnlyExecutorTests(unittest.TestCase):
         connection.close()
 
     def test_query_plan_validation_rejects_unknown_columns_before_approval(self) -> None:
-        with self.assertRaisesRegex(Exception, "Query-plan validation failed"):
+        with self.assertRaisesRegex(Exception, "failed database planning") as context:
             self.executor.validate_query_plan("SELECT missing_column FROM metrics")
+        self.assertIn("missing_column", context.exception.database_error)
 
     def test_query_plan_validation_returns_guarded_sql(self) -> None:
         guarded = self.executor.validate_query_plan("SELECT id FROM metrics")

@@ -140,6 +140,75 @@ def create_tabular_workspace(
     )
 
 
+def create_tabular_collection_workspace(
+    name: str,
+    files: list[tuple[str, bytes]],
+    *,
+    storage_dir: Path | None = None,
+) -> Workspace:
+    """Combine multiple CSV/Excel uploads into one queryable SQLite workspace."""
+
+    if not name or not name.strip():
+        raise ValueError("Workspace name is required.")
+    if not files:
+        raise ValueError("Choose at least one CSV or Excel file.")
+
+    destination = storage_dir or LOCAL_WORKSPACE_DIRECTORY
+    destination.mkdir(parents=True, exist_ok=True)
+    sqlite_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="pucho_collection_", suffix=".db", dir=destination, delete=False) as temporary_file:
+            sqlite_path = Path(temporary_file.name)
+        connection = sqlite3.connect(sqlite_path)
+        try:
+            written_tables: set[str] = set()
+            for filename, contents in files:
+                if not contents:
+                    raise ValueError(f"{filename} is empty.")
+                suffix = Path(filename).suffix.lower()
+                file_stem = Path(filename).stem
+                if suffix == ".csv":
+                    frames = {file_stem: pd.read_csv(_bytes_reader(contents))}
+                elif suffix in {".xlsx", ".xls"}:
+                    sheets = pd.read_excel(_bytes_reader(contents), sheet_name=None)
+                    frames = {
+                        f"{file_stem}_{sheet_name}": frame
+                        for sheet_name, frame in sheets.items()
+                    }
+                else:
+                    raise ValueError(f"Unsupported file format: {filename}")
+
+                for source_name, frame in frames.items():
+                    if frame.empty and len(frame.columns) == 0:
+                        continue
+                    table_name = _unique_table_name(source_name, written_tables)
+                    normalized = frame.copy()
+                    normalized.columns = _unique_column_names(list(normalized.columns))
+                    normalized.to_sql(table_name, connection, if_exists="fail", index=False)
+                    written_tables.add(table_name)
+            connection.commit()
+        finally:
+            connection.close()
+    except (OSError, UnicodeDecodeError, ValueError, sqlite3.Error, ImportError, BadZipFile, pd.errors.EmptyDataError) as exc:
+        if sqlite_path:
+            sqlite_path.unlink(missing_ok=True)
+        if isinstance(exc, ValueError) and str(exc).startswith(("Unsupported file format:",)):
+            raise
+        raise ValueError("The selected files could not be combined into a query workspace.") from exc
+
+    if not written_tables:
+        sqlite_path.unlink(missing_ok=True)
+        raise ValueError("The selected files have no queryable columns.")
+    workspace = create_sqlite_workspace(name, str(sqlite_path))
+    return Workspace(
+        id=workspace.id,
+        name=workspace.name,
+        database_uri=workspace.database_uri,
+        dialect="sqlite",
+        source_type="spreadsheet_collection",
+    )
+
+
 def create_server_workspace(
     name: str,
     *,
@@ -230,16 +299,48 @@ def _unique_column_names(columns: list[object]) -> list[str]:
 
 
 def get_schema_snapshot(database_uri: str) -> str:
+    engine = None
     try:
         engine = create_engine(database_uri)
         inspector = inspect(engine)
         lines: list[str] = []
+        column_tables: dict[str, list[str]] = {}
+        categorical_suffixes = ("status", "type", "category", "method")
+        connection = engine.connect() if database_uri.startswith("sqlite") else None
+        preparer = engine.dialect.identifier_preparer
         for table in inspector.get_table_names():
-            fields = ", ".join(f"{column['name']} ({column['type']})" for column in inspector.get_columns(table))
-            lines.append(f"Table: {table}\nColumns: {fields}")
-        engine.dispose()
+            columns = inspector.get_columns(table)
+            fields = ", ".join(f"{column['name']} ({column['type']})" for column in columns)
+            table_lines = [f"Table: {table}", f"Columns: {fields}"]
+            for column in columns:
+                column_name = str(column["name"])
+                column_tables.setdefault(column_name, []).append(table)
+                if connection is not None and column_name.lower().endswith(categorical_suffixes):
+                    quoted_table = preparer.quote(table)
+                    quoted_column = preparer.quote(column_name)
+                    values = connection.execute(text(
+                        f"SELECT DISTINCT {quoted_column} FROM {quoted_table} "
+                        f"WHERE {quoted_column} IS NOT NULL LIMIT 13"
+                    )).scalars().all()
+                    if 0 < len(values) <= 12:
+                        table_lines.append(
+                            f"Values for {column_name}: " + ", ".join(repr(str(value)) for value in values)
+                        )
+            lines.append("\n".join(table_lines))
+        if connection is not None:
+            connection.close()
+        join_hints = [
+            f"{column}: " + ", ".join(f"{table}.{column}" for table in tables)
+            for column, tables in column_tables.items()
+            if column.endswith("_id") and len(tables) > 1
+        ]
+        if join_hints:
+            lines.append("Join candidates (same key name; use only when relevant):\n" + "\n".join(join_hints))
     except (SQLAlchemyError, ModuleNotFoundError, ImportError) as exc:
         raise ValueError("Could not read the workspace database schema.") from exc
+    finally:
+        if engine is not None:
+            engine.dispose()
     if not lines:
         raise ValueError("The selected database has no tables to query.")
     return "\n\n".join(lines)

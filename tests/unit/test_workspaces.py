@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from apps.core.workspaces import create_server_workspace, create_tabular_workspace, get_schema_snapshot, get_schema_table_stats
+from apps.core.workspaces import create_server_workspace, create_tabular_collection_workspace, create_tabular_workspace, get_schema_snapshot, get_schema_table_stats
 
 
 class TabularWorkspaceTests(unittest.TestCase):
@@ -52,6 +52,21 @@ class TabularWorkspaceTests(unittest.TestCase):
         schema = get_schema_snapshot(workspace.database_uri)
         self.assertIn("Table: monthly_sales", schema)
         self.assertIn("Table: regions", schema)
+
+    def test_multiple_csv_files_share_one_workspace(self) -> None:
+        workspace = create_tabular_collection_workspace(
+            "Sales collection",
+            [
+                ("customers.csv", b"customer_id,name\n1,Asha\n2,Kabir\n"),
+                ("orders.csv", b"order_id,customer_id,total\n10,1,99\n11,2,42\n"),
+            ],
+            storage_dir=Path(self.temp_dir.name),
+        )
+        self.assertEqual("spreadsheet_collection", workspace.source_type)
+        schema = get_schema_snapshot(workspace.database_uri)
+        self.assertIn("Table: customers", schema)
+        self.assertIn("Table: orders", schema)
+        self.assertIn("customer_id: customers.customer_id, orders.customer_id", schema)
 
 
 class ServerWorkspaceTests(unittest.TestCase):

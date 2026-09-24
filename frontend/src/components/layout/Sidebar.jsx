@@ -1,9 +1,9 @@
 import { NavLink } from 'react-router-dom';
-import { MessageSquare, Database, History, Settings, LogOut } from 'lucide-react';
+import { MessageSquare, Database, History, Settings } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
 export default function Sidebar() {
-  const { activeWorkspace } = useAppContext();
+  const { workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useAppContext();
 
   const navItems = [
     { to: "/ask", icon: MessageSquare, label: "Ask Data" },
@@ -56,9 +56,24 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {activeWorkspace && (
-        <div style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>Active DB</div>
+      <div style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>
+          <label htmlFor="workspace-selector" style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>Active DB</label>
+          <select
+            id="workspace-selector"
+            className="input"
+            value={activeWorkspaceId || ''}
+            onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
+            disabled={workspaces.length === 0}
+            aria-label="Select active database"
+            style={{ padding: '0.6rem 0.75rem', marginBottom: '0.75rem' }}
+          >
+            {workspaces.length === 0 && <option value="">No database connected</option>}
+            {workspaces.map(workspace => (
+              <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+            ))}
+          </select>
+          {activeWorkspace && (
+            <>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-green)' }}></div>
             <span style={{ fontSize: '0.875rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -66,8 +81,9 @@ export default function Sidebar() {
             </span>
           </div>
           <span className="badge badge-ok">Read-only</span>
+            </>
+          )}
         </div>
-      )}
     </aside>
   );
 }
