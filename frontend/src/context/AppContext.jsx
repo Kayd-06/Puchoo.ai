@@ -9,22 +9,24 @@ export function AppProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+
   // Load initial data
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [wsData, profileData] = await Promise.all([
-          fetchApi('/workspaces/'),
-          fetchApi('/settings/profile')
-        ]);
+        // First check if user is authenticated
+        const profileData = await fetchApi('/auth/me');
+        setProfile(profileData);
         
+        // If authenticated, load workspaces
+        const wsData = await fetchApi('/workspaces/');
         setWorkspaces(wsData || []);
         if (wsData && wsData.length > 0) {
           setActiveWorkspaceId(wsData[0].id);
         }
-        setProfile(profileData);
       } catch (err) {
-        console.error("Failed to load initial data", err);
+        console.error("Failed to load initial data (user might not be logged in)", err);
+        setProfile(null);
       } finally {
         setLoading(false);
       }
@@ -32,6 +34,18 @@ export function AppProvider({ children }) {
     
     loadInitialData();
   }, []);
+
+  const logout = async () => {
+    try {
+      await fetchApi('/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error("Logout error", err);
+    } finally {
+      setProfile(null);
+      setWorkspaces([]);
+      setActiveWorkspaceId(null);
+    }
+  };
 
   const getActiveWorkspace = () => {
     return workspaces.find(w => w.id === activeWorkspaceId) || null;
@@ -45,7 +59,8 @@ export function AppProvider({ children }) {
     activeWorkspace: getActiveWorkspace(),
     profile,
     setProfile,
-    loading
+    loading,
+    logout
   };
 
   return (
