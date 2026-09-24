@@ -1,11 +1,46 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, ShieldCheck, Database, History as HistoryIcon, User } from 'lucide-react';
+import { Settings as SettingsIcon, ShieldCheck, Database, History as HistoryIcon, User, Users, Link as LinkIcon } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { fetchApi } from '../api/client';
 
 export default function Settings() {
-  const { profile, activeWorkspaceId, setProfile } = useAppContext();
+  const { profile, activeWorkspaceId, activeWorkspace, setProfile, setWorkspaces } = useAppContext();
   const [guardrails, setGuardrails] = useState(null);
+  
+  const [inviteRole, setInviteRole] = useState('editor');
+  const [inviteCode, setInviteCode] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [shareError, setShareError] = useState('');
+
+  const handleGenerateInvite = async () => {
+    try {
+      setShareError('');
+      const data = await fetchApi(`/workspaces/${activeWorkspaceId}/invite`, {
+        method: 'POST',
+        body: JSON.stringify({ role: inviteRole })
+      });
+      setInviteCode(data.code);
+    } catch (err) {
+      setShareError(err.message || 'Failed to generate invite code');
+    }
+  };
+
+  const handleJoinWorkspace = async () => {
+    if (!joinCode.trim()) return;
+    try {
+      setShareError('');
+      await fetchApi('/workspaces/join', {
+        method: 'POST',
+        body: JSON.stringify({ code: joinCode.trim() })
+      });
+      alert('Successfully joined workspace!');
+      setJoinCode('');
+      const wsData = await fetchApi('/workspaces/');
+      setWorkspaces(wsData || []);
+    } catch (err) {
+      setShareError(err.message || 'Failed to join workspace');
+    }
+  };
 
   useEffect(() => {
     async function loadGuardrails() {
@@ -106,12 +141,87 @@ export default function Settings() {
         </h3>
         <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>Manage query records stored in your browser session.</p>
         
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(239, 68, 68, 0.05)', padding: '1rem', borderRadius: 'var(--radius-input)', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
-          <div style={{ fontSize: '0.875rem', color: 'var(--accent-red)' }}>
-            Pucho stores your past questions and summaries locally. Clearing will erase cached prompt completions.
+        {(!activeWorkspace || activeWorkspace.user_role === 'admin') && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(239, 68, 68, 0.05)', padding: '1rem', borderRadius: 'var(--radius-input)', border: '1px solid rgba(239, 68, 68, 0.1)' }}>
+            <div style={{ fontSize: '0.875rem', color: 'var(--accent-red)' }}>
+              Pucho stores your past questions and summaries locally. Clearing will erase cached prompt completions.
+            </div>
+            <button className="btn btn-danger">Clear query history</button>
           </div>
-          <button className="btn btn-danger">Clear query history</button>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+          <Users size={20} color="var(--bg-primary)" /> Workspace Sharing
+        </h3>
+        
+        {shareError && (
+          <div style={{ padding: '0.75rem', background: 'var(--accent-red-bg)', color: 'var(--accent-red)', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.875rem' }}>
+            {shareError}
+          </div>
+        )}
+
+        {/* Join Workspace section */}
+        <div style={{ padding: '1rem', background: 'var(--bg-surface-raised)', borderRadius: 'var(--radius-input)', marginBottom: '1rem' }}>
+          <div style={{ fontWeight: 500, marginBottom: '0.5rem' }}>Join a Workspace</div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input 
+              type="text" 
+              className="input" 
+              placeholder="Enter invite code..." 
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" onClick={handleJoinWorkspace}>Join</button>
+          </div>
         </div>
+
+        {/* Generate Invite section */}
+        {profile?.account_type !== 'personal' && (
+          <div style={{ padding: '1rem', background: 'var(--bg-surface-raised)', borderRadius: 'var(--radius-input)' }}>
+            <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>Share Active Workspace</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              Generate an invite code to allow others to join this workspace.
+            </div>
+            
+            {!activeWorkspace ? (
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                You must connect a database to create a workspace before you can share it.
+              </div>
+            ) : activeWorkspace.user_role !== 'admin' ? (
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Only workspace admins can generate invite codes.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
+                  {profile?.account_type === 'institutional' && (
+                    <select 
+                      className="input" 
+                      value={inviteRole}
+                      onChange={e => setInviteRole(e.target.value)}
+                      style={{ width: '150px' }}
+                    >
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Viewer</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
+                  <button className="btn btn-secondary" onClick={handleGenerateInvite}>Generate Code</button>
+                </div>
+                
+                {inviteCode && (
+                  <div style={{ padding: '0.75rem', background: '#fff', border: '1px dashed var(--bg-primary)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: '1.25rem', letterSpacing: '2px', fontWeight: 'bold' }}>{inviteCode}</span>
+                    <span className="badge badge-info">Invite Code</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
     </div>

@@ -3,7 +3,7 @@ import { MessageSquare, Database, History, Settings, LogOut } from 'lucide-react
 import { useAppContext } from '../../context/AppContext';
 
 export default function Sidebar() {
-  const { activeWorkspace } = useAppContext();
+  const { activeWorkspace, logout } = useAppContext();
 
   const navItems = [
     { to: "/ask", icon: MessageSquare, label: "Ask Data" },
@@ -56,8 +56,19 @@ export default function Sidebar() {
         ))}
       </nav>
 
+      <div style={{ padding: '0 1rem', marginTop: 'auto', marginBottom: '1rem' }}>
+        <button 
+          onClick={logout}
+          className="btn btn-secondary"
+          style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--text-muted)' }}
+        >
+          <LogOut size={20} style={{ marginRight: '0.5rem' }} />
+          Log out
+        </button>
+      </div>
+
       {activeWorkspace && (
-        <div style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}>
+        <div style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>Active DB</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-green)' }}></div>
