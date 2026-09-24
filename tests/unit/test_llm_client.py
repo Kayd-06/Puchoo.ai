@@ -17,6 +17,7 @@ from apps.core.llm_client import (
     local_semantic_feedback,
     question_clarification,
     compact_plan_feedback,
+    canonicalize_analytics_question,
     schema_guided_fallback_sql,
 )
 
@@ -384,6 +385,39 @@ Columns: student_id (INTEGER), assessment_id (INTEGER), marks_obtained (INTEGER)
         )
         self.assertEqual(1, len(feedback))
         self.assertIn("invoice_items.quantity", feedback[0])
+
+    def test_equivalent_top_product_wording_has_one_canonical_intent(self) -> None:
+        singular = canonicalize_analytics_question(
+            "Please tell me which item sold the most in my shop last month."
+        )
+        plural = canonicalize_analytics_question(
+            "Please tell me which items sold the most in my shop last month."
+        )
+        self.assertEqual(singular, plural)
+        self.assertEqual(
+            "Which product sold the most by total quantity during the previous calendar month?",
+            singular,
+        )
+
+    def test_top_product_last_month_has_deterministic_schema_fallback(self) -> None:
+        schema = """Table: products
+Columns: product_id (INTEGER), product_name (TEXT), category (TEXT)
+
+Table: invoice_items
+Columns: invoice_item_id (INTEGER), invoice_id (INTEGER), product_id (INTEGER), quantity (INTEGER)
+
+Table: sales_invoices
+Columns: invoice_id (INTEGER), invoice_date (TEXT), customer_id (INTEGER)"""
+        sql = schema_guided_fallback_sql(
+            schema,
+            "Which product sold the most by total quantity during the previous calendar month?",
+        )
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("SUM(ii.quantity) AS total_quantity_sold", sql)
+        self.assertIn("date(si.invoice_date)", sql)
+        self.assertIn("ORDER BY total_quantity_sold DESC, p.product_id ASC", sql)
+        self.assertTrue(sql.rstrip().endswith("LIMIT 1"))
 
     def test_rolling_window_requires_a_date_filter(self) -> None:
         feedback = local_semantic_feedback(

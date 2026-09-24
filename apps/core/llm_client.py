@@ -468,6 +468,43 @@ def compact_plan_feedback(error: Exception, sql: str) -> str:
     return "The database rejected the query plan. Rebuild a simpler query from the schema and preserve every requested output."
 
 
+_PRODUCT_TERMS = r"(?:product|products|item|items|thing|things|goods)"
+_TOP_SALES_TERMS = (
+    r"(?:"
+    r"(?:best|top|highest|most)[\s-]*(?:selling|sold|sales)"
+    r"|(?:sold|selling|sales)(?:\s+\w+){0,3}\s+(?:most|highest|best|top)"
+    r"|(?:most|highest|best|top)(?:\s+\w+){0,3}\s+(?:sold|selling|sales)"
+    r")"
+)
+
+
+def canonicalize_analytics_question(question: str) -> str:
+    """Collapse equivalent, simple analytics requests to one safe SQL intent.
+
+    Translation providers can legitimately choose either "item sold the most" or
+    "items sold the most" for the same source-language question.  For a direct
+    superlative request, those wording differences must not turn into a list in
+    one language and a single result in another.
+    """
+
+    normalized = re.sub(r"\s+", " ", question).strip()
+    q = normalized.lower()
+    asks_for_top_product = bool(
+        re.search(rf"\b{_PRODUCT_TERMS}\b", q)
+        and re.search(rf"\b{_TOP_SALES_TERMS}\b", q)
+    )
+    has_additional_metrics = bool(
+        re.search(r"\b(?:revenue|sales value|discount|average|category|each|all|rank)\b", q)
+    )
+    if not asks_for_top_product or has_additional_metrics:
+        return normalized
+
+    period = " during the previous calendar month" if re.search(
+        r"\b(?:last|previous|past)\s+(?:calendar\s+)?month\b", q
+    ) else ""
+    return "Which product sold the most by total quantity" + period + "?"
+
+
 def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
     """Build a deterministic query for high-risk analytics the small models miss."""
 
@@ -491,6 +528,37 @@ def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
 
     def find_table(required: set[str]) -> str | None:
         return next((table for table, columns in table_columns.items() if required <= columns), None)
+
+    # Do not leave a straightforward superlative request to an LLM.  It is a
+    # closed, schema-verifiable aggregation: one product, total invoice-item
+    # quantity, and a deterministic product-id tie break.  This also makes the
+    # same question stable when its translation changes singular/plural wording.
+    top_sold_product = bool(
+        re.search(rf"\b{_PRODUCT_TERMS}\b", q)
+        and re.search(rf"\b{_TOP_SALES_TERMS}\b", q)
+        and not re.search(r"\b(?:revenue|sales value|discount|average|category|each|all|rank)\b", q)
+    )
+    if top_sold_product:
+        products = find_table({"product_id", "product_name"})
+        invoice_items = find_table({"invoice_id", "product_id", "quantity"})
+        last_month = bool(re.search(r"\b(?:last|previous|past)\s+(?:calendar\s+)?month\b", q))
+        invoices = find_table({"invoice_id", "invoice_date"}) if last_month else None
+        if products and invoice_items and (not last_month or invoices):
+            invoice_join = (
+                f"\nJOIN {invoices} AS si ON si.invoice_id = ii.invoice_id" if invoices else ""
+            )
+            period_filter = (
+                "\nWHERE date(si.invoice_date) >= date('now', 'start of month', '-1 month')"
+                "\n  AND date(si.invoice_date) < date('now', 'start of month')"
+                if invoices else ""
+            )
+            return f"""SELECT p.product_id, p.product_name,
+       SUM(ii.quantity) AS total_quantity_sold
+FROM {invoice_items} AS ii
+JOIN {products} AS p ON p.product_id = ii.product_id{invoice_join}{period_filter}
+GROUP BY p.product_id, p.product_name
+ORDER BY total_quantity_sold DESC, p.product_id ASC
+LIMIT 1"""
 
     comprehensive_student_summary = (
         bool(re.search(r"\b(?:for\s+)?every\s+student|\ball\s+students\b", q))
