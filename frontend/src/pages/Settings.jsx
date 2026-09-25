@@ -3,11 +3,13 @@ import { ShieldCheck, History as HistoryIcon, User } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { fetchApi } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { createInstituteInvite } from '../api/auth';
 
 export default function Settings() {
   const { activeWorkspaceId } = useAppContext();
   const { user } = useAuth();
   const [guardrails, setGuardrails] = useState(null);
+  const [inviteCode, setInviteCode] = useState('');
 
   useEffect(() => {
     async function loadGuardrails() {
@@ -22,6 +24,11 @@ export default function Settings() {
     }
     loadGuardrails();
   }, [activeWorkspaceId]);
+
+  async function generateInvite() {
+    const result = await createInstituteInvite();
+    setInviteCode(result.code);
+  }
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -43,6 +50,15 @@ export default function Settings() {
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
         Manage your profile, connected databases, and query safety defaults.
       </p>
+
+      {user?.workspace_type === 'institute' && !user.institute_owner_id && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>Invite institute members</h3>
+          <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>Share a code so members can join with their own email and password.</p>
+          {inviteCode && <code style={{ display: 'block', padding: '0.8rem', marginBottom: '1rem', background: 'var(--bg-surface-raised)', borderRadius: '8px' }}>{inviteCode}</code>}
+          <button className="btn btn-primary" onClick={generateInvite}>{inviteCode ? 'Rotate invite code' : 'Generate invite code'}</button>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>

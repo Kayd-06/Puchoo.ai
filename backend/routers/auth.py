@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from backend import emailer
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, LoginCode, PasswordResetCode, User
+from backend.models import AuthSession, InstituteInvite, LoginCode, PasswordResetCode, User
 from backend.rate_limit import limiter
 from backend.schemas import (
     AuthResponse,
     LoginRequest,
     OtpChallengeResponse,
+    InstituteInviteResponse,
     PasswordForgotRequest,
     PasswordResetRequest,
     ResendOtpRequest,
@@ -127,12 +128,21 @@ def signup(
     if existing is not None:
         raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR)
 
+    owner = None
+    if body.institute_code:
+        invite = db.scalar(select(InstituteInvite).where(InstituteInvite.code_hash == hash_token(body.institute_code), InstituteInvite.revoked_at.is_(None)))
+        if invite is None:
+            raise HTTPException(status_code=400, detail="That institute invite code is invalid.")
+        owner = db.get(User, invite.owner_user_id)
+        if owner is None:
+            raise HTTPException(status_code=400, detail="That institute invite code is invalid.")
     user = User(
         full_name=body.full_name,
         email=body.email,
         password_hash=hash_password(body.password),
-        workspace_type=body.workspace_type,
-        institute_name=body.institute_name,
+        workspace_type="institute" if owner else body.workspace_type,
+        institute_name=owner.institute_name if owner else body.institute_name,
+        institute_owner_id=owner.id if owner else None,
     )
     db.add(user)
     try:
@@ -149,6 +159,21 @@ def signup(
         db.commit()
         raise
     return OtpChallengeResponse(email=user.email)
+
+
+@router.post("/institute/invite", response_model=InstituteInviteResponse)
+def create_institute_invite(request: Request, response: Response, db: Session = Depends(get_db)) -> InstituteInviteResponse:
+    enforce_csrf(request)
+    user = current_user(request, response, db)
+    if user.workspace_type != "institute" or user.institute_owner_id:
+        raise HTTPException(status_code=403, detail="Only the institute owner can create invite codes.")
+    now = utcnow()
+    for invite in db.scalars(select(InstituteInvite).where(InstituteInvite.owner_user_id == user.id, InstituteInvite.revoked_at.is_(None))).all():
+        invite.revoked_at = now
+    code = f"PUCHOO-{secrets.token_urlsafe(7).upper()}"
+    db.add(InstituteInvite(owner_user_id=user.id, code_hash=hash_token(code)))
+    db.commit()
+    return InstituteInviteResponse(code=code, institute_name=user.institute_name or "Institute workspace")
 
 
 def _send_login_code(db: Session, user: User) -> None:

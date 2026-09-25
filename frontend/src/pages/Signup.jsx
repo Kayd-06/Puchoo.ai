@@ -12,6 +12,7 @@ const empty = {
   confirm_password: '',
   workspace_type: 'personal',
   institute_name: '',
+  institute_code: '',
 };
 
 export default function Signup() {
@@ -63,6 +64,7 @@ export default function Signup() {
         confirm_password: values.confirm_password,
         workspace_type: values.workspace_type,
         institute_name: values.workspace_type === 'institute' ? values.institute_name.trim() : null,
+        institute_code: values.institute_code.trim() || null,
       });
       navigate('/login', {
         replace: true,
@@ -171,6 +173,9 @@ export default function Signup() {
               />
             </Field>
           ) : null}
+          <Field id="institute_code" label="Institute invite code (optional)">
+            <input id="institute_code" value={values.institute_code} onChange={(event) => update('institute_code', event.target.value)} placeholder="PUCHOO-…" className={inputClass(false)} />
+          </Field>
           <PillButton type="submit" variant="dark" disabled={pending}>
             {pending ? 'Creating account…' : 'Get started'}
           </PillButton>

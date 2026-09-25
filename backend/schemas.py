@@ -14,6 +14,7 @@ class SignupRequest(BaseModel):
     confirm_password: str
     workspace_type: Literal["personal", "institute"]
     institute_name: str | None = None
+    institute_code: str | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -50,7 +51,9 @@ class SignupRequest(BaseModel):
             raise ValueError(
                 "Password must be at least 10 characters and include a letter and a number."
             )
-        if self.workspace_type == "institute":
+        if self.institute_code:
+            self.institute_code = self.institute_code.strip()
+        if self.workspace_type == "institute" and not self.institute_code:
             if not self.institute_name:
                 raise ValueError("Institute name is required.")
         else:
@@ -131,6 +134,12 @@ class UserResponse(BaseModel):
     email: str
     workspace_type: str
     institute_name: str | None = None
+    institute_owner_id: str | None = None
+
+
+class InstituteInviteResponse(BaseModel):
+    code: str
+    institute_name: str
 
 
 class AuthResponse(BaseModel):

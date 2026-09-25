@@ -1,8 +1,10 @@
-import { ShieldCheck, Search } from 'lucide-react';
+import { Bell, ChevronDown, ShieldCheck, Search } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function TopBar() {
-  const { profile } = useAppContext();
+  const { activeWorkspace } = useAppContext();
+  const { user } = useAuth();
 
   return (
     <header
@@ -29,7 +31,7 @@ export default function TopBar() {
       >
         <ShieldCheck size={20} />
         <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-          Hardware Enclave &amp; Guardrails Active
+          {activeWorkspace ? `${activeWorkspace.name} · Guardrails active` : 'Guardrails active'}
         </span>
       </div>
 
@@ -48,19 +50,20 @@ export default function TopBar() {
           <Search size={16} color="var(--text-muted)" />
           <input
             type="text"
-            placeholder="Search insights..."
+            placeholder="Search questions, SQL, history…"
             style={{
               background: 'transparent',
               border: 'none',
               color: 'var(--text-primary)',
               outline: 'none',
-              width: '200px',
+              width: '260px',
               fontSize: '0.875rem',
             }}
           />
         </div>
 
-        <div
+        <button type="button" aria-label="Notifications" className="btn btn-secondary" style={{ padding: '0.55rem' }}><Bell size={17} /></button>
+        <button type="button"
           style={{
             width: '32px',
             height: '32px',
@@ -71,11 +74,12 @@ export default function TopBar() {
             justifyContent: 'center',
             color: '#fff',
             fontWeight: 'bold',
-            cursor: 'pointer',
+            cursor: 'pointer', border: 'none',
           }}
         >
-          {profile?.name ? profile.name.charAt(0).toUpperCase() : 'U'}
-        </div>
+          {user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}
+        </button>
+        <ChevronDown size={16} color="var(--text-muted)" />
       </div>
     </header>
   );
