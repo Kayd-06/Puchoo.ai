@@ -40,7 +40,15 @@ def send_otp_email(to_email: str, otp_code: str) -> None:
                 smtp.starttls()
                 smtp.ehlo()
             smtp.login(settings.smtp_username, settings.smtp_password)
-            smtp.send_message(message)
+            # Pass envelope addresses explicitly. SMTP relays deliver using this
+            # envelope, not the visual From/To headers in the MIME message.
+            refused = smtp.send_message(
+                message,
+                from_addr=settings.smtp_username,
+                to_addrs=[to_email],
+            )
+            if refused:
+                raise EmailDeliveryError("recipient refused")
     except (OSError, ValueError, smtplib.SMTPException) as exc:
         raise EmailDeliveryError("delivery failed") from exc
 
