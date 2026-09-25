@@ -16,7 +16,7 @@ const empty = {
 
 export default function Signup() {
   const navigate = useNavigate();
-  const { signup } = useAuth();
+  const { requestSignup } = useAuth();
   const [values, setValues] = useState(empty);
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState('');
@@ -56,7 +56,7 @@ export default function Signup() {
     setPending(true);
     setToast('');
     try {
-      await signup({
+      const challenge = await requestSignup({
         full_name: values.full_name.trim(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
@@ -64,7 +64,10 @@ export default function Signup() {
         workspace_type: values.workspace_type,
         institute_name: values.workspace_type === 'institute' ? values.institute_name.trim() : null,
       });
-      navigate('/app');
+      navigate('/login', {
+        replace: true,
+        state: { email: challenge.email, verificationPending: true },
+      });
     } catch (error) {
       setToast(error.message || 'Unable to create an account with those details.');
     } finally {

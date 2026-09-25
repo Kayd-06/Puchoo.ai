@@ -1,9 +1,10 @@
 """Send the login verification code. The code is never written to logs."""
 
-import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from backend.config import settings
 
 
 class EmailDeliveryError(RuntimeError):
@@ -11,26 +12,36 @@ class EmailDeliveryError(RuntimeError):
 
 
 def send_otp_email(to_email: str, otp_code: str) -> None:
-    server = os.getenv("SMTP_SERVER")
-    port = os.getenv("SMTP_PORT")
-    username = os.getenv("SMTP_USERNAME")
-    password = os.getenv("SMTP_PASSWORD")
-    if not all([server, port, username, password]):
+    if not all(
+        [
+            settings.smtp_server,
+            settings.smtp_port,
+            settings.smtp_username,
+            settings.smtp_password,
+        ]
+    ):
         raise EmailDeliveryError("SMTP is not configured")
+    if settings.smtp_use_ssl and settings.smtp_use_tls:
+        raise EmailDeliveryError("SMTP cannot use SSL and STARTTLS together")
 
     message = MIMEMultipart("alternative")
-    message["From"] = f"Puchoo.ai <{username}>"
+    sender = settings.smtp_from or settings.smtp_username
+    message["From"] = f"Puchoo.ai <{sender}>"
     message["To"] = to_email
     message["Subject"] = f"{otp_code} is your Puchoo.ai verification code"
     message.attach(MIMEText(_text(otp_code), "plain", "utf-8"))
     message.attach(MIMEText(_html(otp_code), "html", "utf-8"))
 
     try:
-        with smtplib.SMTP(server, int(port), timeout=20) as smtp:
-            smtp.starttls()
-            smtp.login(username, password)
+        smtp_class = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
+        with smtp_class(settings.smtp_server, settings.smtp_port, timeout=20) as smtp:
+            smtp.ehlo()
+            if settings.smtp_use_tls:
+                smtp.starttls()
+                smtp.ehlo()
+            smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
-    except (OSError, smtplib.SMTPException) as exc:
+    except (OSError, ValueError, smtplib.SMTPException) as exc:
         raise EmailDeliveryError("delivery failed") from exc
 
 

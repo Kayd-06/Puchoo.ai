@@ -78,6 +78,17 @@ class VerifyLoginRequest(BaseModel):
         return cleaned
 
 
+class ResendOtpRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str

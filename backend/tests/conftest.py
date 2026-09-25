@@ -59,6 +59,16 @@ def finish_login(test_client: TestClient, email: str, password: str, otp_codes: 
     return verified
 
 
+def finish_signup(test_client: TestClient, email: str, otp_codes: dict[str, str]):
+    verified = test_client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": email, "code": otp_codes[email.lower()]},
+        headers=csrf_headers(test_client),
+    )
+    assert verified.status_code == 200
+    return verified
+
+
 def signup_payload(**overrides):
     payload = {
         "full_name": "Ada Lovelace",

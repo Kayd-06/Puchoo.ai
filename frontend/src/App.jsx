@@ -53,7 +53,13 @@ function App() {
           />
           <Route path="/privacy" element={<Legal kind="privacy" />} />
           <Route path="/terms" element={<Legal kind="terms" />} />
-          <Route element={<ProductLayout />}>
+          <Route
+            element={(
+              <ProtectedRoute>
+                <ProductLayout />
+              </ProtectedRoute>
+            )}
+          >
             <Route path="/ask" element={<AskData />} />
             <Route path="/connect" element={<ConnectData />} />
             <Route path="/history" element={<History />} />

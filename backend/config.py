@@ -43,6 +43,13 @@ class Settings:
     csrf_header_name: str = "X-CSRF-Token"
     session_days: int = 7
     session_secret: str = "dev-secret-key-do-not-use-in-prod"
+    smtp_server: str | None = None
+    smtp_port: int | None = None
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
 
 
 def load_settings() -> Settings:
@@ -51,12 +58,24 @@ def load_settings() -> Settings:
         "http://localhost:5173,http://127.0.0.1:5173",
     )
     database_url = os.getenv("DATABASE_URL") or f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}"
+    smtp_port = os.getenv("SMTP_PORT")
+    try:
+        parsed_smtp_port = int(smtp_port) if smtp_port else None
+    except ValueError:
+        parsed_smtp_port = None
     return Settings(
         database_url=database_url,
         frontend_origins=[item.strip() for item in origins.split(",") if item.strip()],
         cookie_secure=_as_bool(os.getenv("COOKIE_SECURE"), default=False),
         environment=os.getenv("ENVIRONMENT", "development"),
         session_secret=os.getenv("SESSION_SECRET", "dev-secret-key-do-not-use-in-prod"),
+        smtp_server=os.getenv("SMTP_SERVER"),
+        smtp_port=parsed_smtp_port,
+        smtp_username=os.getenv("SMTP_USERNAME"),
+        smtp_password=os.getenv("SMTP_PASSWORD"),
+        smtp_from=os.getenv("SMTP_FROM"),
+        smtp_use_tls=_as_bool(os.getenv("SMTP_USE_TLS"), default=True),
+        smtp_use_ssl=_as_bool(os.getenv("SMTP_USE_SSL"), default=False),
     )
 
 

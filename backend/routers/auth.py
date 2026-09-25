@@ -17,6 +17,7 @@ from backend.schemas import (
     AuthResponse,
     LoginRequest,
     OtpChallengeResponse,
+    ResendOtpRequest,
     SignupRequest,
     UserResponse,
     VerifyLoginRequest,
@@ -111,13 +112,13 @@ def issue_csrf() -> Response:
     return Response(status_code=204)
 
 
-@router.post("/signup", response_model=AuthResponse, status_code=201)
+@router.post("/signup", response_model=OtpChallengeResponse, status_code=202)
 def signup(
     body: SignupRequest,
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-) -> AuthResponse:
+) -> OtpChallengeResponse:
     enforce_csrf(request)
     _rate_limit("signup", request, body.email)
     existing = db.scalar(select(User).where(User.email == body.email))
@@ -138,8 +139,14 @@ def signup(
         db.rollback()
         raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR) from None
     db.refresh(user)
-    _issue_session(db, user, response)
-    return AuthResponse(user=_user_response(user))
+    try:
+        _send_login_code(db, user)
+    except HTTPException:
+        # Do not leave an unreachable account behind when delivery is unavailable.
+        db.delete(user)
+        db.commit()
+        raise
+    return OtpChallengeResponse(email=user.email)
 
 
 def _send_login_code(db: Session, user: User) -> None:
@@ -183,6 +190,23 @@ def login(
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
     _send_login_code(db, user)
     return OtpChallengeResponse(email=user.email)
+
+
+@router.post("/login/resend", response_model=OtpChallengeResponse)
+def resend_login_code(
+    body: ResendOtpRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> OtpChallengeResponse:
+    """Replace a pending code without requiring the user to re-enter a password."""
+
+    enforce_csrf(request)
+    _rate_limit("resend", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    if user is not None:
+        _send_login_code(db, user)
+    # Keep this response uniform so the endpoint does not disclose accounts.
+    return OtpChallengeResponse(email=str(body.email))
 
 
 @router.post("/login/verify", response_model=AuthResponse)
