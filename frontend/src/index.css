@@ -6,11 +6,11 @@
   --bg-surface-raised: #f1f5f9;
   --bg-primary: #3b82f6;
   --bg-primary-hover: #2563eb;
-  
+
   --text-primary: #0f172a;
   --text-muted: #64748b;
   --text-on-primary: #ffffff;
-  
+
   --accent-green: #16a34a;
   --accent-amber: #d97706;
   --accent-red: #dc2626;
@@ -20,21 +20,27 @@
 
   --border-color: #e2e8f0;
   --border-color-strong: #cbd5e1;
-  
+
   --radius-card: 12px;
   --radius-input: 8px;
   --radius-badge: 6px;
   --radius-full: 9999px;
-  
+
   --shadow-main: 0 4px 20px rgba(0, 0, 0, 0.05);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-  
+
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+.app-container,
+.app-container * {
   margin: 0;
   padding: 0;
 }
@@ -47,13 +53,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a {
+.app-container a {
   color: var(--bg-primary);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
-a:hover {
+.app-container a:hover {
   color: var(--bg-primary-hover);
 }
 
@@ -74,8 +80,13 @@ a:hover {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -105,29 +116,60 @@ a:hover {
   width: 100%;
 }
 
-.flex { display: flex; }
-.flex-col { display: flex; flex-direction: column; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.justify-center { justify-content: center; }
-.gap-1 { gap: 0.25rem; }
-.gap-2 { gap: 0.5rem; }
-.gap-3 { gap: 0.75rem; }
-.gap-4 { gap: 1rem; }
-.gap-6 { gap: 1.5rem; }
+.flex {
+  display: flex;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.justify-center {
+  justify-content: center;
+}
+.gap-1 {
+  gap: 0.25rem;
+}
+.gap-2 {
+  gap: 0.5rem;
+}
+.gap-3 {
+  gap: 0.75rem;
+}
+.gap-4 {
+  gap: 1rem;
+}
+.gap-6 {
+  gap: 1.5rem;
+}
 
 /* Typography */
-h1, h2, h3, h4, h5, h6 {
+.app-container :is(h1, h2, h3, h4, h5, h6) {
   font-family: var(--font-display);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.text-muted { color: var(--text-muted); }
-.text-sm { font-size: 0.875rem; }
-.text-xs { font-size: 0.75rem; }
-.font-medium { font-weight: 500; }
-.font-semibold { font-weight: 600; }
+.text-muted {
+  color: var(--text-muted);
+}
+.text-sm {
+  font-size: 0.875rem;
+}
+.text-xs {
+  font-size: 0.75rem;
+}
+.font-medium {
+  font-weight: 500;
+}
+.font-semibold {
+  font-weight: 600;
+}
 
 /* Components */
 .card {

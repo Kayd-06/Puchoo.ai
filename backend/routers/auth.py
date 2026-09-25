@@ -1,0 +1,235 @@
+"""Signup, login, logout, and the current-user endpoint."""
+
+import secrets
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from backend import emailer
+from backend.database import get_db
+from backend.emailer import EmailDeliveryError
+from backend.models import AuthSession, LoginCode, User
+from backend.rate_limit import limiter
+from backend.schemas import (
+    AuthResponse,
+    LoginRequest,
+    OtpChallengeResponse,
+    SignupRequest,
+    UserResponse,
+    VerifyLoginRequest,
+)
+from backend.security import (
+    GENERIC_SIGNUP_ERROR,
+    INVALID_LOGIN_ERROR,
+    RATE_LIMIT_ERROR,
+    SESSION_TTL,
+    as_utc,
+    clear_session_cookie,
+    client_ip,
+    enforce_csrf,
+    hash_password,
+    hash_token,
+    new_session_token,
+    set_session_cookie,
+    tokens_match,
+    utcnow,
+    verify_password,
+    verify_password_for_missing_user,
+)
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+OTP_TTL = timedelta(minutes=10)
+INVALID_CODE = "That code is invalid or has expired."
+EMAIL_FAILED = "We could not send the verification email. Try again in a moment."
+
+
+def _user_response(user: User) -> UserResponse:
+    return UserResponse.model_validate(user)
+
+
+def _rate_limit(action: str, request: Request, email: str) -> None:
+    allowed = limiter.allow(
+        [
+            f"{action}:ip:{client_ip(request)}",
+            f"{action}:email:{email}",
+        ]
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": "900"})
+
+
+def _issue_session(db: Session, user: User, response: Response) -> None:
+    raw_token = new_session_token()
+    now = utcnow()
+    db.add(
+        AuthSession(
+            user_id=user.id,
+            token_hash=hash_token(raw_token),
+            created_at=now,
+            expires_at=now + SESSION_TTL,
+        )
+    )
+    db.commit()
+    set_session_cookie(response, raw_token)
+
+
+def _active_session(db: Session, raw_token: str | None) -> AuthSession | None:
+    if not raw_token:
+        return None
+    record = db.scalar(select(AuthSession).where(AuthSession.token_hash == hash_token(raw_token)))
+    if record is None or record.revoked_at is not None:
+        return None
+    if as_utc(record.expires_at) <= utcnow():
+        return None
+    return record
+
+
+def current_user(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> User:
+    from backend.config import settings
+
+    record = _active_session(db, request.cookies.get(settings.session_cookie_name))
+    if record is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    now = utcnow()
+    record.expires_at = now + timedelta(days=7)
+    db.commit()
+    set_session_cookie(response, request.cookies[settings.session_cookie_name])
+    return record.user
+
+
+@router.get("/csrf", status_code=204)
+def issue_csrf() -> Response:
+    """The CSRF cookie middleware attaches the double-submit cookie."""
+
+    return Response(status_code=204)
+
+
+@router.post("/signup", response_model=AuthResponse, status_code=201)
+def signup(
+    body: SignupRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    enforce_csrf(request)
+    _rate_limit("signup", request, body.email)
+    existing = db.scalar(select(User).where(User.email == body.email))
+    if existing is not None:
+        raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR)
+
+    user = User(
+        full_name=body.full_name,
+        email=body.email,
+        password_hash=hash_password(body.password),
+        workspace_type=body.workspace_type,
+        institute_name=body.institute_name,
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR) from None
+    db.refresh(user)
+    _issue_session(db, user, response)
+    return AuthResponse(user=_user_response(user))
+
+
+def _send_login_code(db: Session, user: User) -> None:
+    now = utcnow()
+    pending = db.scalars(
+        select(LoginCode).where(LoginCode.user_id == user.id, LoginCode.consumed_at.is_(None))
+    ).all()
+    for row in pending:
+        row.consumed_at = now
+    raw_code = f"{secrets.randbelow(1_000_000):06d}"
+    record = LoginCode(
+        user_id=user.id,
+        code_hash=hash_token(raw_code),
+        attempts=0,
+        created_at=now,
+        expires_at=now + OTP_TTL,
+    )
+    db.add(record)
+    db.commit()
+    try:
+        emailer.send_otp_email(user.email, raw_code)
+    except EmailDeliveryError:
+        record.consumed_at = utcnow()
+        db.commit()
+        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+
+
+@router.post("/login", response_model=OtpChallengeResponse)
+def login(
+    body: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> OtpChallengeResponse:
+    enforce_csrf(request)
+    _rate_limit("login", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    if user is None:
+        verify_password_for_missing_user(body.password)
+        raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
+    _send_login_code(db, user)
+    return OtpChallengeResponse(email=user.email)
+
+
+@router.post("/login/verify", response_model=AuthResponse)
+def verify_login(
+    body: VerifyLoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    enforce_csrf(request)
+    _rate_limit("verify", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    record = None
+    if user is not None:
+        record = db.scalar(
+            select(LoginCode)
+            .where(LoginCode.user_id == user.id, LoginCode.consumed_at.is_(None))
+            .order_by(LoginCode.created_at.desc())
+        )
+    now = utcnow()
+    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= now:
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    if not tokens_match(record.code_hash, hash_token(body.code)):
+        record.attempts += 1
+        if record.attempts >= 5:
+            record.consumed_at = now
+        db.commit()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    record.consumed_at = now
+    db.commit()
+    _issue_session(db, user, response)
+    return AuthResponse(user=_user_response(user))
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    enforce_csrf(request)
+    from backend.config import settings
+
+    record = _active_session(db, request.cookies.get(settings.session_cookie_name))
+    if record is not None and record.revoked_at is None:
+        record.revoked_at = utcnow()
+        db.commit()
+    clear_session_cookie(response)
+    return {"ok": True}
+
+
+@router.get("/me", response_model=UserResponse)
+def me(user: User = Depends(current_user)) -> UserResponse:
+    return _user_response(user)
