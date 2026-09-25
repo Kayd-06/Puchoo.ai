@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { ShieldCheck, History as HistoryIcon, User } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { fetchApi } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 export default function Settings() {
-  const { profile, activeWorkspaceId } = useAppContext();
+  const { activeWorkspaceId } = useAppContext();
+  const { user } = useAuth();
   const [guardrails, setGuardrails] = useState(null);
 
   useEffect(() => {
@@ -58,23 +60,23 @@ export default function Settings() {
               fontWeight: 'bold',
             }}
           >
-            {profile?.name ? profile.name.charAt(0).toUpperCase() : <User />}
+            {user?.full_name ? user.full_name.charAt(0).toUpperCase() : <User />}
           </div>
           <div style={{ flex: 1 }}>
             <h3 style={{ fontSize: '1.25rem', margin: 0 }}>
-              {profile?.name || 'User'}{' '}
+              {user?.full_name || 'User'}{' '}
               <span
                 className="badge badge-info"
                 style={{ marginLeft: '0.5rem', verticalAlign: 'middle' }}
               >
-                Pro Admin
+                {user?.workspace_type === 'institute' ? 'Institute member' : 'Personal workspace'}
               </span>
             </h3>
             <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.875rem' }}>
-              {profile?.department || 'Workspace'} • {profile?.email || 'email@example.com'}
+              {user?.institute_name || 'Puchoo.ai workspace'} • {user?.email || 'email@example.com'}
             </p>
           </div>
-          <button className="btn btn-secondary">Change password</button>
+          <span className="badge badge-ok">Email verified</span>
         </div>
 
         <div
@@ -96,7 +98,7 @@ export default function Settings() {
             >
               Full Name
             </label>
-            <input type="text" className="input" defaultValue={profile?.name || ''} />
+            <input type="text" className="input" value={user?.full_name || ''} readOnly />
           </div>
           <div>
             <label
@@ -109,7 +111,7 @@ export default function Settings() {
             >
               Email Address
             </label>
-            <input type="email" className="input" defaultValue={profile?.email || ''} />
+            <input type="email" className="input" value={user?.email || ''} readOnly />
           </div>
           <div>
             <label
@@ -122,7 +124,7 @@ export default function Settings() {
             >
               Department / Workspace
             </label>
-            <input type="text" className="input" defaultValue={profile?.department || ''} />
+            <input type="text" className="input" value={user?.institute_name || (user?.workspace_type === 'institute' ? 'Institute members' : 'Personal')} readOnly />
           </div>
           <div>
             <label
@@ -135,12 +137,10 @@ export default function Settings() {
             >
               Timezone
             </label>
-            <input type="text" className="input" defaultValue={profile?.timezone || ''} />
+            <input type="text" className="input" value={Intl.DateTimeFormat().resolvedOptions().timeZone} readOnly />
           </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="btn btn-primary">Save Profile</button>
-        </div>
+        <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Account details come from your verified Puchoo.ai profile.</p>
       </div>
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>

@@ -19,6 +19,6 @@ export function ProtectedRoute({ children }) {
 export function GuestRoute({ children }) {
   const { user, status } = useAuth();
   if (status === 'loading') return <SessionGate />;
-  if (user) return <Navigate to="/app" replace />;
+  if (user) return <Navigate to="/ask" replace />;
   return children;
 }

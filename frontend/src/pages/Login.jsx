@@ -54,7 +54,7 @@ export default function Login() {
     setToast('');
     try {
       await verifyLogin({ email: email.trim().toLowerCase(), code: code.trim() });
-      navigate('/app');
+      navigate('/ask', { replace: true });
     } catch (error) {
       setToast(error.message || 'That code is invalid or has expired.');
     } finally {
