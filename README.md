@@ -18,6 +18,74 @@ It implements a **FastAPI backend as the sole security boundary** and a **React 
 - Failed safe SELECT statements can be repaired by Qwen using the original question, plan, selected schema, previous SQL, and database error. Unsafe SQL is never retried.
 - SQLCoder and the `LOCAL_SQL_REPAIR_MODEL_*` settings are no longer used.
 
+## Website and accounts
+
+The public site is a React landing page. Accounts live in `backend/` and are the only place passwords and session tokens are handled. React never stores a token in `localStorage`. FastAPI remains the security boundary.
+
+### Setup
+
+Use Python 3.11 or newer and Node.js 20 or newer.
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\scripts\migrate.ps1
+cd frontend
+npm install
+```
+
+### Environment
+
+Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` to `backend/.env`. Do not commit either file.
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | SQLAlchemy URL. Defaults to a local SQLite file at `backend/puchoo_auth.db`. Use a Postgres URL when you have one. |
+| `FRONTEND_ORIGINS` | Comma-separated origins allowed to call the API with credentials. Default `http://localhost:5173,http://127.0.0.1:5173`. |
+| `COOKIE_SECURE` | `true` in production so the session and CSRF cookies are HTTPS-only. |
+| `ENVIRONMENT` | `development` or `production`. |
+| `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
+
+### Run both apps
+
+From the repo root, in two terminals:
+
+```powershell
+.\scripts\dev-backend.ps1
+.\scripts\dev-frontend.ps1
+```
+
+Or:
+
+```powershell
+npm run dev:backend
+npm run dev:frontend
+```
+
+Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies `/api` to the backend on port 8000.
+
+`uvicorn backend.main:app` serves accounts and the existing analytics API. `uvicorn apps.api.main:app` does the same if you already use that entrypoint.
+
+Auth tests:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest backend/tests -q
+```
+
+### How auth works
+
+- `POST /api/v1/auth/signup` accepts `full_name`, `email`, `password`, `confirm_password`, and `workspace_type` (`personal` or `institute`). Institute workspaces also require `institute_name`. Email is stored in lowercase. Passwords need at least 10 characters, including a letter and a number, and are hashed with argon2. A duplicate email gets a generic error.
+- `POST /api/v1/auth/login` checks the email and password. The error is always `Invalid email or password`. A correct password does not open a session yet. It emails a 6-digit code that expires in 10 minutes. `POST /api/v1/auth/login/verify` checks that code and then creates the session. SMTP uses `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, and `SMTP_PASSWORD`.
+- A successful signup or login creates a server-side session. The raw token is a random 256-bit value. Only its SHA-256 hash is stored. The browser receives it in an HttpOnly `puchoo_session` cookie with `SameSite=Lax` (and `Secure` when `COOKIE_SECURE=true`). Sessions last 7 days and slide forward on authenticated requests.
+- `POST /api/v1/auth/logout` revokes that session and clears the cookie. `GET /api/v1/auth/me` returns the current user, or 401.
+- State-changing auth requests need a double-submit CSRF token: the non-HttpOnly `csrf_token` cookie and the same value in the `X-CSRF-Token` header.
+- Login and signup are limited to 5 attempts per 15 minutes for each IP and each email. The limit returns 429.
+- Passwords and tokens are not written to logs.
+
+The landing page is `/`. `/login` and `/signup` are the account forms. `/app` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/app`.
+
+To replace the final call-to-action image, add a file at `frontend/public/cta-visual.png`.
+
 ## Run locally
 
 Use Python 3.10 or newer.

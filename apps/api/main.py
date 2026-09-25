@@ -1,16 +1,28 @@
 """Main FastAPI application."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from apps.api.security import CSRFMiddleware
 from apps.api.routers import workspaces, query, history, settings, sarvam
+from backend.database import init_db
+from backend.routers.auth import router as auth_router
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="Puchoo.ai API",
     description="FastAPI Backend for Puchoo.ai",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware for local React dev server
@@ -37,6 +49,7 @@ app.include_router(query.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sarvam.router, prefix="/api")
+app.include_router(auth_router, prefix="/api/v1")
 
 @app.get("/api/health")
 def health_check():

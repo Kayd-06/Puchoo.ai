@@ -3,9 +3,10 @@
 import secrets
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, Response, Header
-from fastapi.security import APIKeyHeader
+from fastapi import Depends, HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from backend.config import settings
 
 CSRF_HEADER_NAME = "X-CSRF-Token"
 
@@ -39,7 +40,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 token,
                 httponly=False,  # Needs to be readable by JS to send in header
                 samesite="lax",
-                secure=False # set to True in prod with HTTPS
+                secure=settings.cookie_secure,
             )
             
         return response
