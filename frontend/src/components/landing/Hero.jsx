@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ChevronDown } from 'lucide-react';
 import { PillButton, focusRing } from './ui';
 
 const stages = [
@@ -108,7 +109,7 @@ export default function Hero() {
   const stage = stages[index];
 
   return (
-    <section className="relative overflow-hidden bg-[#0A0F14] pt-32 text-white md:pt-40">
+    <section className="relative mx-3 mt-3 min-h-[calc(100vh-24px)] overflow-hidden rounded-[28px] bg-[#0A0F14] pt-28 text-white md:mx-4 md:mt-4 md:min-h-[calc(100vh-32px)] md:pt-36">
       <div
         className="dot-grid pointer-events-none absolute inset-0 opacity-70"
         aria-hidden="true"
@@ -126,19 +127,39 @@ export default function Hero() {
         <span className="streak top-[74%]" style={{ animationDelay: '-6s' }} />
         <span className="streak top-[86%]" style={{ animationDelay: '-11s' }} />
       </div>
-      <div className="relative mx-auto max-w-4xl px-5 pb-20 text-center md:px-8">
-        <h1 className="text-[clamp(44px,7vw,84px)] leading-[0.96] font-medium tracking-[-0.04em]">
+      <div className="relative mx-auto flex max-w-4xl flex-col items-center px-5 pb-10 text-center md:px-8">
+        <motion.h1
+          className="text-[clamp(44px,7vw,84px)] leading-[0.96] font-medium tracking-[-0.04em]"
+          initial={reduce ? false : { opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.9, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+        >
           Ask your data anything. <span className="text-[#D1D5DB]">In your language.</span>
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-relaxed text-[#D1D5DB] md:text-[18px]">
+        </motion.h1>
+        <motion.p
+          className="mx-auto mt-6 max-w-2xl text-[17px] leading-relaxed text-[#D1D5DB] md:text-[18px]"
+          initial={reduce ? false : { opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.9, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        >
           Safe, approved, read-only analytics for students, teams and institutes.
-        </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        </motion.p>
+        <motion.div
+          className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          initial={reduce ? false : { opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.32, ease: [0.16, 1, 0.3, 1] }}
+        >
           <PillButton to="/signup">Get started</PillButton>
           <PillButton href="#how-it-works">See how it works</PillButton>
-        </div>
+        </motion.div>
 
-        <div className="mx-auto mt-14 max-w-xl rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left backdrop-blur-md md:p-6">
+        <motion.div
+          className="mx-auto mt-14 w-full max-w-xl rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-left backdrop-blur-md md:p-6"
+          initial={reduce ? false : { opacity: 0, y: 36 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        >
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs tracking-[0.14em] text-[#D1D5DB] uppercase">Demo</p>
             <p className="text-xs text-[#D1D5DB]">{stage.label}</p>
@@ -160,13 +181,13 @@ export default function Hero() {
               </motion.div>
             </AnimatePresence>
           </div>
-        </div>
+        </motion.div>
         <a
           href="#about"
-          className={`mt-10 inline-flex flex-col items-center gap-3 text-xs tracking-[0.18em] text-[#D1D5DB] uppercase ${focusRing} rounded-full`}
+          className={`mt-10 inline-flex flex-col items-center gap-2 text-xs tracking-[0.18em] text-[#D1D5DB] uppercase ${focusRing} rounded-full`}
         >
           Scroll
-          <span className="scroll-cue block h-8 w-px bg-white/80" aria-hidden="true" />
+          <ChevronDown className="scroll-cue h-4 w-4" aria-hidden="true" />
         </a>
       </div>
     </section>

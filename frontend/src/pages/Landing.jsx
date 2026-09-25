@@ -17,7 +17,7 @@ import { focusRing } from '../components/landing/ui';
 
 export default function Landing() {
   return (
-    <div className="site bg-[#0A0F14] text-[#111827]">
+    <div className="site bg-[#05080c] text-[#111827]">
       <title>Puchoo.ai · Multilingual Text-to-SQL</title>
       <a
         href="#main"

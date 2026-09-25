@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight,
@@ -180,7 +180,7 @@ const filters = ['General', 'Security', 'Languages', 'Accounts'];
 
 export function About() {
   return (
-    <section id="about" className="bg-[#F9FAFB] py-20 md:py-28">
+    <section id="about" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 md:px-8 lg:grid-cols-2">
         <Reveal>
           <div className="relative aspect-square overflow-hidden rounded-3xl bg-[#0A0F14]">
@@ -212,7 +212,7 @@ export function BuiltWith() {
   const row = [...tools, ...tools];
   return (
     <section
-      className="bg-white py-14"
+      className="mx-3 overflow-hidden rounded-[28px] bg-white py-14 md:mx-4"
       aria-label="Built with FastAPI, React, Sarvam AI, Claude, PostgreSQL, and Redis"
     >
       <div className="mx-auto max-w-6xl px-5 md:px-8">
@@ -248,22 +248,31 @@ const shapes = {
 };
 
 function Geometry({ id }) {
+  const reduce = useReducedMotion();
   return (
-    <svg viewBox="0 0 220 180" className="draw-icon h-28 w-40 text-[#1D4ED8]" aria-hidden="true">
-      <path
-        d={shapes[id]}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
+    <motion.div
+      key={id}
+      initial={reduce ? false : { opacity: 0, rotate: -18, scale: 0.86 }}
+      animate={{ opacity: 1, rotate: 0, scale: 1 }}
+      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+      className="mx-auto h-44 w-44 md:h-56 md:w-56"
+    >
+      <svg viewBox="0 0 220 180" className="draw-icon h-full w-full text-[#1D4ED8]" aria-hidden="true">
+        <path
+          d={shapes[id]}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    </motion.div>
   );
 }
 
 export function Principle() {
   return (
-    <section className="relative overflow-hidden bg-[#0A0F14] px-5 py-28 text-center md:px-8 md:py-36">
+    <section className="relative mx-3 my-3 overflow-hidden rounded-[28px] bg-[#0A0F14] px-5 py-28 text-center md:mx-4 md:my-4 md:px-8 md:py-36">
       <div
         className="pointer-events-none absolute top-1/2 left-1/2 h-[420px] w-[680px] -translate-x-1/2 -translate-y-1/2"
         style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.28), transparent 68%)' }}
@@ -289,8 +298,20 @@ export function Principle() {
 
 export function Capabilities() {
   const [active, setActive] = useState(capabilities[0].id);
+  const [paused, setPaused] = useState(false);
   const reduce = useReducedMotion();
   const selected = capabilities.find((item) => item.id === active) || capabilities[0];
+
+  useEffect(() => {
+    if (reduce || paused) return undefined;
+    const timer = setInterval(() => {
+      setActive((current) => {
+        const index = capabilities.findIndex((item) => item.id === current);
+        return capabilities[(index + 1) % capabilities.length].id;
+      });
+    }, 3200);
+    return () => clearInterval(timer);
+  }, [reduce, paused, active]);
 
   function onKeyDown(event) {
     const ids = capabilities.map((item) => item.id);
@@ -310,13 +331,17 @@ export function Capabilities() {
   }
 
   return (
-    <section id="capabilities" className="bg-[#F9FAFB] py-20 md:py-28">
+    <section id="capabilities" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 md:px-8 lg:grid-cols-[280px_1fr]">
         <div
           role="tablist"
           aria-orientation="vertical"
           aria-label="Capabilities"
           className="flex gap-2 overflow-x-auto lg:flex-col"
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onFocus={() => setPaused(true)}
+          onBlur={() => setPaused(false)}
         >
           {capabilities.map((item) => {
             const selectedTab = item.id === active;
@@ -331,11 +356,18 @@ export function Capabilities() {
                 tabIndex={selectedTab ? 0 : -1}
                 onClick={() => setActive(item.id)}
                 onKeyDown={onKeyDown}
-                className={`rounded-2xl px-4 py-3 text-left text-sm whitespace-nowrap lg:whitespace-normal ${focusRing} ${
-                  selectedTab ? 'bg-white text-[#111827]' : 'text-[#6B7280] hover:text-[#111827]'
+                className={`relative rounded-2xl px-4 py-3 text-left text-sm whitespace-nowrap lg:whitespace-normal ${focusRing} ${
+                  selectedTab ? 'text-[#111827]' : 'text-[#9CA3AF] hover:text-[#111827]'
                 }`}
               >
-                {item.title}
+                {selectedTab ? (
+                  <motion.span
+                    layoutId="capability-highlight"
+                    className="absolute inset-0 rounded-2xl bg-white"
+                    transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+                  />
+                ) : null}
+                <span className="relative">{item.title}</span>
               </button>
             );
           })}
@@ -347,18 +379,21 @@ export function Capabilities() {
               role="tabpanel"
               id={`panel-${selected.id}`}
               aria-labelledby={`tab-${selected.id}`}
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={reduce ? undefined : { opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              initial={reduce ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduce ? undefined : { opacity: 0, y: -8 }}
+              transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              className="grid items-center gap-8 md:grid-cols-[1fr_220px]"
             >
-              <Geometry id={selected.id} />
-              <h3 className="mt-8 text-[32px] leading-tight font-medium tracking-[-0.03em] text-[#111827] md:text-[40px]">
+              <div>
+              <h3 className="text-[32px] leading-tight font-medium tracking-[-0.03em] text-[#111827] md:text-[40px]">
                 {selected.title}
               </h3>
               <p className="mt-4 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
                 {selected.description}
               </p>
+              </div>
+              <Geometry id={selected.id} />
             </motion.div>
           </AnimatePresence>
         </div>
@@ -369,7 +404,7 @@ export function Capabilities() {
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="bg-[#0A0F14] py-20 text-white md:py-28">
+    <section id="how-it-works" className="mx-3 my-3 rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 md:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeading light title="Four steps," muted="then an answer." />
@@ -402,7 +437,7 @@ const pipeline = ['Browser', 'FastAPI', 'Guardrail', 'Approval', 'One read-only 
 
 export function Security() {
   return (
-    <section id="security" className="bg-white py-20 md:py-28">
+    <section id="security" className="mx-3 my-3 rounded-[28px] bg-white py-20 md:mx-4 md:my-4 md:py-28">
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <Reveal>
           <SectionHeading title="The boundary stays" muted="on the server." />
@@ -489,7 +524,7 @@ export function Examples() {
   }
 
   return (
-    <section className="bg-[#0A0F14] py-20 text-white md:py-28" aria-labelledby="examples-heading">
+    <section className="mx-3 my-3 overflow-hidden rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28" aria-labelledby="examples-heading">
       <div className="mx-auto flex max-w-6xl items-end justify-between gap-6 px-5 md:px-8">
         <div>
           <p className="text-xs tracking-[0.14em] text-[#D1D5DB] uppercase">Demo</p>
@@ -517,9 +552,13 @@ export function Examples() {
         style={{ scrollPaddingLeft: '1.25rem' }}
       >
         {examples.map((example) => (
-          <article
+          <motion.article
             key={example.question}
             className="min-h-[340px] w-[280px] shrink-0 rounded-3xl border border-white/10 bg-white/[0.04] p-6 md:w-[320px]"
+            initial={reduce ? false : { opacity: 0.4, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: false, amount: 0.5 }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
             <p className="text-xs text-[#D1D5DB]">{example.language}</p>
             <h3 className="mt-4 text-xl leading-snug font-medium tracking-[-0.02em]">
@@ -540,7 +579,7 @@ export function Examples() {
                 />
               ))}
             </svg>
-          </article>
+          </motion.article>
         ))}
       </div>
     </section>
@@ -581,7 +620,7 @@ export function Faq() {
   }
 
   return (
-    <section id="faq" className="bg-[#F9FAFB] py-20 md:py-28">
+    <section id="faq" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
       <div className="mx-auto grid max-w-6xl gap-12 px-5 md:px-8 lg:grid-cols-[0.8fr_1.2fr]">
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeading title="Questions," muted="answered plainly." />
@@ -663,7 +702,7 @@ export function Faq() {
 
 export function FinalCta() {
   return (
-    <section className="bg-[#F9FAFB] px-4 pb-20 md:px-8">
+    <section className="px-3 pt-3 pb-8 md:px-4">
       <div className="relative mx-auto grid max-w-6xl overflow-hidden rounded-3xl bg-[#0A0F14] text-white lg:grid-cols-[1.2fr_0.8fr]">
         <div
           className="pointer-events-none absolute inset-0"
@@ -698,7 +737,7 @@ export function FinalCta() {
 
 export function Footer() {
   return (
-    <footer className="bg-[#0A0F14] px-5 py-14 text-[#D1D5DB] md:px-8">
+    <footer className="mx-3 mb-3 rounded-[28px] bg-[#0A0F14] px-5 py-14 text-[#D1D5DB] md:mx-4 md:mb-4 md:px-8">
       <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <p className="text-lg font-medium tracking-[-0.03em] text-white">Puchoo.ai</p>

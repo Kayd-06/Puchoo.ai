@@ -33,8 +33,10 @@ export default function Navbar() {
   return (
     <header
       id="top"
-      className={`fixed inset-x-0 top-0 z-40 text-white transition-colors ${
-        scrolled || open ? 'bg-[#0A0F14]/80 backdrop-blur-md' : 'bg-transparent'
+      className={`fixed z-40 text-white transition-all ${
+        scrolled || open
+          ? 'inset-x-0 top-0 bg-[#0A0F14]/80 backdrop-blur-md'
+          : 'inset-x-3 top-3 rounded-t-[28px] md:inset-x-4 md:top-4'
       }`}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:h-[72px] md:px-8">

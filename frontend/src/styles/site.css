@@ -39,7 +39,7 @@
 }
 
 .scroll-cue {
-  animation: cue 1.8s ease-in-out infinite;
+  animation: cue 1.6s ease-in-out infinite;
 }
 
 @keyframes cue {

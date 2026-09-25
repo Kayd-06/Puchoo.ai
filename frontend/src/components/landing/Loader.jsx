@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import NodeSphere from './NodeSphere';
 import { focusRing } from './ui';
 
-const SEEN_KEY = 'puchoo-loader-seen-v2';
-const START_KEY = 'puchoo-loader-start-v2';
-const DURATION = 2800;
+const SEEN_KEY = 'puchoo-loader-seen-v3';
+const START_KEY = 'puchoo-loader-start-v3';
+const DURATION = 3600;
 
 function finish(setDismissed) {
   sessionStorage.setItem(SEEN_KEY, '1');
@@ -16,6 +16,7 @@ function finish(setDismissed) {
 export default function Loader() {
   const reduce = useReducedMotion();
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(SEEN_KEY) === '1');
+  const [leaving, setLeaving] = useState(false);
   const [percent, setPercent] = useState(0);
   const visible = !reduce && !dismissed;
 
@@ -27,10 +28,10 @@ export default function Loader() {
     const timer = setInterval(() => {
       const next = Math.min(100, Math.round(((Date.now() - started) / DURATION) * 100));
       setPercent(next);
-      if (next >= 100) finish(setDismissed);
+      if (next >= 100) setLeaving(true);
     }, 40);
     const onKey = (event) => {
-      if (event.key === 'Escape') finish(setDismissed);
+      if (event.key === 'Escape') setLeaving(true);
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -42,10 +43,15 @@ export default function Loader() {
   if (!visible) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[70] grid place-items-center bg-[#070b10] px-4 text-white"
+    <motion.div
+      className="fixed inset-3 z-[70] grid place-items-center overflow-hidden rounded-[28px] bg-[#070b10] text-white md:inset-4"
       role="dialog"
       aria-label="Loading Puchoo.ai"
+      animate={leaving ? { opacity: 0, scale: 1.03 } : { opacity: 1, scale: 1 }}
+      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+      onAnimationComplete={() => {
+        if (leaving) finish(setDismissed);
+      }}
     >
       <div
         className="dot-grid pointer-events-none absolute inset-0 opacity-80"
@@ -67,15 +73,15 @@ export default function Loader() {
         <div className="relative h-[46vh] min-h-[240px] w-full max-w-3xl">
           <NodeSphere className="h-full w-full" />
         </div>
-        <p className="mt-2 text-sm tracking-[0.04em] text-[#D1D5DB]">Getting ready · {percent}%</p>
+        <p className="mt-2 text-sm tracking-[0.08em] text-[#D1D5DB]">Getting ready · {percent}%</p>
         <button
           type="button"
           className={`mt-6 rounded-full px-3 py-1 text-sm text-[#D1D5DB] ${focusRing}`}
-          onClick={() => finish(setDismissed)}
+          onClick={() => setLeaving(true)}
         >
           Skip
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }

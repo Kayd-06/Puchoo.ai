@@ -51,15 +51,25 @@ export default function NodeSphere({ className = 'h-full w-full' }) {
       const centerY = height / 2;
       const scale = Math.min(width, height) * 0.36;
 
-      DOTS.forEach(([x, y, z]) => {
+      DOTS.forEach(([x, y, z], index) => {
         const xr = x * Math.cos(rotation) + z * Math.sin(rotation);
         const zr = -x * Math.sin(rotation) + z * Math.cos(rotation);
         const depth = (zr + 1) / 2;
-        context.globalAlpha = 0.18 + depth * 0.8;
+        const px = centerX + xr * scale;
+        const py = centerY + y * scale;
+        context.globalAlpha = 0.15 + depth * 0.7;
         context.fillStyle = '#e8eefc';
         context.beginPath();
-        context.arc(centerX + xr * scale, centerY + y * scale, 0.8 + depth * 1.3, 0, Math.PI * 2);
+        context.arc(px, py, 0.7 + depth * 1.1, 0, Math.PI * 2);
         context.fill();
+        if (index % 16 === 0) {
+          context.globalAlpha = 0.28 + depth * 0.55;
+          context.strokeStyle = 'rgba(255,255,255,0.9)';
+          context.lineWidth = 1.1;
+          context.beginPath();
+          context.arc(px, py, 7 + depth * 16, 0, Math.PI * 2);
+          context.stroke();
+        }
       });
 
       context.lineWidth = 1.15;
