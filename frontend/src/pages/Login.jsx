@@ -164,6 +164,9 @@ export default function Login() {
               error={errors.password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <div className="-mt-2 text-right">
+              <Link to="/forgot-password" className={`text-sm text-[#334d81] underline-offset-4 hover:underline ${focusRing} rounded-full`}>Forgot password?</Link>
+            </div>
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Logging in…' : 'Log in'}
             </PillButton>

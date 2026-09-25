@@ -102,3 +102,8 @@
     stroke-dashoffset: 0 !important;
   }
 }
+
+.puchoo-noise { background-image: radial-gradient(rgba(182,207,255,.18) .7px, transparent .7px); background-size: 18px 18px; mask-image: linear-gradient(to bottom,black,transparent 82%); }
+.puchoo-gradient-text { background: linear-gradient(105deg,#fff 8%,#a4bdf7 46%,#5678bd 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.puchoo-orbit { position:absolute; inset:8%; border:1px solid rgba(180,202,246,.26); border-radius:50%; transform:rotate(-18deg); }.puchoo-orbit-one{animation:puchoo-spin 38s linear infinite}.puchoo-orbit-two{inset:24%;transform:rotate(42deg);border-color:rgba(143,178,250,.36);animation:puchoo-spin-reverse 27s linear infinite}.puchoo-orbit-three{inset:38% 6%;transform:rotate(68deg);border-color:rgba(204,219,255,.2);animation:puchoo-spin 22s linear infinite}.puchoo-star{position:absolute;height:5px;width:5px;border-radius:50%;background:#e8f0ff;box-shadow:0 0 18px 4px rgba(152,188,255,.68)}.puchoo-star-one{top:19%;right:30%;animation:puchoo-pulse 3s ease-in-out infinite}.puchoo-star-two{bottom:23%;left:20%;animation:puchoo-pulse 4s -1.4s ease-in-out infinite}.puchoo-star-three{top:50%;left:7%;animation:puchoo-pulse 3.5s -.6s ease-in-out infinite}@keyframes puchoo-spin{to{transform:rotate(342deg)}}@keyframes puchoo-spin-reverse{to{transform:rotate(-318deg)}}@keyframes puchoo-pulse{50%{transform:scale(2.2);opacity:.45}}
+@media (prefers-reduced-motion: reduce){.puchoo-orbit,.puchoo-star{animation:none!important}}

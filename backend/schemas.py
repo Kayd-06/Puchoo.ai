@@ -89,6 +89,23 @@ class ResendOtpRequest(BaseModel):
         return value
 
 
+class PasswordForgotRequest(ResendOtpRequest):
+    pass
+
+
+class PasswordResetRequest(VerifyLoginRequest):
+    password: str
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def valid_password(self):
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+        if not password_is_valid(self.password):
+            raise ValueError("Password must be at least 10 characters and include a letter and a number.")
+        return self
+
+
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str

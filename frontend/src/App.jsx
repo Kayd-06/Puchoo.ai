@@ -6,6 +6,7 @@ import AppShell from './components/layout/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 import Legal from './pages/Legal';
 import AskData from './pages/AskData';
@@ -35,6 +36,7 @@ function App() {
               </GuestRoute>
             }
           />
+          <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
           <Route
             path="/signup"
             element={

@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 from backend import emailer
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, LoginCode, User
+from backend.models import AuthSession, LoginCode, PasswordResetCode, User
 from backend.rate_limit import limiter
 from backend.schemas import (
     AuthResponse,
     LoginRequest,
     OtpChallengeResponse,
+    PasswordForgotRequest,
+    PasswordResetRequest,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
@@ -207,6 +209,42 @@ def resend_login_code(
         _send_login_code(db, user)
     # Keep this response uniform so the endpoint does not disclose accounts.
     return OtpChallengeResponse(email=str(body.email))
+
+
+@router.post("/password/forgot", response_model=OtpChallengeResponse)
+def forgot_password(body: PasswordForgotRequest, request: Request, db: Session = Depends(get_db)) -> OtpChallengeResponse:
+    enforce_csrf(request)
+    _rate_limit("password-reset", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    if user is not None:
+        now = utcnow()
+        for row in db.scalars(select(PasswordResetCode).where(PasswordResetCode.user_id == user.id, PasswordResetCode.consumed_at.is_(None))).all():
+            row.consumed_at = now
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        db.add(PasswordResetCode(user_id=user.id, code_hash=hash_token(code), attempts=0, expires_at=now + OTP_TTL))
+        db.commit()
+        try:
+            emailer.send_otp_email(user.email, code)
+        except EmailDeliveryError:
+            raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    return OtpChallengeResponse(email=str(body.email))
+
+
+@router.post("/password/reset")
+def reset_password(body: PasswordResetRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    enforce_csrf(request)
+    _rate_limit("password-reset-verify", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    record = db.scalar(select(PasswordResetCode).where(PasswordResetCode.user_id == user.id, PasswordResetCode.consumed_at.is_(None)).order_by(PasswordResetCode.expires_at.desc())) if user else None
+    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= utcnow() or not tokens_match(record.code_hash, hash_token(body.code)):
+        if record is not None:
+            record.attempts += 1
+            db.commit()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    record.consumed_at = utcnow()
+    user.password_hash = hash_password(body.password)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/login/verify", response_model=AuthResponse)
