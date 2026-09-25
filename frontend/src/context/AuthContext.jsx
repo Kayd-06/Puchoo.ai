@@ -3,6 +3,7 @@ import {
   api,
   login as loginRequest,
   logout as logoutRequest,
+  resendLoginCode as resendLoginCodeRequest,
   signup as signupRequest,
   verifyLogin as verifyRequest,
 } from '../api/auth';
@@ -37,15 +38,16 @@ export function AuthProvider({ children }) {
       async requestLogin(payload) {
         return loginRequest(payload);
       },
+      async resendLoginCode(payload) {
+        return resendLoginCodeRequest(payload);
+      },
       async verifyLogin(payload) {
         const result = await verifyRequest(payload);
         setUser(result.user);
         return result.user;
       },
-      async signup(payload) {
-        const result = await signupRequest(payload);
-        setUser(result.user);
-        return result.user;
+      async requestSignup(payload) {
+        return signupRequest(payload);
       },
       async logout() {
         await logoutRequest();

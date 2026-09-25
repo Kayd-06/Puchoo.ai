@@ -3,12 +3,12 @@ import { Mark, focusRing } from '../landing/ui';
 
 export default function AuthShell({ title, subtitle, children, footer }) {
   return (
-    <div className="site grid min-h-screen lg:grid-cols-2">
-      <section className="relative flex flex-col justify-between overflow-hidden bg-[#0A0F14] px-6 py-8 text-white md:px-12 md:py-12">
-        <div className="dot-grid pointer-events-none absolute inset-0" aria-hidden="true" />
+    <div className="site grid min-h-screen bg-[#070b17] lg:grid-cols-[1.08fr_.92fr]">
+      <section className="relative flex min-h-[42vh] flex-col justify-between overflow-hidden bg-[#0c1830] px-6 py-8 text-white md:px-12 md:py-12">
+        <div className="puchoo-noise pointer-events-none absolute inset-0" aria-hidden="true" />
         <div
           className="pointer-events-none absolute -top-20 -left-10 h-80 w-80 rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.32), transparent 68%)' }}
+          style={{ background: 'radial-gradient(circle, rgba(116,156,246,0.32), transparent 68%)' }}
           aria-hidden="true"
         />
         <Link
@@ -19,18 +19,19 @@ export default function AuthShell({ title, subtitle, children, footer }) {
           Puchoo.ai
         </Link>
         <div className="relative mt-16 max-w-lg lg:mt-0">
-          <h1 className="text-[clamp(36px,5vw,60px)] leading-[1.02] font-medium tracking-[-0.04em]">
-            Ask your data anything. <span className="text-[#D1D5DB]">In your language.</span>
+          <p className="text-xs tracking-[.18em] text-[#aebcd6] uppercase">Puchoo account</p>
+          <h1 className="mt-5 text-[clamp(36px,5vw,60px)] leading-[.94] font-medium tracking-[-0.055em]">
+            Intelligence starts with a <span className="text-[#9dbaf5]">safe question.</span>
           </h1>
           <p className="mt-5 text-[16px] leading-relaxed text-[#D1D5DB] md:text-[18px]">
-            Safe, approved, read-only analytics. No query runs until you approve it.
+            Secure sign-in, verified email codes, and governed data exploration in one place.
           </p>
         </div>
       </section>
-      <section className="flex items-center bg-white px-6 py-12 md:px-14">
+      <section className="flex items-center bg-[#edf1f9] px-6 py-12 md:px-14">
         <div className="mx-auto w-full max-w-md">
-          <h2 className="text-[32px] font-medium tracking-[-0.03em] text-[#111827]">{title}</h2>
-          <p className="mt-2 text-[16px] text-[#6B7280]">{subtitle}</p>
+          <h2 className="text-[36px] font-medium tracking-[-0.045em] text-[#0c1830]">{title}</h2>
+          <p className="mt-2 text-[16px] leading-relaxed text-[#60708d]">{subtitle}</p>
           <div className="mt-8">{children}</div>
           <p className="mt-6 text-sm text-[#6B7280]">{footer}</p>
         </div>

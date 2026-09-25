@@ -14,6 +14,7 @@ class SignupRequest(BaseModel):
     confirm_password: str
     workspace_type: Literal["personal", "institute"]
     institute_name: str | None = None
+    institute_code: str | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -50,7 +51,9 @@ class SignupRequest(BaseModel):
             raise ValueError(
                 "Password must be at least 10 characters and include a letter and a number."
             )
-        if self.workspace_type == "institute":
+        if self.institute_code:
+            self.institute_code = self.institute_code.strip()
+        if self.workspace_type == "institute" and not self.institute_code:
             if not self.institute_name:
                 raise ValueError("Institute name is required.")
         else:
@@ -78,6 +81,34 @@ class VerifyLoginRequest(BaseModel):
         return cleaned
 
 
+class ResendOtpRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
+class PasswordForgotRequest(ResendOtpRequest):
+    pass
+
+
+class PasswordResetRequest(VerifyLoginRequest):
+    password: str
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def valid_password(self):
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+        if not password_is_valid(self.password):
+            raise ValueError("Password must be at least 10 characters and include a letter and a number.")
+        return self
+
+
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str
@@ -103,6 +134,12 @@ class UserResponse(BaseModel):
     email: str
     workspace_type: str
     institute_name: str | None = None
+    institute_owner_id: str | None = None
+
+
+class InstituteInviteResponse(BaseModel):
+    code: str
+    institute_name: str
 
 
 class AuthResponse(BaseModel):

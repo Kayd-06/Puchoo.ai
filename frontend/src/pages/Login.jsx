@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthShell, { Field, inputClass } from '../components/auth/AuthShell';
 import PasswordField from '../components/auth/PasswordField';
 import { PillButton, focusRing } from '../components/landing/ui';
@@ -7,11 +7,12 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { requestLogin, verifyLogin } = useAuth();
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const { requestLogin, resendLoginCode, verifyLogin } = useAuth();
+  const [email, setEmail] = useState(() => location.state?.email || '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [step, setStep] = useState('password');
+  const [step, setStep] = useState(() => (location.state?.verificationPending ? 'code' : 'password'));
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState('');
   const [pending, setPending] = useState(false);
@@ -53,9 +54,24 @@ export default function Login() {
     setToast('');
     try {
       await verifyLogin({ email: email.trim().toLowerCase(), code: code.trim() });
-      navigate('/app');
+      navigate('/ask', { replace: true });
     } catch (error) {
       setToast(error.message || 'That code is invalid or has expired.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function onResend() {
+    setPending(true);
+    setToast('');
+    setErrors({});
+    try {
+      await resendLoginCode({ email: email.trim().toLowerCase() });
+      setCode('');
+      setToast('We sent a new 6-digit code to your email.');
+    } catch (error) {
+      setToast(error.message || 'Unable to resend the verification code.');
     } finally {
       setPending(false);
     }
@@ -106,9 +122,22 @@ export default function Login() {
               type="button"
               className={`text-sm text-[#111827] underline-offset-4 hover:underline ${focusRing} rounded-full`}
               disabled={pending}
-              onClick={onSubmit}
+              onClick={onResend}
             >
               Resend code
+            </button>
+            <button
+              type="button"
+              className={`ml-4 text-sm text-[#111827] underline-offset-4 hover:underline ${focusRing} rounded-full`}
+              disabled={pending}
+              onClick={() => {
+                setStep('password');
+                setCode('');
+                setErrors({});
+                setToast('');
+              }}
+            >
+              Use a different email
             </button>
           </form>
         ) : null}
@@ -135,6 +164,9 @@ export default function Login() {
               error={errors.password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <div className="-mt-2 text-right">
+              <Link to="/forgot-password" className={`text-sm text-[#334d81] underline-offset-4 hover:underline ${focusRing} rounded-full`}>Forgot password?</Link>
+            </div>
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Logging in…' : 'Log in'}
             </PillButton>

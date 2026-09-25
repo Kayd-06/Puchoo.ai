@@ -4,6 +4,8 @@ import secrets
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response
+from backend.database import get_db
+from backend.routers.auth import current_user
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import settings
@@ -45,10 +47,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             
         return response
 
-def get_workspace_guard(workspace_id: str):
-    """Dependency to check if a workspace exists and belongs to the current session."""
+def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
+    """Return a workspace only when it belongs to this user or their institute."""
     from apps.api.session import session_manager
     workspace = session_manager.get_workspace(workspace_id)
-    if not workspace:
+    owner_id = workspace.get("owner_user_id")
+    allowed_owner = user.institute_owner_id or user.id
+    if not workspace or not owner_id or owner_id != allowed_owner:
         raise HTTPException(status_code=404, detail="Workspace not found or unauthorized")
     return workspace

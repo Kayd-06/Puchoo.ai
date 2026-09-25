@@ -11,12 +11,16 @@ from sqlalchemy.orm import Session
 from backend import emailer
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, LoginCode, User
+from backend.models import AuthSession, InstituteInvite, LoginCode, PasswordResetCode, User
 from backend.rate_limit import limiter
 from backend.schemas import (
     AuthResponse,
     LoginRequest,
     OtpChallengeResponse,
+    InstituteInviteResponse,
+    PasswordForgotRequest,
+    PasswordResetRequest,
+    ResendOtpRequest,
     SignupRequest,
     UserResponse,
     VerifyLoginRequest,
@@ -111,25 +115,34 @@ def issue_csrf() -> Response:
     return Response(status_code=204)
 
 
-@router.post("/signup", response_model=AuthResponse, status_code=201)
+@router.post("/signup", response_model=OtpChallengeResponse, status_code=202)
 def signup(
     body: SignupRequest,
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-) -> AuthResponse:
+) -> OtpChallengeResponse:
     enforce_csrf(request)
     _rate_limit("signup", request, body.email)
     existing = db.scalar(select(User).where(User.email == body.email))
     if existing is not None:
         raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR)
 
+    owner = None
+    if body.institute_code:
+        invite = db.scalar(select(InstituteInvite).where(InstituteInvite.code_hash == hash_token(body.institute_code), InstituteInvite.revoked_at.is_(None)))
+        if invite is None:
+            raise HTTPException(status_code=400, detail="That institute invite code is invalid.")
+        owner = db.get(User, invite.owner_user_id)
+        if owner is None:
+            raise HTTPException(status_code=400, detail="That institute invite code is invalid.")
     user = User(
         full_name=body.full_name,
         email=body.email,
         password_hash=hash_password(body.password),
-        workspace_type=body.workspace_type,
-        institute_name=body.institute_name,
+        workspace_type="institute" if owner else body.workspace_type,
+        institute_name=owner.institute_name if owner else body.institute_name,
+        institute_owner_id=owner.id if owner else None,
     )
     db.add(user)
     try:
@@ -138,8 +151,29 @@ def signup(
         db.rollback()
         raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR) from None
     db.refresh(user)
-    _issue_session(db, user, response)
-    return AuthResponse(user=_user_response(user))
+    try:
+        _send_login_code(db, user)
+    except HTTPException:
+        # Do not leave an unreachable account behind when delivery is unavailable.
+        db.delete(user)
+        db.commit()
+        raise
+    return OtpChallengeResponse(email=user.email)
+
+
+@router.post("/institute/invite", response_model=InstituteInviteResponse)
+def create_institute_invite(request: Request, response: Response, db: Session = Depends(get_db)) -> InstituteInviteResponse:
+    enforce_csrf(request)
+    user = current_user(request, response, db)
+    if user.workspace_type != "institute" or user.institute_owner_id:
+        raise HTTPException(status_code=403, detail="Only the institute owner can create invite codes.")
+    now = utcnow()
+    for invite in db.scalars(select(InstituteInvite).where(InstituteInvite.owner_user_id == user.id, InstituteInvite.revoked_at.is_(None))).all():
+        invite.revoked_at = now
+    code = f"PUCHOO-{secrets.token_urlsafe(7).upper()}"
+    db.add(InstituteInvite(owner_user_id=user.id, code_hash=hash_token(code)))
+    db.commit()
+    return InstituteInviteResponse(code=code, institute_name=user.institute_name or "Institute workspace")
 
 
 def _send_login_code(db: Session, user: User) -> None:
@@ -183,6 +217,59 @@ def login(
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
     _send_login_code(db, user)
     return OtpChallengeResponse(email=user.email)
+
+
+@router.post("/login/resend", response_model=OtpChallengeResponse)
+def resend_login_code(
+    body: ResendOtpRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> OtpChallengeResponse:
+    """Replace a pending code without requiring the user to re-enter a password."""
+
+    enforce_csrf(request)
+    _rate_limit("resend", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    if user is not None:
+        _send_login_code(db, user)
+    # Keep this response uniform so the endpoint does not disclose accounts.
+    return OtpChallengeResponse(email=str(body.email))
+
+
+@router.post("/password/forgot", response_model=OtpChallengeResponse)
+def forgot_password(body: PasswordForgotRequest, request: Request, db: Session = Depends(get_db)) -> OtpChallengeResponse:
+    enforce_csrf(request)
+    _rate_limit("password-reset", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    if user is not None:
+        now = utcnow()
+        for row in db.scalars(select(PasswordResetCode).where(PasswordResetCode.user_id == user.id, PasswordResetCode.consumed_at.is_(None))).all():
+            row.consumed_at = now
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        db.add(PasswordResetCode(user_id=user.id, code_hash=hash_token(code), attempts=0, expires_at=now + OTP_TTL))
+        db.commit()
+        try:
+            emailer.send_otp_email(user.email, code)
+        except EmailDeliveryError:
+            raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    return OtpChallengeResponse(email=str(body.email))
+
+
+@router.post("/password/reset")
+def reset_password(body: PasswordResetRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    enforce_csrf(request)
+    _rate_limit("password-reset-verify", request, str(body.email))
+    user = db.scalar(select(User).where(User.email == str(body.email)))
+    record = db.scalar(select(PasswordResetCode).where(PasswordResetCode.user_id == user.id, PasswordResetCode.consumed_at.is_(None)).order_by(PasswordResetCode.expires_at.desc())) if user else None
+    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= utcnow() or not tokens_match(record.code_hash, hash_token(body.code)):
+        if record is not None:
+            record.attempts += 1
+            db.commit()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    record.consumed_at = utcnow()
+    user.password_hash = hash_password(body.password)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/login/verify", response_model=AuthResponse)

@@ -1,45 +1,43 @@
-import Loader from '../components/landing/Loader';
-import Navbar from '../components/landing/Navbar';
-import Hero from '../components/landing/Hero';
-import {
-  About,
-  BuiltWith,
-  Capabilities,
-  Examples,
-  Faq,
-  FinalCta,
-  Footer,
-  HowItWorks,
-  Principle,
-  Security,
-} from '../components/landing/Sections';
-import { focusRing } from '../components/landing/ui';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { ArrowDownRight, ArrowUpRight, Check, Database, Globe2, ShieldCheck, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Mark, focusRing } from '../components/landing/ui';
+
+const signals = [
+  ['01', 'Ask naturally', 'Type or speak a question in the language your team already uses.', Globe2],
+  ['02', 'Review the logic', 'Read the proposed SQL and a plain-language explanation before it runs.', Database],
+  ['03', 'Trust the answer', 'Every approved query is read-only, verified, and saved to history.', ShieldCheck],
+];
+
+function Orbit({ className = '' }) {
+  return <div className={`pointer-events-none absolute ${className}`} aria-hidden="true"><div className="puchoo-orbit puchoo-orbit-one" /><div className="puchoo-orbit puchoo-orbit-two" /><div className="puchoo-orbit puchoo-orbit-three" /><i className="puchoo-star puchoo-star-one" /><i className="puchoo-star puchoo-star-two" /><i className="puchoo-star puchoo-star-three" /></div>;
+}
+
+const demo = [
+  ['Question', 'Show me the top 5 departments by spend this quarter.', 'Natural language · no SQL required'],
+  ['SQL proposal', 'SELECT department, SUM(amount) AS spend\nFROM expenses\nGROUP BY department\nORDER BY spend DESC LIMIT 5;', 'Read-only query · review before running'],
+  ['Verified answer', 'Engineering led spend at ₹8.4L, followed by Research at ₹6.7L.', 'Matched source data · 1.2s response time'],
+];
+
+function LiveDemo() {
+  const reduce = useReducedMotion(); const [active, setActive] = useState(0); const item = demo[active];
+  useEffect(() => { if (reduce) return undefined; const timer = setInterval(() => setActive((value) => (value + 1) % demo.length), 3600); return () => clearInterval(timer); }, [reduce]);
+  return <section className="bg-[#dce5f4] px-5 py-20 text-[#0c1830] sm:px-8 md:px-12 md:py-28"><div className="mx-auto grid max-w-[1440px] gap-10 lg:grid-cols-[.72fr_1.28fr] lg:items-center"><div><p className="text-xs tracking-[.18em] text-[#5f7192] uppercase">Interactive product demo</p><h2 className="mt-5 text-5xl leading-[.92] tracking-[-.06em] md:text-6xl">A question is only the beginning.</h2><p className="mt-6 max-w-md text-lg leading-relaxed text-[#50617d]">Explore the governed path from intent to a result you can trust.</p><div className="mt-8 flex flex-wrap gap-2">{demo.map(([label], index) => <button key={label} type="button" onClick={() => setActive(index)} className={`rounded-full px-4 py-2 text-sm transition ${index === active ? 'bg-[#0c1830] text-white' : 'border border-[#aebbd0] text-[#415474] hover:bg-white/60'}`}>{String(index + 1).padStart(2, '0')} {label}</button>)}</div></div><div className="overflow-hidden rounded-[28px] bg-[#0b1831] p-6 text-white shadow-[0_30px_80px_rgba(30,52,92,.2)]"><div className="flex justify-between border-b border-white/10 pb-4 text-xs text-[#aebcd6]"><span>● Live workspace</span><span>safe mode on</span></div><div className="min-h-[220px] py-8"><AnimatePresence mode="wait"><motion.div key={item[0]} initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={reduce ? undefined : { opacity: 0, y: -12 }}><p className="text-xs tracking-[.16em] text-[#8eb5ff] uppercase">{item[0]}</p><pre className={`mt-7 whitespace-pre-wrap text-lg leading-relaxed ${active === 1 ? 'font-mono text-[#d9e5ff]' : 'font-sans'}`}>{item[1]}</pre><p className="mt-7 border-t border-white/10 pt-4 text-sm text-[#aebcd6]"><Check className="mr-2 inline h-4 w-4 text-[#aee1c4]" />{item[2]}</p></motion.div></AnimatePresence></div><div className="flex gap-2">{demo.map(([label], index) => <span key={label} className={`h-1 flex-1 rounded-full ${index === active ? 'bg-[#a8c3ff]' : 'bg-white/15'}`} />)}</div></div></div></section>;
+}
 
 export default function Landing() {
-  return (
-    <div className="site bg-[#05080c] text-[#111827]">
-      <title>Puchoo.ai · Multilingual Text-to-SQL</title>
-      <a
-        href="#main"
-        className={`sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[80] focus:rounded-full focus:bg-white focus:px-4 focus:py-2 ${focusRing}`}
-      >
-        Skip to content
-      </a>
-      <Loader />
-      <Navbar />
-      <main id="main">
-        <Hero />
-        <About />
-        <BuiltWith />
-        <Principle />
-        <Capabilities />
-        <HowItWorks />
-        <Security />
-        <Examples />
-        <Faq />
-        <FinalCta />
-      </main>
-      <Footer />
-    </div>
-  );
+  const reduce = useReducedMotion();
+  const reveal = (delay = 0) => ({ initial: reduce ? false : { opacity: 0, y: 26 }, animate: { opacity: 1, y: 0 }, transition: { duration: .9, delay, ease: [0.16, 1, .3, 1] } });
+  return <div className="puchoo-quantix min-h-screen overflow-hidden bg-[#070b17] text-[#f3f6ff]">
+    <title>Puchoo.ai · Intelligence from every question</title>
+    <section className="relative min-h-[100svh] overflow-hidden px-5 py-5 sm:px-8 md:px-12"><div className="puchoo-noise absolute inset-0 opacity-50" /><div className="puchoo-light-sweep absolute inset-y-0 -left-1/2 w-1/2" aria-hidden="true" /><div className="puchoo-horizon absolute inset-x-0 bottom-[18%]" aria-hidden="true" /><Orbit className="-right-48 -bottom-64 h-[760px] w-[760px] md:-right-20 md:-bottom-56" />
+      <header className="relative z-10 mx-auto flex max-w-[1440px] items-center justify-between py-2"><Link to="/" className={`flex items-center gap-3 text-[15px] font-medium ${focusRing} rounded-full`}><Mark className="h-8 w-8" />Puchoo<span className="-ml-3 text-[#8eb5ff]">.ai</span></Link><p className="hidden text-xs tracking-[.2em] text-[#aebcd6] uppercase md:block">Trusted data intelligence</p><div className="flex gap-3"><Link to="/login" className={`rounded-full px-4 py-2 text-sm ${focusRing}`}>Log in</Link><Link to="/signup" className={`rounded-full bg-[#e8eefc] px-4 py-2 text-sm font-medium text-[#0b1630] ${focusRing}`}>Start free <ArrowUpRight className="inline h-4 w-4" /></Link></div></header>
+      <main className="relative z-10 mx-auto flex min-h-[calc(100svh-104px)] max-w-[1440px] flex-col justify-center pb-20 pt-24"><motion.p {...reveal(.05)} className="mb-7 text-xs tracking-[.18em] text-[#aebcd6] uppercase">● Multilingual analytics, governed by design</motion.p><motion.h1 {...reveal(.13)} className="max-w-5xl text-[clamp(3.5rem,9vw,9.5rem)] leading-[.84] font-medium tracking-[-.075em]">Turn every<br />question into <span className="puchoo-gradient-text">clarity.</span></motion.h1><motion.div {...reveal(.24)} className="mt-10 flex max-w-xl flex-col gap-7 md:ml-[22%]"><p className="text-lg leading-relaxed text-[#b9c5dc] md:text-xl">Puchoo turns the questions your team already asks into verified, read-only answers from the data you trust.</p><div className="flex flex-wrap gap-3"><Link to="/signup" className={`group rounded-full bg-[#e8eefc] px-6 py-3 text-[15px] font-medium text-[#081329] ${focusRing}`}>Ask your first question <ArrowDownRight className="ml-2 inline h-4 w-4" /></Link><a href="#how" className={`rounded-full border border-white/20 px-6 py-3 text-[15px] ${focusRing}`}>See how it works</a></div></motion.div><motion.div {...reveal(.36)} className="mt-20 grid max-w-4xl grid-cols-1 border-t border-white/15 pt-5 sm:grid-cols-3 sm:gap-6"><span className="text-sm text-[#8e9db8]">Ask in 12+ languages</span><span className="text-sm text-[#8e9db8]">Human approval, always</span><span className="text-sm text-[#8e9db8]">Read-only by default</span></motion.div></main>
+    </section>
+    <LiveDemo />
+    <section id="how" className="bg-[#e8edf7] px-5 py-24 text-[#0c1830] sm:px-8 md:px-12 md:py-32"><div className="mx-auto max-w-[1440px]"><div className="grid gap-10 lg:grid-cols-[.85fr_1.15fr]"><div><p className="text-xs tracking-[.18em] text-[#5f7192] uppercase">Puchoo intelligence</p><h2 className="mt-5 text-5xl leading-[.92] tracking-[-.06em] md:text-7xl">Your data,<br /><span className="text-[#66799e]">made legible.</span></h2></div><p className="self-end text-lg leading-relaxed text-[#50617d] md:text-xl">Explore the numbers behind the next decision—without writing SQL or exposing sensitive data.</p></div><div className="mt-20 grid gap-px overflow-hidden rounded-[28px] bg-[#cbd4e5] md:grid-cols-3">{signals.map(([number, title, copy, Icon]) => <motion.article whileHover={reduce ? {} : { y: -8 }} key={number} className="min-h-[260px] bg-[#e8edf7] p-7 md:p-9"><div className="flex justify-between"><span className="text-sm text-[#687a9b]">{number}</span><Icon className="h-5 w-5 text-[#1d396c]" /></div><h3 className="mt-16 text-2xl tracking-[-.04em]">{title}</h3><p className="mt-3 max-w-xs leading-relaxed text-[#5e6e88]">{copy}</p></motion.article>)}</div></div></section>
+    <section className="relative overflow-hidden bg-[#0c1830] px-5 py-24 sm:px-8 md:px-12 md:py-32"><Orbit className="-left-60 -top-72 h-[640px] w-[640px] opacity-70" /><div className="relative mx-auto grid max-w-[1440px] gap-14 lg:grid-cols-[1fr_.9fr] lg:items-end"><div><p className="text-xs tracking-[.18em] text-[#aebcd6] uppercase">Built for confidence</p><h2 className="mt-5 max-w-3xl text-5xl leading-[.92] tracking-[-.06em] md:text-7xl">The fastest path from <span className="text-[#8eb5ff]">curiosity</span> to a decision.</h2></div><div className="rounded-[26px] border border-white/15 bg-white/[.055] p-6 backdrop-blur md:p-8"><div className="flex justify-between text-sm text-[#b6c4de]"><span>Question received</span><span className="text-[#b4d6c4]"><Check className="mr-1 inline h-4 w-4" />verified</span></div><p className="mt-8 text-2xl leading-snug tracking-[-.035em]">“Which departments changed spending the most this quarter?”</p><div className="mt-8 border-t border-white/10 pt-5 text-sm text-[#aebcd6]"><Sparkles className="mr-2 inline h-4 w-4 text-[#8eb5ff]" />Puchoo proposes safe SQL and waits for approval.</div></div></div></section>
+    <footer className="bg-[#070b17] px-5 py-8 sm:px-8 md:px-12"><div className="mx-auto flex max-w-[1440px] flex-wrap justify-between gap-5 text-sm text-[#93a2be]"><span>© {new Date().getFullYear()} Puchoo.ai</span><div className="flex gap-5"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/login">Log in</Link></div></div></footer>
+  </div>;
 }

@@ -6,12 +6,13 @@ import AppShell from './components/layout/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import Dashboard from './pages/Dashboard';
+import ForgotPassword from './pages/ForgotPassword';
 import Legal from './pages/Legal';
 import AskData from './pages/AskData';
 import ConnectData from './pages/ConnectData';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import CookieNotice from './components/CookieNotice';
 
 function ProductLayout() {
   return (
@@ -35,6 +36,7 @@ function App() {
               </GuestRoute>
             }
           />
+          <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
           <Route
             path="/signup"
             element={
@@ -43,17 +45,16 @@ function App() {
               </GuestRoute>
             }
           />
-          <Route
-            path="/app"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/app" element={<Navigate to="/ask" replace />} />
           <Route path="/privacy" element={<Legal kind="privacy" />} />
           <Route path="/terms" element={<Legal kind="terms" />} />
-          <Route element={<ProductLayout />}>
+          <Route
+            element={(
+              <ProtectedRoute>
+                <ProductLayout />
+              </ProtectedRoute>
+            )}
+          >
             <Route path="/ask" element={<AskData />} />
             <Route path="/connect" element={<ConnectData />} />
             <Route path="/history" element={<History />} />
@@ -61,6 +62,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <CookieNotice />
       </BrowserRouter>
     </AuthProvider>
   );
