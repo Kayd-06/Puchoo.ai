@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from backend.routers.auth import current_user
 from pydantic import BaseModel
 
 from apps.core.workspaces import (
@@ -29,12 +30,16 @@ class ServerWorkspaceRequest(BaseModel):
     password: str
     ssl_required: bool = True
 
+def _owner_id(user) -> str:
+    return user.institute_owner_id or user.id
+
 @router.get("/")
-def list_workspaces() -> List[Dict[str, Any]]:
-    return list(session_manager.workspaces.values())
+def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
+    owner_id = _owner_id(user)
+    return [workspace for workspace in session_manager.workspaces.values() if workspace.get("owner_user_id") == owner_id]
 
 @router.post("/server")
-def connect_server(request: ServerWorkspaceRequest) -> Dict[str, Any]:
+def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) -> Dict[str, Any]:
     try:
         workspace = create_server_workspace(
             request.name,
@@ -47,6 +52,7 @@ def connect_server(request: ServerWorkspaceRequest) -> Dict[str, Any]:
             ssl_required=request.ssl_required,
         )
         ws_dict = workspace.as_dict()
+        ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
         return ws_dict
     except ValueError as e:
@@ -56,6 +62,7 @@ def connect_server(request: ServerWorkspaceRequest) -> Dict[str, Any]:
 async def upload_file(
     file: UploadFile = File(...),
     name: str = Form(""),
+    user=Depends(current_user),
 ) -> Dict[str, Any]:
     contents = await file.read()
     filename = file.filename or "uploaded_file"
@@ -70,6 +77,7 @@ async def upload_file(
             raise HTTPException(status_code=400, detail="Unsupported file format")
             
         ws_dict = workspace.as_dict()
+        ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
         return ws_dict
     except ValueError as e:
@@ -79,6 +87,7 @@ async def upload_file(
 async def upload_multiple_files(
     files: List[UploadFile] = File(...),
     name: str = Form(""),
+    user=Depends(current_user),
 ) -> Dict[str, Any]:
     if not files:
         raise HTTPException(status_code=400, detail="Choose at least one CSV or Excel file")
@@ -95,6 +104,7 @@ async def upload_multiple_files(
     try:
         workspace = create_tabular_collection_workspace(workspace_name, payloads)
         ws_dict = workspace.as_dict()
+        ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
         return ws_dict
     except ValueError as exc:

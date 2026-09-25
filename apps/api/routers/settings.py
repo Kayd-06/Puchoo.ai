@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard
+from backend.routers.auth import current_user
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -16,8 +17,8 @@ class ProfileRequest(BaseModel):
     timezone: str
 
 @router.get("/profile")
-def get_profile() -> Dict[str, str]:
-    return session_manager.profile
+def get_profile(user=Depends(current_user)) -> Dict[str, str]:
+    return {"name": user.full_name, "email": user.email, "department": user.institute_name or "Personal", "timezone": "UTC"}
 
 @router.put("/profile")
 def update_profile(request: ProfileRequest) -> Dict[str, str]:
