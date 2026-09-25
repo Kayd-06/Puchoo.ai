@@ -7,7 +7,6 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
-import Dashboard from './pages/Dashboard';
 import Legal from './pages/Legal';
 import AskData from './pages/AskData';
 import ConnectData from './pages/ConnectData';
@@ -45,14 +44,7 @@ function App() {
               </GuestRoute>
             }
           />
-          <Route
-            path="/app"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/app" element={<Navigate to="/ask" replace />} />
           <Route path="/privacy" element={<Legal kind="privacy" />} />
           <Route path="/terms" element={<Legal kind="terms" />} />
           <Route
