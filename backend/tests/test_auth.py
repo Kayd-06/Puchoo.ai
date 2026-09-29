@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 
 from backend import database
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, LoginCode, User
-from backend.security import as_utc, utcnow
+from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, User
+from backend.security import as_utc, decode_session_token, utcnow
 from backend.tests.conftest import csrf_headers, finish_login, finish_signup, signup_payload
 
 
@@ -41,6 +41,9 @@ def test_signup_sends_code_and_verification_creates_session(client: TestClient, 
     assert "puchoo_session=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "samesite=lax" in set_cookie.lower()
+    token = client.cookies.get("puchoo_session")
+    assert token is not None and token.count(".") == 2
+    assert decode_session_token(token) is not None
 
 
 def test_duplicate_signup_is_generic(client: TestClient):
@@ -74,6 +77,22 @@ def test_login_success_and_me(client: TestClient, otp_codes):
     assert me.status_code == 200
     assert me.json()["full_name"] == "Ada Lovelace"
     assert me.json()["workspace_type"] == "personal"
+
+
+def test_concurrent_refresh_checks_do_not_invalidate_a_valid_session(client: TestClient, otp_codes):
+    """A duplicate browser /me request may carry the cookie before rotation."""
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    original_token = client.cookies.get("puchoo_session")
+    assert original_token
+
+    # First refresh check rotates the session token.
+    assert client.get("/api/v1/auth/me").status_code == 200
+    # A second check already in flight still uses the original request cookie.
+    client.cookies.set("puchoo_session", original_token)
+    second = client.get("/api/v1/auth/me")
+    assert second.status_code == 200
+    assert second.json()["email"] == "ada@college.edu"
 
 
 def test_wrong_otp_does_not_create_a_session(client: TestClient, otp_codes):
@@ -123,6 +142,51 @@ def test_me_without_session(client: TestClient):
     response = client.get("/api/v1/auth/me")
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
+
+
+def test_tampered_jwt_cookie_is_rejected(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    token = client.cookies.get("puchoo_session")
+    assert token is not None
+
+    client.cookies.set("puchoo_session", token[:-1] + ("a" if token[-1] != "a" else "b"))
+    response = client.get("/api/v1/auth/me")
+    assert response.status_code == 401
+
+
+def test_email_change_requires_password_and_new_email_otp(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    wrong_password = client.post(
+        "/api/v1/auth/email/change",
+        json={"new_email": "ada.new@college.edu", "current_password": "not-the-password"},
+        headers=csrf_headers(client),
+    )
+    assert wrong_password.status_code == 401
+
+    challenge = client.post(
+        "/api/v1/auth/email/change",
+        json={"new_email": "Ada.New@College.edu", "current_password": "language10"},
+        headers=csrf_headers(client),
+    )
+    assert challenge.status_code == 200
+    assert challenge.json() == {"otp_required": True, "email": "ada.new@college.edu"}
+
+    verified = client.post(
+        "/api/v1/auth/email/change/verify",
+        json={"new_email": "ada.new@college.edu", "code": otp_codes["ada.new@college.edu"]},
+        headers=csrf_headers(client),
+    )
+    assert verified.status_code == 200
+    assert verified.json()["user"]["email"] == "ada.new@college.edu"
+    assert client.get("/api/v1/auth/me").json()["email"] == "ada.new@college.edu"
+
+    db = database.SessionLocal()
+    code = db.query(EmailChangeCode).one()
+    db.close()
+    assert code.consumed_at is not None
 
 
 def test_logout_revokes_session_and_clears_cookie(client: TestClient, otp_codes):
@@ -236,6 +300,172 @@ def test_institute_signup_requires_name(client: TestClient):
     db.close()
     assert user.institute_name == "North Campus"
     assert user.workspace_type == "institute"
+
+
+def test_business_invite_assigns_a_shared_tenant_and_ignores_joiner_type(client: TestClient, otp_codes):
+    """A code binds a member to its owner tenant, never to client supplied metadata."""
+    owner_payload = signup_payload(
+        full_name="Business Owner",
+        email="owner@business.com",
+        workspace_type="business",
+        workspace_name="Northstar Labs",
+    )
+    assert client.post("/api/v1/auth/signup", json=owner_payload, headers=csrf_headers(client)).status_code == 202
+    finish_signup(client, "owner@business.com", otp_codes)
+    invite = client.post("/api/v1/auth/workspace/invite", json={"role": "viewer"}, headers=csrf_headers(client))
+    assert invite.status_code == 200
+    assert invite.json()["role"] == "viewer"
+
+    from backend.main import create_app
+    from fastapi.testclient import TestClient as FreshClient
+    with FreshClient(create_app(include_product=False)) as member_client:
+        member_payload = signup_payload(
+            full_name="Business Partner",
+            email="partner@business.com",
+            workspace_type="institution",  # Must not control tenant assignment.
+            workspace_name="Pretend School",
+            invite_code=invite.json()["code"],
+        )
+        joined = member_client.post("/api/v1/auth/signup", json=member_payload, headers=csrf_headers(member_client))
+        assert joined.status_code == 202
+
+    db = database.SessionLocal()
+    owner = db.query(User).filter_by(email="owner@business.com").one()
+    member = db.query(User).filter_by(email="partner@business.com").one()
+    db.close()
+    assert member.workspace_type == "business"
+    assert member.workspace_owner_id == owner.id
+    assert member.workspace_role == "viewer"
+
+
+def test_institution_role_codes_are_independent_and_rotate_only_their_role(client: TestClient, otp_codes):
+    """An owner can safely share distinct role codes without cross-role revocation."""
+    owner_payload = signup_payload(
+        full_name="Institution Owner",
+        email="owner@school.edu",
+        workspace_type="institution",
+        workspace_name="North Campus",
+    )
+    assert client.post("/api/v1/auth/signup", json=owner_payload, headers=csrf_headers(client)).status_code == 202
+    finish_signup(client, "owner@school.edu", otp_codes)
+
+    issued = {}
+    for role in ("admin", "editor", "viewer"):
+        response = client.post(
+            "/api/v1/auth/workspace/invite",
+            json={"role": role},
+            headers=csrf_headers(client),
+        )
+        assert response.status_code == 200
+        issued[role] = response.json()["code"]
+        assert response.json()["role"] == role
+
+    db = database.SessionLocal()
+    active = db.query(InstituteInvite).filter_by(revoked_at=None).all()
+    assert {invite.role for invite in active} == {"admin", "editor", "viewer"}
+    assert len({invite.code_hash for invite in active}) == 3
+    db.close()
+
+    rotated = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "editor"},
+        headers=csrf_headers(client),
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["code"] != issued["editor"]
+
+    db = database.SessionLocal()
+    active = db.query(InstituteInvite).filter_by(revoked_at=None).all()
+    assert {invite.role for invite in active} == {"admin", "editor", "viewer"}
+    assert len(active) == 3
+    revoked_editors = db.query(InstituteInvite).filter(InstituteInvite.role == "editor", InstituteInvite.revoked_at.is_not(None)).all()
+    assert len(revoked_editors) == 1
+    db.close()
+
+
+def test_workspace_code_on_a_new_client_joins_the_recipient_to_only_that_tenant(client: TestClient, otp_codes):
+    """A shared code works across devices after the recipient completes their own OTP."""
+    owner_payload = signup_payload(
+        full_name="School Admin",
+        email="admin@school.edu",
+        workspace_type="institution",
+        workspace_name="North Campus",
+    )
+    assert client.post("/api/v1/auth/signup", json=owner_payload, headers=csrf_headers(client)).status_code == 202
+    finish_signup(client, "admin@school.edu", otp_codes)
+    code_response = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "viewer"},
+        headers=csrf_headers(client),
+    )
+    assert code_response.status_code == 200
+
+    from backend.main import create_app
+    from fastapi.testclient import TestClient as FreshClient
+
+    with FreshClient(create_app(include_product=False)) as recipient_client:
+        recipient_payload = signup_payload(
+            full_name="Teacher Recipient",
+            email="teacher.personal@example.com",
+            workspace_type="business",  # The invite, never this value, chooses the tenant.
+            workspace_name="Untrusted value",
+            invite_code=code_response.json()["code"],
+        )
+        joined = recipient_client.post(
+            "/api/v1/auth/signup",
+            json=recipient_payload,
+            headers=csrf_headers(recipient_client),
+        )
+        assert joined.status_code == 202
+        verified = finish_signup(recipient_client, "teacher.personal@example.com", otp_codes)
+        assert verified.status_code == 200
+        identity = recipient_client.get("/api/v1/auth/me")
+        assert identity.status_code == 200
+        assert identity.json()["email"] == "teacher.personal@example.com"
+        assert identity.json()["workspace_type"] == "institution"
+        assert identity.json()["workspace_role"] == "viewer"
+
+    db = database.SessionLocal()
+    owner = db.query(User).filter_by(email="admin@school.edu").one()
+    recipient = db.query(User).filter_by(email="teacher.personal@example.com").one()
+    db.close()
+    assert recipient.workspace_owner_id == owner.id
+    assert recipient.workspace_name == owner.workspace_name
+
+
+def test_business_role_codes_are_independent_and_rotate_only_their_role(client: TestClient, otp_codes):
+    payload = signup_payload(
+        full_name="Business Owner",
+        email="owner@business.com",
+        workspace_type="business",
+        workspace_name="Northstar Labs",
+    )
+    assert client.post("/api/v1/auth/signup", json=payload, headers=csrf_headers(client)).status_code == 202
+    finish_signup(client, "owner@business.com", otp_codes)
+    issued = {}
+    for role in ("admin", "editor", "viewer"):
+        invite = client.post(
+            "/api/v1/auth/workspace/invite",
+            json={"role": role},
+            headers=csrf_headers(client),
+        )
+        assert invite.status_code == 200
+        issued[role] = invite.json()["code"]
+
+    rotated = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "editor"},
+        headers=csrf_headers(client),
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["code"] != issued["editor"]
+
+    db = database.SessionLocal()
+    owner = db.query(User).filter_by(email="owner@business.com").one()
+    active = db.query(InstituteInvite).filter_by(revoked_at=None).all()
+    db.close()
+    assert owner.workspace_type == "business"
+    assert {invite.role for invite in active} == {"admin", "editor", "viewer"}
 
 
 def test_resend_replaces_the_previous_otp(client: TestClient, otp_codes):

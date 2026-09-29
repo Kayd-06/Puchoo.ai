@@ -5,9 +5,9 @@ const pages = {
   privacy: {
     title: 'Privacy',
     paragraphs: [
-      'Puchoo.ai stores your name, lowercased email, workspace type, and institute name when you create an institute workspace. Passwords are stored only as an argon2 hash. Session tokens are random and stored only as a hash.',
+      'Puchoo.ai stores your name, lowercased email, workspace type, and institute name when you create an institute workspace. Passwords are stored only as an argon2 hash. A signed JWT is held only in an HttpOnly cookie; its server-side session binding is stored as a hash for revocation.',
       'The browser keeps the session in an HttpOnly cookie. React does not store tokens in localStorage and holds no secrets.',
-      'An append-only audit log is designed to record each request, the generated SQL, the approval, and the result. Results are masked by policy, and history is kept per workspace.',
+      'Approved conversation context is saved in local ChromaDB memory, isolated by account or institute and workspace. Result rows, connection strings, passwords, and authentication tokens are not stored in that memory.',
     ],
   },
   terms: {

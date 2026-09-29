@@ -1,34 +1,12 @@
-import { useState, useEffect } from 'react';
 import { ShieldCheck, History as HistoryIcon, User } from 'lucide-react';
-import { useAppContext } from '../context/AppContext';
-import { fetchApi } from '../api/client';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { createInstituteInvite } from '../api/auth';
+import ChangeEmailPanel from '../components/auth/ChangeEmailPanel';
+import WorkspaceInvitePanel from '../components/workspace/WorkspaceInvitePanel';
 
 export default function Settings() {
-  const { activeWorkspaceId } = useAppContext();
   const { user } = useAuth();
-  const [guardrails, setGuardrails] = useState(null);
-  const [inviteCode, setInviteCode] = useState('');
-
-  useEffect(() => {
-    async function loadGuardrails() {
-      if (activeWorkspaceId) {
-        try {
-          const data = await fetchApi(`/settings/guardrails/${activeWorkspaceId}`);
-          setGuardrails(data);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-    }
-    loadGuardrails();
-  }, [activeWorkspaceId]);
-
-  async function generateInvite() {
-    const result = await createInstituteInvite();
-    setInviteCode(result.code);
-  }
+  const navigate = useNavigate();
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -51,14 +29,7 @@ export default function Settings() {
         Manage your profile, connected databases, and query safety defaults.
       </p>
 
-      {user?.workspace_type === 'institute' && !user.institute_owner_id && (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Invite institute members</h3>
-          <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>Share a code so members can join with their own email and password.</p>
-          {inviteCode && <code style={{ display: 'block', padding: '0.8rem', marginBottom: '1rem', background: 'var(--bg-surface-raised)', borderRadius: '8px' }}>{inviteCode}</code>}
-          <button className="btn btn-primary" onClick={generateInvite}>{inviteCode ? 'Rotate invite code' : 'Generate invite code'}</button>
-        </div>
-      )}
+      <WorkspaceInvitePanel />
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
@@ -85,17 +56,18 @@ export default function Settings() {
                 className="badge badge-info"
                 style={{ marginLeft: '0.5rem', verticalAlign: 'middle' }}
               >
-                {user?.workspace_type === 'institute' ? 'Institute member' : 'Personal workspace'}
+                {user?.workspace_type === 'institution' ? `Institution ${user?.workspace_role || 'member'}` : user?.workspace_type === 'business' ? `Business ${user?.workspace_role || 'member'}` : 'Personal workspace'}
               </span>
             </h3>
             <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.875rem' }}>
-              {user?.institute_name || 'Puchoo.ai workspace'} • {user?.email || 'email@example.com'}
+              {user?.workspace_name || user?.institute_name || 'Puchoo.ai workspace'} • {user?.email || 'email@example.com'}
             </p>
           </div>
           <span className="badge badge-ok">Email verified</span>
         </div>
 
         <div
+          className="settings-profile-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -140,7 +112,7 @@ export default function Settings() {
             >
               Department / Workspace
             </label>
-            <input type="text" className="input" value={user?.institute_name || (user?.workspace_type === 'institute' ? 'Institute members' : 'Personal')} readOnly />
+            <input type="text" className="input" value={user?.workspace_name || user?.institute_name || (user?.workspace_type === 'institution' ? 'Institution' : user?.workspace_type === 'business' ? 'Business' : 'Personal')} readOnly />
           </div>
           <div>
             <label
@@ -157,75 +129,7 @@ export default function Settings() {
           </div>
         </div>
         <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Account details come from your verified Puchoo.ai profile.</p>
-      </div>
-
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}
-        >
-          <ShieldCheck size={20} color="var(--bg-primary)" /> Safety &amp; Guardrails{' '}
-          <span className="badge badge-ok">Strict Active</span>
-        </h3>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '1rem',
-              background: 'var(--bg-surface-raised)',
-              borderRadius: 'var(--radius-input)',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>
-                Read-only mode <span className="badge badge-ok">System Enforced</span>
-              </div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                Pucho is physically restricted from running INSERT, UPDATE, DELETE, or DROP
-                commands.
-              </div>
-            </div>
-            <div
-              style={{
-                color: 'var(--accent-green)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-              }}
-            >
-              <ShieldCheck size={16} /> Locked ON
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '1rem',
-              background: 'var(--bg-surface-raised)',
-              borderRadius: 'var(--radius-input)',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>Automatic row limit</div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                Prevents massive runaway queries and keeps responses fast.
-              </div>
-            </div>
-            <select
-              className="input"
-              style={{ width: '120px' }}
-              defaultValue={guardrails?.max_rows || 100}
-            >
-              <option value={100}>100 rows</option>
-              <option value={500}>500 rows</option>
-              <option value={1000}>1000 rows</option>
-            </select>
-          </div>
-        </div>
+        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}><ChangeEmailPanel /></div>
       </div>
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
@@ -235,7 +139,7 @@ export default function Settings() {
           <HistoryIcon size={20} color="var(--text-muted)" /> Session &amp; History
         </h3>
         <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
-          Manage query records stored in your browser session.
+          Review and manage the query history for your active workspace.
         </p>
 
         <div
@@ -249,11 +153,10 @@ export default function Settings() {
             border: '1px solid rgba(239, 68, 68, 0.1)',
           }}
         >
-          <div style={{ fontSize: '0.875rem', color: 'var(--accent-red)' }}>
-            Pucho stores your past questions and summaries locally. Clearing will erase cached
-            prompt completions.
+          <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+            Open History to review queries, search records, or clear the active workspace history.
           </div>
-          <button className="btn btn-danger">Clear query history</button>
+          <button className="btn btn-secondary" onClick={() => navigate('/history')}>Manage history</button>
         </div>
       </div>
     </div>

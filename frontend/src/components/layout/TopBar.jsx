@@ -8,6 +8,7 @@ export default function TopBar() {
 
   return (
     <header
+      className="app-topbar"
       style={{
         height: '64px',
         display: 'flex',
@@ -22,6 +23,7 @@ export default function TopBar() {
       }}
     >
       <div
+        className="app-topbar-status"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -35,8 +37,9 @@ export default function TopBar() {
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div className="app-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
         <div
+          className="app-topbar-search"
           style={{
             display: 'flex',
             alignItems: 'center',

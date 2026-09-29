@@ -76,13 +76,18 @@ Auth tests:
 
 - `POST /api/v1/auth/signup` accepts `full_name`, `email`, `password`, `confirm_password`, and `workspace_type` (`personal` or `institute`). Institute workspaces also require `institute_name`. Email is stored in lowercase. Passwords need at least 10 characters, including a letter and a number, and are hashed with argon2. A duplicate email gets a generic error.
 - `POST /api/v1/auth/login` checks the email and password. The error is always `Invalid email or password`. A correct password does not open a session yet. It emails a 6-digit code that expires in 10 minutes. `POST /api/v1/auth/login/verify` checks that code and then creates the session. SMTP uses `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, and `SMTP_PASSWORD`.
-- A successful signup or login creates a server-side session. The raw token is a random 256-bit value. Only its SHA-256 hash is stored. The browser receives it in an HttpOnly `puchoo_session` cookie with `SameSite=Lax` (and `Secure` when `COOKIE_SECURE=true`). Sessions last 7 days and slide forward on authenticated requests.
+- A successful signup or login creates a signed JWT with a unique session ID (`jti`). The browser receives it only in an HttpOnly `puchoo_session` cookie with `SameSite=Lax` (and `Secure` when `COOKIE_SECURE=true`); React never receives or stores it. A SHA-256 hash of the JWT is bound to a server-side session record, so logout and revocation take effect immediately. Sessions last 7 days and rotate on authenticated requests.
 - `POST /api/v1/auth/logout` revokes that session and clears the cookie. `GET /api/v1/auth/me` returns the current user, or 401.
+- Changing an account email requires the current password, then a 6-digit OTP delivered to the new address. The address is updated only after `POST /api/v1/auth/email/change/verify` validates that OTP.
 - State-changing auth requests need a double-submit CSRF token: the non-HttpOnly `csrf_token` cookie and the same value in the `X-CSRF-Token` header.
 - Login and signup are limited to 5 attempts per 15 minutes for each IP and each email. The limit returns 429.
 - Passwords and tokens are not written to logs.
 
-The landing page is `/`. `/login` and `/signup` are the account forms. `/app` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/app`.
+### Approved conversation memory
+
+When a user executes a proposed query, that action is treated as approval. Puchoo saves only the question, its interpretation, and verification summary to local persistent ChromaDB. It does not put result rows, generated SQL, connection strings, passwords, or tokens into vector memory. Every ChromaDB read/write is filtered by both the account/institute tenant and workspace ID; institute members can access their shared institute workspace, while personal workspaces remain private. The semantic recall endpoint is `GET /api/history/{workspace_id}/memory/search?q=...`.
+
+The landing page is `/`. `/login` and `/signup` are the account forms. `/ask` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/ask`.
 
 To replace the final call-to-action image, add a file at `frontend/public/cta-visual.png`.
 

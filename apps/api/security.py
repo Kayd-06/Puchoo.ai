@@ -4,7 +4,6 @@ import secrets
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response
-from backend.database import get_db
 from backend.routers.auth import current_user
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -47,12 +46,51 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             
         return response
 
+def tenant_owner_id(user) -> str:
+    """Canonical tenant boundary for every workspace, query, and memory record."""
+    return user.workspace_owner_id or user.institute_owner_id or user.id
+
+
+def workspace_role(user) -> str:
+    if tenant_owner_id(user) == user.id:
+        return "owner"
+    return user.workspace_role or "viewer"
+
+
+def can_manage_data(user) -> bool:
+    return workspace_role(user) in {"owner", "admin", "editor"}
+
+
+def can_administer_workspace(user) -> bool:
+    return workspace_role(user) in {"owner", "admin"}
+
+
 def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
-    """Return a workspace only when it belongs to this user or their institute."""
+    """Return a workspace only within the caller's explicit tenant boundary."""
     from apps.api.session import session_manager
     workspace = session_manager.get_workspace(workspace_id)
-    owner_id = workspace.get("owner_user_id")
-    allowed_owner = user.institute_owner_id or user.id
-    if not workspace or not owner_id or owner_id != allowed_owner:
+    if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found or unauthorized")
+    owner_id = workspace.get("owner_user_id")
+    allowed_owner = tenant_owner_id(user)
+    if not owner_id or owner_id != allowed_owner:
+        raise HTTPException(status_code=404, detail="Workspace not found or unauthorized")
+    return workspace
+
+
+def require_workspace_editor(
+    workspace: dict = Depends(get_workspace_guard),
+    user=Depends(current_user),
+):
+    if not can_manage_data(user):
+        raise HTTPException(status_code=403, detail="Viewer access is read-only. Ask a workspace admin for editor access.")
+    return workspace
+
+
+def require_workspace_admin(
+    workspace: dict = Depends(get_workspace_guard),
+    user=Depends(current_user),
+):
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace admins can make this change.")
     return workspace

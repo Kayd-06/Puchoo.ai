@@ -5,6 +5,8 @@ import {
   logout as logoutRequest,
   resendLoginCode as resendLoginCodeRequest,
   signup as signupRequest,
+  requestEmailChange as requestEmailChangeRequest,
+  verifyEmailChange as verifyEmailChangeRequest,
   verifyLogin as verifyRequest,
 } from '../api/auth';
 
@@ -48,6 +50,14 @@ export function AuthProvider({ children }) {
       },
       async requestSignup(payload) {
         return signupRequest(payload);
+      },
+      async requestEmailChange(payload) {
+        return requestEmailChangeRequest(payload);
+      },
+      async verifyEmailChange(payload) {
+        const result = await verifyEmailChangeRequest(payload);
+        setUser(result.user);
+        return result.user;
       },
       async logout() {
         await logoutRequest();

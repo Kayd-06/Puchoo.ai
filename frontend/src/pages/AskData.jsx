@@ -12,7 +12,7 @@ const DEFAULT_RESULT_LABELS = {
   no_rows: 'No rows returned.',
   view_sql: 'View generated SQL',
   read_only_query: 'Read-only query',
-  interpretation: 'How Pucho interpreted this request',
+  interpretation: 'How Puchoo interpreted this request',
   view_details: 'View details',
   verified_match: 'Verified match',
   needs_review: 'Needs review',
@@ -201,7 +201,7 @@ export default function AskData() {
       )}
       <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>What would you like to know?</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
-        {continuation ? 'Ask a follow-up and Pucho will use the selected question as context.' : 'Type or speak your question. Pucho will safely generate, run, and verify a read-only query in an isolated sandbox.'}
+        {continuation ? 'Ask a follow-up and Puchoo will use the selected question as context.' : 'Type or speak your question. Puchoo will safely generate, run, and verify a read-only query in an isolated sandbox.'}
       </p>
 
       <div className="card" style={{ padding: '0', display: 'flex', flexDirection: 'column', overflow: 'hidden', marginBottom: '2rem' }}>
@@ -311,7 +311,7 @@ export default function AskData() {
                 <span className="query-details-hint">{resultLabels.read_only_query} <ChevronDown size={16} /></span>
               </summary>
               <div className="query-details-body">
-                <p>This is the read-only SQL Pucho ran to produce the answer.</p>
+                <p>This is the read-only SQL Puchoo ran to produce the answer.</p>
                 <pre>{result.record.sql}</pre>
               </div>
             </details>

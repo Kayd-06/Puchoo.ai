@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { Mark, focusRing } from '../landing/ui';
 
-export default function AuthShell({ title, subtitle, children, footer }) {
+export default function AuthShell({ title, subtitle, children, footer, dense = false }) {
   return (
-    <div className="site grid min-h-screen bg-[#070b17] lg:grid-cols-[1.08fr_.92fr]">
-      <section className="relative flex min-h-[42vh] flex-col justify-between overflow-hidden bg-[#0c1830] px-6 py-8 text-white md:px-12 md:py-12">
+    <div className={`site auth-shell grid bg-[#070b17] lg:grid-cols-[1.08fr_.92fr] ${dense ? 'auth-shell-dense' : ''}`}>
+      <section className="auth-brand-panel relative flex flex-col justify-between overflow-hidden bg-[#0c1830] px-6 py-8 text-white md:px-12 md:py-12">
         <div className="puchoo-noise pointer-events-none absolute inset-0" aria-hidden="true" />
         <div
           className="pointer-events-none absolute -top-20 -left-10 h-80 w-80 rounded-full"
@@ -28,8 +28,8 @@ export default function AuthShell({ title, subtitle, children, footer }) {
           </p>
         </div>
       </section>
-      <section className="flex items-center bg-[#edf1f9] px-6 py-12 md:px-14">
-        <div className="mx-auto w-full max-w-md">
+      <section className="auth-form-panel flex items-center bg-[#edf1f9] px-6 py-12 md:px-14">
+        <div className="auth-form-content mx-auto w-full max-w-md">
           <h2 className="text-[36px] font-medium tracking-[-0.045em] text-[#0c1830]">{title}</h2>
           <p className="mt-2 text-[16px] leading-relaxed text-[#60708d]">{subtitle}</p>
           <div className="mt-8">{children}</div>
@@ -40,9 +40,9 @@ export default function AuthShell({ title, subtitle, children, footer }) {
   );
 }
 
-export function Field({ id, label, error, children }) {
+export function Field({ id, label, error, children, className = '' }) {
   return (
-    <div>
+    <div className={className}>
       <label htmlFor={id} className="mb-2 block text-sm font-medium text-[#111827]">
         {label}
       </label>

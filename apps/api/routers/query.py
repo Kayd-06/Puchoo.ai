@@ -44,7 +44,9 @@ from apps.core.query_planning import (
     select_plan_schema,
 )
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard
+from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
+from apps.core.chat_memory import ChatMemoryError, get_chat_memory
+from backend.routers.auth import current_user
 
 router = APIRouter(prefix="/query", tags=["query"])
 logger = logging.getLogger(__name__)
@@ -173,7 +175,7 @@ def _localize_rows(rows: list[dict[str, Any]], language_code: str | None) -> lis
     ]
 
 @router.post("/{workspace_id}/generate")
-def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
+def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, Any]:
     started = perf_counter()
     question = request.question.strip()
     if not question:
@@ -379,7 +381,12 @@ class ExecuteRequest(BaseModel):
     proposal_id: str
 
 @router.post("/{workspace_id}/execute")
-def execute_query(workspace_id: str, request: ExecuteRequest, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
+def execute_query(
+    workspace_id: str,
+    request: ExecuteRequest,
+    workspace: Dict = Depends(require_workspace_editor),
+    user=Depends(current_user),
+) -> Dict[str, Any]:
     proposal = session_manager.active_proposals.get(workspace_id)
     
     if not proposal or proposal["id"] != request.proposal_id:
@@ -456,6 +463,21 @@ def execute_query(workspace_id: str, request: ExecuteRequest, workspace: Dict = 
         session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
         session_manager.active_proposals.pop(workspace_id, None)
         session_manager.save(active_workspace_id=workspace_id)
+
+        # Executing a proposal is the user's approval. Store only its safe
+        # conversational context under the account/institute tenant; rows and
+        # generated SQL deliberately stay out of vector memory.
+        memory_saved = True
+        try:
+            get_chat_memory().save_approved_conversation(
+                tenant_id=tenant_owner_id(user),
+                workspace_id=workspace_id,
+                actor_user_id=user.id,
+                record=record,
+            )
+        except ChatMemoryError:
+            memory_saved = False
+            logger.exception("approved_conversation_memory_write_failed workspace=%s", workspace_id)
         
         # Build presentation data to match the UI behavior
         from apps.core.result_presentation import build_result_presentation, humanize_column
@@ -490,6 +512,7 @@ def execute_query(workspace_id: str, request: ExecuteRequest, workspace: Dict = 
         
         return {
             "record": record,
+            "approved_memory_saved": memory_saved,
             "presentation": {
                 "headline": headline,
                 "detail": detail,

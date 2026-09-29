@@ -12,7 +12,7 @@ import AskData from './pages/AskData';
 import ConnectData from './pages/ConnectData';
 import History from './pages/History';
 import Settings from './pages/Settings';
-import CookieNotice from './components/CookieNotice';
+import SessionPrivacyNotice from './components/SessionPrivacyNotice';
 
 function ProductLayout() {
   return (
@@ -62,7 +62,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        <CookieNotice />
+        <SessionPrivacyNotice />
       </BrowserRouter>
     </AuthProvider>
   );

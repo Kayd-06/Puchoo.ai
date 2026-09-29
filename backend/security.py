@@ -1,4 +1,4 @@
-"""Password hashing, session tokens, and CSRF comparison.
+"""Password hashing, signed JWT sessions, and CSRF comparison.
 
 Raw passwords and session tokens are never written to logs or to the database.
 """
@@ -7,6 +7,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import HTTPException, Request, Response
@@ -47,10 +48,44 @@ def password_is_valid(password: str) -> bool:
     return has_letter and has_number
 
 
-def new_session_token() -> str:
-    """256-bit random token. Only its SHA-256 hash is stored."""
+def new_session_token(user_id: str, session_id: str, expires_at: datetime) -> str:
+    """Create a signed, short-lived JWT for one server-side session record.
 
-    return secrets.token_urlsafe(32)
+    The full token remains only in the HttpOnly browser cookie.  Its hash is
+    retained server-side so logout, rotation, and emergency revocation remain
+    effective even though the JWT itself is statelessly verifiable.
+    """
+
+    now = utcnow()
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "jti": session_id,
+            "iat": now,
+            "exp": as_utc(expires_at),
+            "iss": settings.jwt_issuer,
+        },
+        settings.session_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_session_token(token: str) -> dict[str, str] | None:
+    """Validate the signature, expiry and issuer without exposing decode errors."""
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.session_secret,
+            algorithms=[settings.jwt_algorithm],
+            issuer=settings.jwt_issuer,
+            options={"require": ["sub", "jti", "exp", "iat", "iss"]},
+        )
+    except jwt.PyJWTError:
+        return None
+    if not isinstance(payload.get("sub"), str) or not isinstance(payload.get("jti"), str):
+        return None
+    return {"sub": payload["sub"], "jti": payload["jti"]}
 
 
 def hash_token(token: str) -> str:
