@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Bell, CheckCheck, ChevronDown, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, CheckCheck, ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../api/client';
@@ -16,10 +17,13 @@ function timeLabel(value) {
 
 export default function TopBar() {
   const { activeWorkspace } = useAppContext();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -73,6 +77,15 @@ export default function TopBar() {
     }
   }
 
+  async function onLogout() {
+    setLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      navigate('/login', { replace: true });
+    }
+  }
+
   return (
     <header className="app-topbar" style={{ height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-surface)', position: 'sticky', top: 0, zIndex: 10 }}>
       <div className="app-topbar-status" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--accent-green)' }}>
@@ -92,8 +105,19 @@ export default function TopBar() {
               {notifications.length === 0 ? <p style={{ padding: '1.25rem 1rem', color: 'var(--text-muted)', fontSize: '.875rem' }}>No notifications yet. Real activity will appear here.</p> : notifications.map((notification) => <button key={notification.id} type="button" onClick={() => markRead(notification)} style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-color)', padding: '.9rem 1rem', background: notification.read_at ? 'var(--bg-surface)' : '#f0f7ff', color: 'var(--text-primary)', cursor: notification.read_at ? 'default' : 'pointer' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: '.75rem', alignItems: 'baseline' }}><strong style={{ fontSize: '.86rem' }}>{notification.title}</strong><span style={{ flex: '0 0 auto', color: 'var(--text-muted)', fontSize: '.72rem' }}>{timeLabel(notification.created_at)}</span></div>{notification.body && <p style={{ margin: '.25rem 0 0', color: 'var(--text-muted)', fontSize: '.8rem', lineHeight: 1.4 }}>{notification.body}</p>}</button>)}</div>
           </section>}
         </div>
-        <button type="button" aria-label="Account menu" style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', cursor: 'pointer', border: 'none' }}>{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</button>
-        <ChevronDown size={16} color="var(--text-muted)" />
+        <div style={{ position: 'relative' }}>
+          <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}>
+            <span style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+            <ChevronDown size={16} color="var(--text-muted)" />
+          </button>
+          {accountOpen && <section aria-label="Account menu" className="card" style={{ position: 'absolute', top: 'calc(100% + .6rem)', right: 0, width: 'min(260px, calc(100vw - 2rem))', padding: '.75rem', zIndex: 20, boxShadow: '0 18px 45px rgba(15, 23, 42, .16)' }}>
+            <div style={{ padding: '.25rem .35rem .75rem', borderBottom: '1px solid var(--border-color)' }}>
+              <strong style={{ display: 'block', fontSize: '.9rem' }}>{user?.full_name || 'Your account'}</strong>
+              <span style={{ display: 'block', marginTop: '.2rem', color: 'var(--text-muted)', fontSize: '.78rem', overflowWrap: 'anywhere' }}>{user?.email}</span>
+            </div>
+            <button type="button" className="btn btn-secondary" onClick={onLogout} disabled={loggingOut} style={{ width: '100%', justifyContent: 'flex-start', marginTop: '.75rem', color: 'var(--accent-red)' }}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
+          </section>}
+        </div>
       </div>
     </header>
   );
