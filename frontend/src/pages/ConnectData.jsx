@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ShieldCheck, Upload, Server } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 
 export default function ConnectData() {
   const { workspaces, setWorkspaces, setActiveWorkspaceId } = useAppContext();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('upload');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [workspaceName, setWorkspaceName] = useState('');
@@ -15,6 +18,10 @@ export default function ConnectData() {
   });
   const [connecting, setConnecting] = useState(false);
   const [serverError, setServerError] = useState('');
+
+  if (user?.workspace_role === 'viewer') {
+    return <div className="card" style={{ maxWidth: '44rem' }}><h1 style={{ fontSize: '2rem' }}>Viewer access</h1><p className="text-muted" style={{ marginTop: '.75rem', lineHeight: 1.6 }}>Viewers can inspect approved queries and history, but cannot upload files, connect databases, or change workspace data.</p><Link className="btn btn-primary" to="/history" style={{ marginTop: '1.25rem' }}>View query history</Link></div>;
+  }
 
   const uploadFiles = async () => {
     if (!selectedFiles.length) return;

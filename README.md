@@ -45,6 +45,7 @@ Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` t
 | `COOKIE_SECURE` | `true` in production so the session and CSRF cookies are HTTPS-only. |
 | `ENVIRONMENT` | `development` or `production`. |
 | `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
+| `SMTP_FROM` | A verified `no-reply@your-domain` sender. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
 
 ### Run both apps
 

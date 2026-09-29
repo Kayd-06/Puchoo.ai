@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 
 const FILTERS = [
@@ -45,6 +46,8 @@ function StatusBadge({ category }) {
 export default function History() {
   const navigate = useNavigate();
   const { activeWorkspaceId, activeWorkspace } = useAppContext();
+  const { user } = useAuth();
+  const isViewer = user?.workspace_role === 'viewer';
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -135,7 +138,7 @@ export default function History() {
         <div>
           <div className="history-eyebrow"><HistoryIcon size={16} /> Query activity</div>
           <h1>History</h1>
-          <p>{activeWorkspace ? `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.` : 'Select a database to view its history.'}</p>
+          <p>{activeWorkspace ? isViewer ? `Approved questions for ${activeWorkspace.name}. Your access is view-only.` : `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.` : 'Select a database to view its history.'}</p>
         </div>
         <div className="history-metrics" aria-label="History summary">
           <div className="history-metric"><span className="history-metric-icon metric-safe"><ShieldCheck size={18} /></span><div><strong>{verifiedRate}</strong><span>Verified rate</span></div></div>
@@ -158,7 +161,7 @@ export default function History() {
             </button>
           ))}
         </div>
-        <button className="btn btn-danger history-clear" onClick={clearHistory} disabled={clearing || history.length === 0}><Trash2 size={16} />{clearing ? 'Clearing…' : 'Clear history'}</button>
+        {!isViewer && <button className="btn btn-danger history-clear" onClick={clearHistory} disabled={clearing || history.length === 0}><Trash2 size={16} />{clearing ? 'Clearing…' : 'Clear history'}</button>}
       </section>
 
       <div className="history-list-header">
@@ -171,7 +174,7 @@ export default function History() {
           <div className="card history-empty">
             <HistoryIcon size={24} />
             <h3>{history.length ? `No ${activeFilter.label.toLowerCase()} questions found` : 'No questions yet'}</h3>
-            <p className="text-muted">{history.length ? 'Try a different status, or clear your search.' : 'Ask your first data question and it will appear here.'}</p>
+            <p className="text-muted">{history.length ? 'Try a different status, or clear your search.' : isViewer ? 'Approved queries will appear here when a workspace editor runs them.' : 'Ask your first data question and it will appear here.'}</p>
             {history.length > 0 && <button className="btn btn-secondary" onClick={resetFilters}>Show all history</button>}
           </div>
         ) : visibleHistory.map(item => {
@@ -190,7 +193,7 @@ export default function History() {
                 </div>
               </div>
               <div className="history-card-actions">
-                <button className="btn btn-primary" onClick={() => continueConversation(item)}><MessageSquarePlus size={16} /> Continue chat</button>
+                {!isViewer && <button className="btn btn-primary" onClick={() => continueConversation(item)}><MessageSquarePlus size={16} /> Continue chat</button>}
                 {item.sql && <details className="sql-details"><summary><Code2 size={16} /> View SQL <ChevronDown size={15} /></summary><pre>{item.sql}</pre></details>}
               </div>
             </article>

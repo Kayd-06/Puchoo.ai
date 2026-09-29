@@ -35,12 +35,16 @@ def send_otp_email(to_email: str, otp_code: str) -> None:
 
     message = MIMEMultipart("alternative")
     sender = settings.smtp_from or settings.smtp_username
-    message["From"] = f"Puchoo.ai <{sender}>"
+    # The address must be one authenticated by the SMTP provider. Set
+    # SMTP_FROM to a verified no-reply mailbox (for example no-reply@domain)
+    # in production; the display name makes this intent clear without spoofing.
+    message["From"] = f"Puchoo.ai no-reply <{sender}>"
     message["To"] = recipient
     message["Subject"] = f"{otp_code} is your Puchoo.ai verification code"
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1])
     message["Auto-Submitted"] = "auto-generated"
+    message["X-Auto-Response-Suppress"] = "All"
     message.attach(MIMEText(_text(otp_code), "plain", "utf-8"))
     message.attach(MIMEText(_html(otp_code), "html", "utf-8"))
 

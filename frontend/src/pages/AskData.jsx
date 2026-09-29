@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, Code2, LoaderCircle, MessageSquarePlus, Mic, Play, Sparkles, Square } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 
 const DEFAULT_RESULT_LABELS = {
@@ -21,6 +22,7 @@ const DEFAULT_RESULT_LABELS = {
 export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, refreshWorkspaces } = useAppContext();
+  const { user } = useAuth();
   const [question, setQuestion] = useState('');
   const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
   const [questionLanguage, setQuestionLanguage] = useState(() => location.state?.continuation?.languageCode || null);
@@ -41,6 +43,10 @@ export default function AskData() {
     : verificationStatus === 'FAILED'
       ? { className: 'badge badge-bad', label: 'Verification failed' }
       : { className: 'badge badge-warn', label: resultLabels.needs_review };
+
+  if (user?.workspace_role === 'viewer') {
+    return <div className="card" style={{ maxWidth: '44rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', color: 'var(--accent-green)' }}><Sparkles size={20} /><span style={{ fontWeight: 600 }}>Read-only viewer access</span></div><h1 style={{ fontSize: '2rem', marginTop: '.85rem' }}>You can view approved queries</h1><p className="text-muted" style={{ marginTop: '.75rem', lineHeight: 1.6 }}>Your role cannot submit prompts, use voice input, upload data, connect databases, or change shared workspace settings.</p><Link className="btn btn-primary" to="/history" style={{ marginTop: '1.25rem' }}>Open history</Link></div>;
+  }
 
   const handleAsk = async () => {
     if (!question.trim() || !activeWorkspaceId) return;

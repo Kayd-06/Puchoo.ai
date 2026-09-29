@@ -8,6 +8,10 @@ export default function Settings() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  if (user?.workspace_role === 'viewer') {
+    return <div className="card" style={{ maxWidth: '44rem' }}><h1 style={{ fontSize: '2rem' }}>Viewer access</h1><p className="text-muted" style={{ marginTop: '.75rem', lineHeight: 1.6 }}>Workspace settings are managed by the owner and administrators. Your account can only view approved query history.</p><button className="btn btn-primary" onClick={() => navigate('/history')} style={{ marginTop: '1.25rem' }}>Open history</button></div>;
+  }
+
   return (
     <div style={{ maxWidth: '800px' }}>
       <div

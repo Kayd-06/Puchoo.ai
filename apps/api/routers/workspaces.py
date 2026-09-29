@@ -19,7 +19,7 @@ from apps.core.workspaces import (
     get_schema_table_stats,
 )
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard, require_workspace_admin, require_workspace_editor, tenant_owner_id
+from apps.api.security import get_workspace_guard, require_data_manager, require_workspace_admin, require_workspace_editor, tenant_owner_id
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -42,11 +42,7 @@ def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
     return [workspace for workspace in session_manager.workspaces.values() if workspace.get("owner_user_id") == owner_id]
 
 @router.post("/server")
-def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user), db: Session = Depends(get_db)) -> Dict[str, Any]:
-    # New workspaces are data-management operations, not viewer actions.
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot connect data sources.")
+def connect_server(request: ServerWorkspaceRequest, user=Depends(require_data_manager), db: Session = Depends(get_db)) -> Dict[str, Any]:
     try:
         workspace = create_server_workspace(
             request.name,
@@ -71,12 +67,9 @@ def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user), 
 async def upload_file(
     file: UploadFile = File(...),
     name: str = Form(""),
-    user=Depends(current_user),
+    user=Depends(require_data_manager),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     contents = await file.read()
     filename = file.filename or "uploaded_file"
     ws_name = name.strip() or filename.rsplit(".", 1)[0]
@@ -102,12 +95,9 @@ async def upload_file(
 async def upload_multiple_files(
     files: List[UploadFile] = File(...),
     name: str = Form(""),
-    user=Depends(current_user),
+    user=Depends(require_data_manager),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     if not files:
         raise HTTPException(status_code=400, detail="Choose at least one CSV or Excel file")
     payloads: list[tuple[str, bytes]] = []

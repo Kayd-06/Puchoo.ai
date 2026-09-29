@@ -1,16 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import { MessageSquare, Database, History, Settings } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function Sidebar() {
   const { workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useAppContext();
+  const { user } = useAuth();
+  const isViewer = user?.workspace_role === 'viewer';
 
   const navItems = [
     { to: '/ask', icon: MessageSquare, label: 'Ask Data' },
     { to: '/connect', icon: Database, label: 'Connect Data' },
     { to: '/history', icon: History, label: 'History' },
     { to: '/settings', icon: Settings, label: 'Settings' },
-  ];
+  ].filter((item) => !isViewer || item.to === '/history');
 
   return (
     <aside

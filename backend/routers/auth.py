@@ -227,10 +227,15 @@ def _create_workspace_invite(
 ) -> InstituteInviteResponse:
     enforce_csrf(request)
     user = current_user(request, response, db)
-    if user.workspace_type == "personal" or user.workspace_owner_id or user.institute_owner_id:
-        raise HTTPException(status_code=403, detail="Only a workspace owner can create invite codes.")
-    if user.workspace_type == "institution" and user.workspace_role not in {"owner", "admin"}:
-        raise HTTPException(status_code=403, detail="Only an institutional admin can create invite codes.")
+    # Import here to avoid the auth <-> product-router import cycle at startup.
+    from apps.api.security import can_administer_workspace, tenant_owner_id
+
+    if user.workspace_type == "personal" or not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can create invite codes.")
+    tenant_id = tenant_owner_id(user)
+    tenant_owner = db.get(User, tenant_id)
+    if tenant_owner is None:
+        raise HTTPException(status_code=403, detail="The shared workspace is unavailable.")
     role = body.role
     now = utcnow()
     # Keep a separately usable invite for each role. Rotating an editor code
@@ -238,7 +243,7 @@ def _create_workspace_invite(
     # shared. Only the code for this role is replaced.
     for invite in db.scalars(
         select(InstituteInvite).where(
-            InstituteInvite.owner_user_id == user.id,
+            InstituteInvite.owner_user_id == tenant_id,
             InstituteInvite.role == role,
             InstituteInvite.revoked_at.is_(None),
         )
@@ -246,7 +251,7 @@ def _create_workspace_invite(
         invite.revoked_at = now
     code = f"PUCHOO-{secrets.token_urlsafe(7).upper()}"
     db.add(InstituteInvite(
-        owner_user_id=user.id,
+        owner_user_id=tenant_id,
         code_hash=hash_token(code),
         workspace_type=user.workspace_type,
         role=role,
@@ -254,8 +259,8 @@ def _create_workspace_invite(
     db.commit()
     return InstituteInviteResponse(
         code=code,
-        workspace_name=user.workspace_name or user.institute_name or "Shared workspace",
-        workspace_type=user.workspace_type,
+        workspace_name=tenant_owner.workspace_name or tenant_owner.institute_name or "Shared workspace",
+        workspace_type=tenant_owner.workspace_type,
         role=role,
     )
 
