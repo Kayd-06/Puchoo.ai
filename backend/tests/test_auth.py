@@ -79,16 +79,16 @@ def test_login_success_and_me(client: TestClient, otp_codes):
     assert me.json()["workspace_type"] == "personal"
 
 
-def test_concurrent_refresh_checks_do_not_invalidate_a_valid_session(client: TestClient, otp_codes):
-    """A duplicate browser /me request may carry the cookie before rotation."""
+def test_refresh_checks_keep_a_stable_valid_session(client: TestClient, otp_codes):
+    """Parallel page-load calls must not rotate a browser session out of sync."""
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
     finish_signup(client, "ada@college.edu", otp_codes)
     original_token = client.cookies.get("puchoo_session")
     assert original_token
 
-    # First refresh check rotates the session token.
     assert client.get("/api/v1/auth/me").status_code == 200
-    # A second check already in flight still uses the original request cookie.
+    assert client.cookies.get("puchoo_session") == original_token
+    # A duplicate request carrying the original cookie is equally valid.
     client.cookies.set("puchoo_session", original_token)
     second = client.get("/api/v1/auth/me")
     assert second.status_code == 200

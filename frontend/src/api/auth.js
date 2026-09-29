@@ -64,6 +64,9 @@ export async function api(path, { method = 'GET', body } = {}) {
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {
+    if (response.status === 401) {
+      window.dispatchEvent(new Event('puchoo:unauthorized'));
+    }
     const fallback = response.status === 502
       ? 'The sign-in service is unavailable. Start the backend and try again.'
       : response.status >= 500

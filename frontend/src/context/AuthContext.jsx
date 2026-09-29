@@ -33,6 +33,15 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+      setStatus('ready');
+    };
+    window.addEventListener('puchoo:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('puchoo:unauthorized', handleUnauthorized);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,

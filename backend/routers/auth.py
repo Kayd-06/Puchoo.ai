@@ -52,6 +52,9 @@ from backend.security import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 OTP_TTL = timedelta(minutes=10)
 SESSION_ROTATION_GRACE = timedelta(minutes=2)
+# Renew only close to expiry. Per-request rotation races with parallel browser
+# calls and SSE connections, while this preserves a seven-day sliding session.
+SESSION_RENEWAL_WINDOW = timedelta(hours=24)
 INVALID_CODE = "That code is invalid or has expired."
 EMAIL_FAILED = "We could not send the verification email. Try again in a moment."
 
@@ -125,17 +128,20 @@ def current_user(
     record = _active_session(db, request.cookies.get(settings.session_cookie_name))
     if record is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    # Keep a signed session stable during normal use. Per-request rotation is
+    # unsafe in a browser: parallel calls (including an SSE connection) can
+    # return Set-Cookie headers out of order and strand the client with a token
+    # that the database no longer recognizes. Renew only near expiry, retaining
+    # a short overlap for duplicate requests in that renewal window.
     now = utcnow()
-    # Keep the immediately preceding JWT valid briefly. A browser can issue
-    # duplicate /me requests during a refresh (notably under React StrictMode),
-    # and without this overlap the first request logs the second one out.
-    record.previous_token_hash = record.token_hash
-    record.previous_token_expires_at = now + SESSION_ROTATION_GRACE
-    record.expires_at = now + SESSION_TTL
-    renewed_token = new_session_token(record.user_id, record.id, record.expires_at)
-    record.token_hash = hash_token(renewed_token)
-    db.commit()
-    set_session_cookie(response, renewed_token)
+    if as_utc(record.expires_at) <= now + SESSION_RENEWAL_WINDOW:
+        record.previous_token_hash = record.token_hash
+        record.previous_token_expires_at = now + SESSION_ROTATION_GRACE
+        record.expires_at = now + SESSION_TTL
+        renewed_token = new_session_token(record.user_id, record.id, record.expires_at)
+        record.token_hash = hash_token(renewed_token)
+        db.commit()
+        set_session_cookie(response, renewed_token)
     return record.user
 
 
