@@ -27,6 +27,12 @@ class User(Base):
     workspace_type: Mapped[str] = mapped_column(String(20), nullable=False)
     institute_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     institute_owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # `institute_*` remains for backwards-compatible migrations. New code must
+    # use these workspace fields so a business tenant can never be treated as
+    # an institute by accident.
+    workspace_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    workspace_owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    workspace_role: Mapped[str] = mapped_column(String(20), nullable=False, default="owner")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     sessions: Mapped[list["AuthSession"]] = relationship(back_populates="user")
@@ -38,6 +44,10 @@ class AuthSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    # A short overlap prevents concurrent page-load checks from invalidating one
+    # another while preserving immediate server-side logout/revocation.
+    previous_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    previous_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -67,6 +77,19 @@ class PasswordResetCode(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class EmailChangeCode(Base):
+    __tablename__ = "email_change_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    new_email: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class InstituteInvite(Base):
     __tablename__ = "institute_invites"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -74,3 +97,5 @@ class InstituteInvite(Base):
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    workspace_type: Mapped[str] = mapped_column(String(20), nullable=False, default="institution")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")

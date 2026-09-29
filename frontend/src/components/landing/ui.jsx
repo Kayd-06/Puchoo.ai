@@ -32,6 +32,7 @@ export function PillButton({
   onClick,
   type = 'button',
   disabled = false,
+  className = '',
 }) {
   const classes = [
     'group inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[15px] font-medium transition-colors',
@@ -40,6 +41,7 @@ export function PillButton({
       ? 'bg-white text-[#111827] hover:bg-[#F3F4F6]'
       : 'bg-[#111827] text-white hover:bg-[#1F2937]',
     disabled ? 'cursor-not-allowed opacity-60' : '',
+    className,
   ].join(' ');
   const content = (
     <>

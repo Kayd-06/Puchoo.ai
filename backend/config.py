@@ -43,6 +43,8 @@ class Settings:
     csrf_header_name: str = "X-CSRF-Token"
     session_days: int = 7
     session_secret: str = "dev-secret-key-do-not-use-in-prod"
+    jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "puchoo.ai"
     smtp_server: str | None = None
     smtp_port: int | None = None
     smtp_username: str | None = None
@@ -69,6 +71,8 @@ def load_settings() -> Settings:
         cookie_secure=_as_bool(os.getenv("COOKIE_SECURE"), default=False),
         environment=os.getenv("ENVIRONMENT", "development"),
         session_secret=os.getenv("SESSION_SECRET", "dev-secret-key-do-not-use-in-prod"),
+        jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        jwt_issuer=os.getenv("JWT_ISSUER", "puchoo.ai"),
         smtp_server=os.getenv("SMTP_SERVER"),
         smtp_port=parsed_smtp_port,
         smtp_username=os.getenv("SMTP_USERNAME"),

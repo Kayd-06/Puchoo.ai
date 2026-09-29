@@ -25,10 +25,10 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
         def login(self, *_args):
             return None
 
-        def send_message(self, message, from_addr, to_addrs):
+        def sendmail(self, from_addr, to_addrs, msg):
             delivered["from"] = from_addr
             delivered["to"] = to_addrs
-            delivered["header_to"] = message["To"]
+            delivered["message"] = msg
             return {}
 
     monkeypatch.setattr(emailer.smtplib, "SMTP", FakeSMTP)
@@ -41,8 +41,6 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
 
     emailer.send_otp_email("person@example.test", "123456")
 
-    assert delivered == {
-        "from": "sender@example.test",
-        "to": ["person@example.test"],
-        "header_to": "person@example.test",
-    }
+    assert delivered["from"] == "sender@example.test"
+    assert delivered["to"] == ["person@example.test"]
+    assert "To: person@example.test" in delivered["message"]

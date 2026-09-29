@@ -11,6 +11,7 @@ venv/
 # Environment and local runtime state
 .env
 .pucho/
+:memory:.ses
 *.db
 *.sqlite3
 

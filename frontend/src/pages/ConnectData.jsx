@@ -10,6 +10,11 @@ export default function ConnectData() {
   const [workspaceName, setWorkspaceName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [serverForm, setServerForm] = useState({
+    name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true,
+  });
+  const [connecting, setConnecting] = useState(false);
+  const [serverError, setServerError] = useState('');
 
   const uploadFiles = async () => {
     if (!selectedFiles.length) return;
@@ -38,11 +43,43 @@ export default function ConnectData() {
     }
   };
 
+  const updateServerForm = (field, value) => {
+    setServerForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const connectServer = async (event) => {
+    event.preventDefault();
+    if (!serverForm.name.trim() || !serverForm.host.trim() || !serverForm.database.trim() || !serverForm.username.trim() || !serverForm.password) {
+      setServerError('Enter a workspace name and all connection details.');
+      return;
+    }
+    const port = Number(serverForm.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      setServerError('Enter a valid database port.');
+      return;
+    }
+    setConnecting(true);
+    setServerError('');
+    try {
+      const workspace = await fetchApi('/workspaces/server', {
+        method: 'POST',
+        body: JSON.stringify({ ...serverForm, name: serverForm.name.trim(), host: serverForm.host.trim(), database: serverForm.database.trim(), username: serverForm.username.trim(), port }),
+      });
+      setWorkspaces([...workspaces, workspace]);
+      setActiveWorkspaceId(workspace.id);
+      setServerForm({ name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true });
+    } catch (error) {
+      setServerError(error.message || 'Could not connect to that database.');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   return (
     <div>
       <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Connect your data</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
-        Link your database or upload a local file. Pucho accesses your schema securely in read-only
+        Link your database or upload a local file. Puchoo accesses your schema securely in read-only
         mode with zero mutations guaranteed.
       </p>
 
@@ -80,14 +117,14 @@ export default function ConnectData() {
             </span>
           </div>
           <p style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.875rem' }}>
-            Pucho connects exclusively in read-only mode. Your source data cannot be changed,
+            Puchoo connects exclusively in read-only mode. Your source data cannot be changed,
             deleted, or overwritten under any condition. All SQL mutations are blocked at the driver
             layer.
           </p>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '2rem' }}>
+      <div className="connect-layout" style={{ display: 'flex', gap: '2rem' }}>
         <div style={{ flex: 2 }}>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
             <button
@@ -156,18 +193,25 @@ export default function ConnectData() {
                 )}
               </div>
             ) : (
-              <div>
+              <form onSubmit={connectServer} noValidate>
                 <h3 style={{ marginBottom: '1.5rem' }}>Server Connection</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <input type="text" className="input" placeholder="Host (e.g. db.example.com)" />
-                  <input type="text" className="input" placeholder="Database Name" />
-                  <input type="text" className="input" placeholder="Read-only Username" />
-                  <input type="password" className="input" placeholder="Password" />
-                  <button className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                    Connect Server
+                  <input type="text" className="input" placeholder="Workspace name" value={serverForm.name} onChange={(event) => updateServerForm('name', event.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '.75rem' }}>
+                    <select className="input" value={serverForm.engine} onChange={(event) => { const engine = event.target.value; updateServerForm('engine', engine); updateServerForm('port', engine === 'mysql' ? '3306' : '5432'); }} aria-label="Database engine"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select>
+                    <input type="number" className="input" placeholder="Port" min="1" max="65535" value={serverForm.port} onChange={(event) => updateServerForm('port', event.target.value)} aria-label="Database port" />
+                  </div>
+                  <input type="text" className="input" placeholder="Host (e.g. db.example.com)" value={serverForm.host} onChange={(event) => updateServerForm('host', event.target.value)} />
+                  <input type="text" className="input" placeholder="Database name" value={serverForm.database} onChange={(event) => updateServerForm('database', event.target.value)} />
+                  <input type="text" className="input" placeholder="Read-only username" autoComplete="username" value={serverForm.username} onChange={(event) => updateServerForm('username', event.target.value)} />
+                  <input type="password" className="input" placeholder="Password" autoComplete="current-password" value={serverForm.password} onChange={(event) => updateServerForm('password', event.target.value)} />
+                  <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: '.875rem', color: 'var(--text-muted)' }}><input type="checkbox" checked={serverForm.ssl_required} onChange={(event) => updateServerForm('ssl_required', event.target.checked)} /> Require SSL/TLS</label>
+                  {serverError && <p role="alert" style={{ color: 'var(--accent-red)', fontSize: '.875rem' }}>{serverError}</p>}
+                  <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }} disabled={connecting}>
+                    {connecting ? 'Checking connection…' : 'Connect server'}
                   </button>
                 </div>
-              </div>
+              </form>
             )}
           </div>
         </div>
@@ -177,7 +221,7 @@ export default function ConnectData() {
             <h3
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}
             >
-              <ShieldCheck size={20} color="var(--bg-primary)" /> How Pucho Protects You
+              <ShieldCheck size={20} color="var(--bg-primary)" /> How Puchoo Protects You
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <div>
@@ -194,7 +238,7 @@ export default function ConnectData() {
                   Zero Data Ingestion
                 </h4>
                 <p className="text-muted text-xs">
-                  Pucho LLMs only read schema metadata and aggregate summaries. Raw customer PII
+                  Puchoo only reads schema metadata and aggregate summaries. Raw customer PII
                   remains in your enclave.
                 </p>
               </div>

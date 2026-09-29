@@ -3,6 +3,7 @@
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formatdate, make_msgid, parseaddr
 
 from backend.config import settings
 
@@ -24,11 +25,22 @@ def send_otp_email(to_email: str, otp_code: str) -> None:
     if settings.smtp_use_ssl and settings.smtp_use_tls:
         raise EmailDeliveryError("SMTP cannot use SSL and STARTTLS together")
 
+    # SMTP envelope recipients are what mail providers deliver to. Keep this
+    # separate from the authenticated sender and normalise it once here so a
+    # UI header can never accidentally redirect a verification code.
+    _display_name, recipient = parseaddr(to_email.strip())
+    recipient = recipient.lower()
+    if not recipient or "@" not in recipient:
+        raise EmailDeliveryError("invalid recipient")
+
     message = MIMEMultipart("alternative")
     sender = settings.smtp_from or settings.smtp_username
     message["From"] = f"Puchoo.ai <{sender}>"
-    message["To"] = to_email
+    message["To"] = recipient
     message["Subject"] = f"{otp_code} is your Puchoo.ai verification code"
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1])
+    message["Auto-Submitted"] = "auto-generated"
     message.attach(MIMEText(_text(otp_code), "plain", "utf-8"))
     message.attach(MIMEText(_html(otp_code), "html", "utf-8"))
 
@@ -40,12 +52,14 @@ def send_otp_email(to_email: str, otp_code: str) -> None:
                 smtp.starttls()
                 smtp.ehlo()
             smtp.login(settings.smtp_username, settings.smtp_password)
-            # Pass envelope addresses explicitly. SMTP relays deliver using this
-            # envelope, not the visual From/To headers in the MIME message.
-            refused = smtp.send_message(
-                message,
+            # Deliberately use the SMTP envelope API instead of inferred MIME
+            # recipients. `sender` is only the authenticated sender; `recipient`
+            # is the only delivery destination and is derived from the account
+            # email supplied to the app.
+            refused = smtp.sendmail(
                 from_addr=settings.smtp_username,
-                to_addrs=[to_email],
+                to_addrs=[recipient],
+                msg=message.as_string(),
             )
             if refused:
                 raise EmailDeliveryError("recipient refused")

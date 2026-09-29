@@ -14,6 +14,7 @@ export default function Sidebar() {
 
   return (
     <aside
+      className="app-sidebar"
       style={{
         width: '260px',
         backgroundColor: 'var(--bg-surface)',
@@ -25,6 +26,7 @@ export default function Sidebar() {
       }}
     >
       <div
+        className="app-sidebar-brand"
         style={{
           padding: '0 1.5rem',
           marginBottom: '2rem',
@@ -48,10 +50,11 @@ export default function Sidebar() {
         >
           P
         </div>
-        <h2 style={{ fontSize: '1.25rem', margin: 0, fontWeight: 700 }}>Pucho AI</h2>
+        <h2 style={{ fontSize: '1.25rem', margin: 0, fontWeight: 700 }}>Puchoo AI</h2>
       </div>
 
       <nav
+        className="app-sidebar-nav"
         style={{
           flex: 1,
           padding: '0 1rem',
@@ -83,6 +86,7 @@ export default function Sidebar() {
       </nav>
 
       <div
+        className="app-sidebar-workspace"
         style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)', marginTop: 'auto' }}
       >
         <label

@@ -16,7 +16,7 @@ from apps.core.workspaces import (
     get_schema_table_stats,
 )
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard
+from apps.api.security import get_workspace_guard, require_workspace_admin, require_workspace_editor, tenant_owner_id
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -31,7 +31,7 @@ class ServerWorkspaceRequest(BaseModel):
     ssl_required: bool = True
 
 def _owner_id(user) -> str:
-    return user.institute_owner_id or user.id
+    return tenant_owner_id(user)
 
 @router.get("/")
 def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
@@ -40,6 +40,10 @@ def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
 
 @router.post("/server")
 def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) -> Dict[str, Any]:
+    # New workspaces are data-management operations, not viewer actions.
+    from apps.api.security import can_manage_data
+    if not can_manage_data(user):
+        raise HTTPException(status_code=403, detail="Viewer access cannot connect data sources.")
     try:
         workspace = create_server_workspace(
             request.name,
@@ -64,6 +68,9 @@ async def upload_file(
     name: str = Form(""),
     user=Depends(current_user),
 ) -> Dict[str, Any]:
+    from apps.api.security import can_manage_data
+    if not can_manage_data(user):
+        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     contents = await file.read()
     filename = file.filename or "uploaded_file"
     ws_name = name.strip() or filename.rsplit(".", 1)[0]
@@ -89,6 +96,9 @@ async def upload_multiple_files(
     name: str = Form(""),
     user=Depends(current_user),
 ) -> Dict[str, Any]:
+    from apps.api.security import can_manage_data
+    if not can_manage_data(user):
+        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     if not files:
         raise HTTPException(status_code=400, detail="Choose at least one CSV or Excel file")
     payloads: list[tuple[str, bytes]] = []
@@ -115,7 +125,7 @@ def get_workspace(workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, A
     return workspace
 
 @router.delete("/{workspace_id}")
-def delete_workspace(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Response:
+def delete_workspace(workspace_id: str, workspace: Dict = Depends(require_workspace_admin)) -> Response:
     session_manager.remove_workspace(workspace_id)
     return Response(status_code=204)
 
@@ -130,7 +140,7 @@ def get_schema(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)
     return {"schema": session_manager.schema_snapshots[cache_key]}
 
 @router.post("/{workspace_id}/schema/refresh")
-def refresh_schema(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, str]:
+def refresh_schema(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, str]:
     try:
         schema = get_schema_snapshot(workspace["database_uri"])
         session_manager.schema_snapshots[f"schema_{workspace_id}"] = schema

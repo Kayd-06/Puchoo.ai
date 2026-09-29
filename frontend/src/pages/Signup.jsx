@@ -11,8 +11,8 @@ const empty = {
   password: '',
   confirm_password: '',
   workspace_type: 'personal',
-  institute_name: '',
-  institute_code: '',
+  workspace_name: '',
+  invite_code: '',
 };
 
 export default function Signup() {
@@ -43,8 +43,8 @@ export default function Signup() {
     }
     if (values.password !== values.confirm_password)
       next.confirm_password = 'Passwords do not match.';
-    if (values.workspace_type === 'institute' && !values.institute_name.trim()) {
-      next.institute_name = 'Institute name is required.';
+    if (values.workspace_type !== 'personal' && !values.invite_code.trim() && !values.workspace_name.trim()) {
+      next.workspace_name = 'Enter a workspace name when creating a new shared workspace.';
     }
     return next;
   }
@@ -63,8 +63,8 @@ export default function Signup() {
         password: values.password,
         confirm_password: values.confirm_password,
         workspace_type: values.workspace_type,
-        institute_name: values.workspace_type === 'institute' ? values.institute_name.trim() : null,
-        institute_code: values.institute_code.trim() || null,
+        workspace_name: values.workspace_type === 'personal' ? null : values.workspace_name.trim() || null,
+        invite_code: values.invite_code.trim() || null,
       });
       navigate('/login', {
         replace: true,
@@ -82,7 +82,8 @@ export default function Signup() {
       <title>Get started · Puchoo.ai</title>
       <AuthShell
         title="Create your workspace"
-        subtitle="Personal for you, or an institute workspace for your college."
+        subtitle="Choose how your data should be owned and who can safely work with it."
+        dense
         footer={
           <>
             Already have an account?{' '}
@@ -95,7 +96,7 @@ export default function Signup() {
           </>
         }
       >
-        <form className="space-y-5" onSubmit={onSubmit} noValidate>
+        <form className="auth-signup-form" onSubmit={onSubmit} noValidate>
           <Field id="full_name" label="Full name" error={errors.full_name}>
             <input
               id="full_name"
@@ -137,46 +138,43 @@ export default function Signup() {
             error={errors.confirm_password}
             onChange={(event) => update('confirm_password', event.target.value)}
           />
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-[#111827]">Workspace</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
+          <fieldset className="auth-form-wide">
+            <legend className="mb-2 text-sm font-medium text-[#111827]">How will you use Puchoo?</legend>
+            <div className="grid gap-2 sm:grid-cols-3">
               {[
-                ['personal', 'Personal'],
-                ['institute', 'Institute members'],
-              ].map(([value, label]) => (
+                ['personal', 'Personal', 'Only you can access your private workspace.'],
+                ['business', 'Business', 'Invite people as Admin, Editor, or Viewer.'],
+                ['institution', 'Institution', 'Admin, editor, and viewer access for your team.'],
+              ].map(([value, label, detail]) => (
                 <label
                   key={value}
-                  className={`flex items-center gap-2 rounded-2xl border border-black/10 px-3 py-3 text-sm ${focusRing}`}
+                  className={`flex min-h-28 flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-sm ${values.workspace_type === value ? 'border-[#111827] bg-[#eef3fc]' : 'border-black/10'} ${focusRing}`}
                 >
-                  <input
-                    type="radio"
-                    name="workspace_type"
-                    value={value}
-                    checked={values.workspace_type === value}
-                    onChange={() => update('workspace_type', value)}
-                  />
-                  {label}
+                  <span className="flex items-center gap-2 font-medium"><input type="radio" name="workspace_type" value={value} checked={values.workspace_type === value} onChange={() => update('workspace_type', value)} />{label}</span>
+                  <span className="text-xs leading-relaxed text-[#64748b]">{detail}</span>
                 </label>
               ))}
             </div>
           </fieldset>
-          {values.workspace_type === 'institute' ? (
-            <Field id="institute_name" label="Institute name" error={errors.institute_name}>
+          {values.workspace_type !== 'personal' ? (
+            <Field id="workspace_name" label={values.workspace_type === 'business' ? 'Business name' : 'Institution name'} error={errors.workspace_name}>
               <input
-                id="institute_name"
-                name="institute_name"
-                value={values.institute_name}
-                onChange={(event) => update('institute_name', event.target.value)}
-                aria-invalid={Boolean(errors.institute_name)}
-                aria-describedby={errors.institute_name ? 'institute_name-error' : undefined}
-                className={inputClass(Boolean(errors.institute_name))}
+                id="workspace_name"
+                name="workspace_name"
+                value={values.workspace_name}
+                onChange={(event) => update('workspace_name', event.target.value)}
+                aria-invalid={Boolean(errors.workspace_name)}
+                aria-describedby={errors.workspace_name ? 'workspace_name-error' : undefined}
+                className={inputClass(Boolean(errors.workspace_name))}
               />
             </Field>
           ) : null}
-          <Field id="institute_code" label="Institute invite code (optional)">
-            <input id="institute_code" value={values.institute_code} onChange={(event) => update('institute_code', event.target.value)} placeholder="PUCHOO-…" className={inputClass(false)} />
+          {values.workspace_type !== 'personal' ? <Field id="invite_code" label="Join with a workspace code instead (optional)">
+            <input id="invite_code" value={values.invite_code} onChange={(event) => update('invite_code', event.target.value)} placeholder="PUCHOO-…" className={inputClass(false)} />
+            <p className="mt-2 text-xs leading-relaxed text-[#64748b]">A code links you to the owner’s tenant after your email and OTP are verified. It never exposes another workspace in the picker.</p>
           </Field>
-          <PillButton type="submit" variant="dark" disabled={pending}>
+          : null}
+          <PillButton type="submit" variant="dark" disabled={pending} className="auth-form-wide w-full">
             {pending ? 'Creating account…' : 'Get started'}
           </PillButton>
         </form>

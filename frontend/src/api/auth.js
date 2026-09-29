@@ -88,6 +88,9 @@ export function signup(payload) {
 export function forgotPassword(payload) { return api('/api/v1/auth/password/forgot', { method: 'POST', body: payload }); }
 export function resetPassword(payload) { return api('/api/v1/auth/password/reset', { method: 'POST', body: payload }); }
 export function createInstituteInvite() { return api('/api/v1/auth/institute/invite', { method: 'POST' }); }
+export function createWorkspaceInvite(role = 'editor') { return api('/api/v1/auth/workspace/invite', { method: 'POST', body: { role } }); }
+export function requestEmailChange(payload) { return api('/api/v1/auth/email/change', { method: 'POST', body: payload }); }
+export function verifyEmailChange(payload) { return api('/api/v1/auth/email/change/verify', { method: 'POST', body: payload }); }
 
 export function logout() {
   return api('/api/v1/auth/logout', { method: 'POST' });

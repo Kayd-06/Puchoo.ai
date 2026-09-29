@@ -24,11 +24,11 @@ export function strengthOf(password) {
   return { score, label: ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][score] };
 }
 
-export default function PasswordField({ id, label, value, onChange, error, autoComplete }) {
+export default function PasswordField({ id, label, value, onChange, error, autoComplete, className = '' }) {
   const [visible, setVisible] = useState(false);
   const strength = strengthOf(value);
   return (
-    <Field id={id} label={label} error={error}>
+    <Field id={id} label={label} error={error} className={className}>
       <div className="relative">
         <input
           id={id}

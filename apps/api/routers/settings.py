@@ -1,11 +1,11 @@
 """Settings and guardrails router."""
 
 from typing import Any, Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard
+from apps.api.security import get_workspace_guard, require_workspace_admin
 from backend.routers.auth import current_user
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -16,20 +16,24 @@ class ProfileRequest(BaseModel):
     department: str
     timezone: str
 
-@router.get("/profile")
-def get_profile(user=Depends(current_user)) -> Dict[str, str]:
+def _profile_response(user) -> Dict[str, str]:
     return {"name": user.full_name, "email": user.email, "department": user.institute_name or "Personal", "timezone": "UTC"}
 
+
+@router.get("/profile")
+def get_profile(user=Depends(current_user)) -> Dict[str, str]:
+    return _profile_response(user)
+
+
 @router.put("/profile")
-def update_profile(request: ProfileRequest) -> Dict[str, str]:
-    session_manager.profile = {
-        "name": request.name,
-        "email": request.email,
-        "department": request.department,
-        "timezone": request.timezone
-    }
-    session_manager.save()
-    return session_manager.profile
+def update_profile(request: ProfileRequest, user=Depends(current_user)) -> Dict[str, str]:
+    """Do not allow a client to replace shared in-memory profile data.
+
+    Profile values come from the verified account. Email changes must go
+    through an OTP-confirmed account flow, rather than this generic endpoint.
+    """
+
+    raise HTTPException(status_code=409, detail="Profile changes require verified account settings.")
 
 class GuardrailsRequest(BaseModel):
     max_rows: int
@@ -41,7 +45,7 @@ def get_guardrails(workspace_id: str, workspace: Dict = Depends(get_workspace_gu
     return session_manager.get_guardrails(workspace_id)
 
 @router.put("/guardrails/{workspace_id}")
-def update_guardrails(workspace_id: str, request: GuardrailsRequest, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
+def update_guardrails(workspace_id: str, request: GuardrailsRequest, workspace: Dict = Depends(require_workspace_admin)) -> Dict[str, Any]:
     guardrails = {
         "max_rows": request.max_rows,
         "timeout_seconds": request.timeout_seconds,
