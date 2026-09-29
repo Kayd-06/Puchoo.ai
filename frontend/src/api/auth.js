@@ -64,7 +64,12 @@ export async function api(path, { method = 'GET', body } = {}) {
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {
-    throw new ApiError(messageFrom(data, 'Something went wrong.'), response.status);
+    const fallback = response.status === 502
+      ? 'The sign-in service is unavailable. Start the backend and try again.'
+      : response.status >= 500
+        ? 'The sign-in service is temporarily unavailable. Please try again.'
+        : 'Something went wrong.';
+    throw new ApiError(messageFrom(data, fallback), response.status);
   }
   return data;
 }
