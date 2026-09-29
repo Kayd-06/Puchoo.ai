@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from apps.api.security import CSRFMiddleware
-from apps.api.routers import workspaces, query, history, settings, sarvam
+from apps.api.routers import workspaces, query, history, notifications, settings, sarvam
 from backend.database import init_db
 from backend.routers.auth import router as auth_router
 
@@ -48,6 +48,7 @@ app.include_router(workspaces.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(sarvam.router, prefix="/api")
 app.include_router(auth_router, prefix="/api/v1")
 

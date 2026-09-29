@@ -2,7 +2,10 @@
 
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from sqlalchemy.orm import Session
 from backend.routers.auth import current_user
+from backend.database import get_db
+from backend.notifications import create_notification
 from pydantic import BaseModel
 
 from apps.core.workspaces import (
@@ -39,7 +42,7 @@ def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
     return [workspace for workspace in session_manager.workspaces.values() if workspace.get("owner_user_id") == owner_id]
 
 @router.post("/server")
-def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) -> Dict[str, Any]:
+def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user), db: Session = Depends(get_db)) -> Dict[str, Any]:
     # New workspaces are data-management operations, not viewer actions.
     from apps.api.security import can_manage_data
     if not can_manage_data(user):
@@ -58,6 +61,8 @@ def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) 
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
+        create_notification(db, user_id=user.id, kind="workspace_connected", title="Database connected", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
         return ws_dict
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -67,6 +72,7 @@ async def upload_file(
     file: UploadFile = File(...),
     name: str = Form(""),
     user=Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     from apps.api.security import can_manage_data
     if not can_manage_data(user):
@@ -86,6 +92,8 @@ async def upload_file(
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
+        create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data source added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
         return ws_dict
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -95,6 +103,7 @@ async def upload_multiple_files(
     files: List[UploadFile] = File(...),
     name: str = Form(""),
     user=Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     from apps.api.security import can_manage_data
     if not can_manage_data(user):
@@ -116,6 +125,8 @@ async def upload_multiple_files(
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
+        create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data sources added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
         return ws_dict
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

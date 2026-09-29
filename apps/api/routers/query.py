@@ -10,6 +10,7 @@ from uuid import uuid4
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from apps.core.executor import QueryExecutionError, ReadOnlyExecutor
 from apps.core.guardrails import SQLGuardrailError, SQLParseError
@@ -47,6 +48,8 @@ from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
 from apps.core.chat_memory import ChatMemoryError, get_chat_memory
 from backend.routers.auth import current_user
+from backend.database import get_db
+from backend.notifications import create_notification
 
 router = APIRouter(prefix="/query", tags=["query"])
 logger = logging.getLogger(__name__)
@@ -386,6 +389,7 @@ def execute_query(
     request: ExecuteRequest,
     workspace: Dict = Depends(require_workspace_editor),
     user=Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     proposal = session_manager.active_proposals.get(workspace_id)
     
@@ -463,6 +467,15 @@ def execute_query(
         session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
         session_manager.active_proposals.pop(workspace_id, None)
         session_manager.save(active_workspace_id=workspace_id)
+        create_notification(
+            db,
+            user_id=user.id,
+            kind="query_completed",
+            title="Query completed",
+            body=f"{result.row_count} row{'s' if result.row_count != 1 else ''} returned from {workspace.get('name', 'your workspace')}.",
+            resource_id=workspace_id,
+        )
+        db.commit()
 
         # Executing a proposal is the user's approval. Store only its safe
         # conversational context under the account/institute tenant; rows and

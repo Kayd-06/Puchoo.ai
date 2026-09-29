@@ -12,6 +12,7 @@ from backend import emailer
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
 from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, PasswordResetCode, User
+from backend.notifications import create_notification
 from backend.rate_limit import limiter
 from backend.schemas import (
     AuthResponse,
@@ -184,6 +185,25 @@ def signup(
     )
     db.add(user)
     try:
+        db.flush()
+        if invite is not None and owner is not None:
+            workspace_name = owner.workspace_name or owner.institute_name or "the shared workspace"
+            create_notification(
+                db,
+                user_id=user.id,
+                kind="workspace_access",
+                title="Workspace access is ready",
+                body=f"You joined {workspace_name} as {invite.role}.",
+                resource_id=owner.id,
+            )
+            create_notification(
+                db,
+                user_id=owner.id,
+                kind="member_joined",
+                title="A member joined your workspace",
+                body=f"A new {invite.role} member joined {workspace_name}.",
+                resource_id=user.id,
+            )
         db.commit()
     except IntegrityError:
         db.rollback()

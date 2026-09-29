@@ -162,8 +162,6 @@
   .app-topbar-status { min-width: 0; }
   .app-topbar-status span { display: none; }
   .app-topbar-actions { flex: 1; min-width: 0; justify-content: flex-end; gap: .5rem !important; }
-  .app-topbar-search { flex: 1; min-width: 0; }
-  .app-topbar-search input { width: 100% !important; min-width: 0; }
   .page-container { padding: 1rem; }
   .connect-layout { flex-direction: column; gap: 1rem !important; }
   .settings-profile-grid { grid-template-columns: 1fr !important; }
