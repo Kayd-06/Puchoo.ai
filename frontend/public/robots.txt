@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /ask
+Disallow: /connect
+Disallow: /history
+Disallow: /settings
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot-password
+
+Sitemap: https://puchoo.ai/sitemap.xml

@@ -1,18 +1,22 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { AuthProvider } from './context/AuthContext';
 import { GuestRoute, ProtectedRoute } from './components/ProtectedRoute';
-import AppShell from './components/layout/AppShell';
-import Landing from './pages/Landing';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import ForgotPassword from './pages/ForgotPassword';
-import Legal from './pages/Legal';
-import AskData from './pages/AskData';
-import ConnectData from './pages/ConnectData';
-import History from './pages/History';
-import Settings from './pages/Settings';
 import SessionPrivacyNotice from './components/SessionPrivacyNotice';
+
+// Keep the marketing page independent from the authenticated product bundle.
+// This removes dashboard, database, and workspace code from the first visit.
+const AppShell = lazy(() => import('./components/layout/AppShell'));
+const Landing = lazy(() => import('./pages/Landing'));
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const Legal = lazy(() => import('./pages/Legal'));
+const AskData = lazy(() => import('./pages/AskData'));
+const ConnectData = lazy(() => import('./pages/ConnectData'));
+const History = lazy(() => import('./pages/History'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 function ProductLayout() {
   return (
@@ -22,10 +26,18 @@ function ProductLayout() {
   );
 }
 
-function App() {
+// Account pages still verify an existing session so GuestRoute can redirect an
+// already signed-in person. The marketing and legal pages stay network-clean.
+const sessionFreePaths = new Set(['/', '/privacy', '/terms']);
+
+function RoutedApplication() {
+  const { pathname } = useLocation();
+  const loadSession = !sessionFreePaths.has(pathname);
+
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <AuthProvider key={loadSession ? 'private' : 'public'} loadSession={loadSession}>
+        <a className="puchoo-skip-link" href="#main-content">Skip to main content</a>
+        <Suspense fallback={<main className="puchoo-route-loading" aria-label="Loading Puchoo.ai" />}>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route
@@ -62,10 +74,14 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
         <SessionPrivacyNotice />
-      </BrowserRouter>
     </AuthProvider>
   );
+}
+
+function App() {
+  return <BrowserRouter><RoutedApplication /></BrowserRouter>;
 }
 
 export default App;
