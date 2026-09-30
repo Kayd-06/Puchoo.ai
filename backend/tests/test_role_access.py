@@ -66,6 +66,8 @@ def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_cod
             finish_signup(viewer_client, viewer_email, otp_codes)
 
             assert viewer_client.get(f"/api/history/{workspace_id}").status_code == 200
+            assert viewer_client.get(f"/api/workspaces/{workspace_id}").status_code == 403
+            assert viewer_client.get(f"/api/workspaces/{workspace_id}/schema").status_code == 403
             assert viewer_client.post(
                 f"/api/query/{workspace_id}/generate",
                 json={"question": "Show revenue"},
@@ -79,6 +81,11 @@ def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_cod
             assert viewer_client.post(
                 "/api/workspaces/server",
                 json={"name": "Hidden", "engine": "postgresql", "host": "db.test", "port": 5432, "database": "app", "username": "readonly", "password": "secret"},
+                headers=csrf_headers(viewer_client),
+            ).status_code == 403
+            assert viewer_client.post(
+                "/api/sarvam/translate",
+                json={"text": "show the report"},
                 headers=csrf_headers(viewer_client),
             ).status_code == 403
             assert viewer_client.put(
