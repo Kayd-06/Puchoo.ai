@@ -502,3 +502,46 @@ def test_signup_removes_account_when_email_delivery_fails(client: TestClient, mo
     db = database.SessionLocal()
     assert db.query(User).count() == 0
     db.close()
+
+
+def test_single_use_recovery_otp_can_complete_a_password_verified_login(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    generated = client.post(
+        "/api/v1/auth/recovery-codes",
+        json={"current_password": "language10"},
+        headers=csrf_headers(client),
+    )
+    assert generated.status_code == 200
+    codes = generated.json()["codes"]
+    assert len(codes) == 10
+    assert all(code.startswith("PCH-") for code in codes)
+
+    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
+    challenge = client.post(
+        "/api/v1/auth/login",
+        json={"email": "ada@college.edu", "password": "language10"},
+        headers=csrf_headers(client),
+    )
+    assert challenge.status_code == 200
+    assert challenge.json()["recovery_available"] is True
+    verified = client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": "ada@college.edu", "code": codes[0]},
+        headers=csrf_headers(client),
+    )
+    assert verified.status_code == 200
+
+    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "ada@college.edu", "password": "language10"},
+        headers=csrf_headers(client),
+    ).status_code == 200
+    reused = client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": "ada@college.edu", "code": codes[0]},
+        headers=csrf_headers(client),
+    )
+    assert reused.status_code == 401

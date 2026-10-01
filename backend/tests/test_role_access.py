@@ -6,7 +6,7 @@ from apps.api.session import session_manager
 from backend import database
 from backend.main import create_app
 from backend.models import User
-from backend.tests.conftest import csrf_headers, finish_signup, signup_payload
+from backend.tests.conftest import csrf_headers, finish_login, finish_signup, signup_payload
 
 
 def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_codes):
@@ -97,6 +97,76 @@ def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_cod
                 f"/api/history/{workspace_id}",
                 headers=csrf_headers(viewer_client),
             ).status_code == 403
+            assert viewer_client.delete(
+                f"/api/history/{workspace_id}/records/nonexistent-record",
+                headers=csrf_headers(viewer_client),
+            ).status_code == 403
+    finally:
+        session_manager.workspaces.pop(workspace_id, None)
+        session_manager.workspace_guardrails.pop(workspace_id, None)
+        session_manager.query_history.pop(workspace_id, None)
+        session_manager.active_proposals.pop(workspace_id, None)
+        session_manager.schema_snapshots.pop(f"schema_{workspace_id}", None)
+
+
+def test_admin_can_delete_only_the_selected_history_record(client, otp_codes, monkeypatch):
+    """A record delete is scoped to one workspace record and its own memory."""
+
+    owner_email = "history-owner@business.com"
+    assert client.post(
+        "/api/v1/auth/signup",
+        json=signup_payload(
+            full_name="History Owner",
+            email=owner_email,
+            workspace_type="business",
+            workspace_name="Ledger",
+        ),
+        headers=csrf_headers(client),
+    ).status_code == 202
+    finish_signup(client, owner_email, otp_codes)
+
+    db = database.SessionLocal()
+    try:
+        owner_id = db.query(User).filter_by(email=owner_email).one().id
+    finally:
+        db.close()
+
+    workspace_id = "targeted-history-delete-workspace"
+    session_manager.workspaces[workspace_id] = {
+        "id": workspace_id,
+        "name": "Ledger reporting",
+        "owner_user_id": owner_id,
+        "database_uri": "sqlite:///:memory:",
+        "dialect": "sqlite",
+    }
+    session_manager.workspace_guardrails[workspace_id] = session_manager.DEFAULT_GUARDRAILS.copy()
+    session_manager.query_history[workspace_id] = [
+        {"id": "remove-this", "question": "Remove this record"},
+        {"id": "keep-this", "question": "Keep this record"},
+    ]
+    deleted = []
+
+    class FakeMemory:
+        def delete_approved_conversation(self, **kwargs):
+            deleted.append(kwargs)
+
+    monkeypatch.setattr("apps.api.routers.history.get_chat_memory", lambda: FakeMemory())
+    try:
+        with TestClient(create_app(include_product=True)) as product_client:
+            finish_login(product_client, owner_email, "language10", otp_codes)
+            response = product_client.delete(
+                f"/api/history/{workspace_id}/records/remove-this",
+                headers=csrf_headers(product_client),
+            )
+            assert response.status_code == 204
+        assert session_manager.query_history[workspace_id] == [
+            {"id": "keep-this", "question": "Keep this record"}
+        ]
+        assert deleted == [{
+            "tenant_id": owner_id,
+            "workspace_id": workspace_id,
+            "record_id": "remove-this",
+        }]
     finally:
         session_manager.workspaces.pop(workspace_id, None)
         session_manager.workspace_guardrails.pop(workspace_id, None)

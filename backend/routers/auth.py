@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from backend import emailer
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, PasswordResetCode, User
+from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, PasswordResetCode, RecoveryCode, User
 from backend.notifications import create_notification
 from backend.rate_limit import limiter
 from backend.schemas import (
@@ -24,6 +24,8 @@ from backend.schemas import (
     WorkspaceInviteRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
+    RecoveryCodesRequest,
+    RecoveryCodesResponse,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
@@ -57,6 +59,8 @@ SESSION_ROTATION_GRACE = timedelta(minutes=2)
 SESSION_RENEWAL_WINDOW = timedelta(hours=24)
 INVALID_CODE = "That code is invalid or has expired."
 EMAIL_FAILED = "We could not send the verification email. Try again in a moment."
+RECOVERY_CODE_COUNT = 10
+RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 def _user_response(user: User) -> UserResponse:
@@ -152,7 +156,7 @@ def issue_csrf() -> Response:
     return Response(status_code=204)
 
 
-@router.post("/signup", response_model=OtpChallengeResponse, status_code=202)
+@router.post("/signup", response_model=OtpChallengeResponse, response_model_exclude_none=True, status_code=202)
 def signup(
     body: SignupRequest,
     request: Request,
@@ -287,7 +291,7 @@ def create_institute_invite(request: Request, response: Response, db: Session = 
     return _create_workspace_invite(WorkspaceInviteRequest(role="viewer"), request, response, db)
 
 
-def _send_login_code(db: Session, user: User) -> None:
+def _send_login_code(db: Session, user: User) -> bool:
     now = utcnow()
     pending = db.scalars(
         select(LoginCode).where(LoginCode.user_id == user.id, LoginCode.consumed_at.is_(None))
@@ -307,12 +311,33 @@ def _send_login_code(db: Session, user: User) -> None:
     try:
         emailer.send_otp_email(user.email, raw_code)
     except EmailDeliveryError:
+        # A pre-enrolled recovery OTP can complete this pending, password-
+        # verified challenge without depending on mailbox delivery. Keep the
+        # challenge active for that path; otherwise invalidate it as before.
+        if _has_recovery_codes(db, user):
+            return False
         record.consumed_at = utcnow()
         db.commit()
         raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    return True
 
 
-@router.post("/login", response_model=OtpChallengeResponse)
+def _has_recovery_codes(db: Session, user: User) -> bool:
+    return db.scalar(
+        select(RecoveryCode.id).where(
+            RecoveryCode.user_id == user.id,
+            RecoveryCode.consumed_at.is_(None),
+        ).limit(1)
+    ) is not None
+
+
+def _new_recovery_code() -> str:
+    left = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
+    right = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
+    return f"PCH-{left}-{right}"
+
+
+@router.post("/login", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def login(
     body: LoginRequest,
     request: Request,
@@ -326,11 +351,15 @@ def login(
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
-    _send_login_code(db, user)
-    return OtpChallengeResponse(email=user.email)
+    email_delivered = _send_login_code(db, user)
+    return OtpChallengeResponse(
+        email=user.email,
+        email_delivered=email_delivered,
+        recovery_available=_has_recovery_codes(db, user),
+    )
 
 
-@router.post("/login/resend", response_model=OtpChallengeResponse)
+@router.post("/login/resend", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def resend_login_code(
     body: ResendOtpRequest,
     request: Request,
@@ -342,12 +371,17 @@ def resend_login_code(
     _rate_limit("resend", request, str(body.email))
     user = db.scalar(select(User).where(User.email == str(body.email)))
     if user is not None:
-        _send_login_code(db, user)
+        email_delivered = _send_login_code(db, user)
+        return OtpChallengeResponse(
+            email=user.email,
+            email_delivered=email_delivered,
+            recovery_available=_has_recovery_codes(db, user),
+        )
     # Keep this response uniform so the endpoint does not disclose accounts.
     return OtpChallengeResponse(email=str(body.email))
 
 
-@router.post("/password/forgot", response_model=OtpChallengeResponse)
+@router.post("/password/forgot", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def forgot_password(body: PasswordForgotRequest, request: Request, db: Session = Depends(get_db)) -> OtpChallengeResponse:
     enforce_csrf(request)
     _rate_limit("password-reset", request, str(body.email))
@@ -383,7 +417,7 @@ def reset_password(body: PasswordResetRequest, request: Request, db: Session = D
     return {"ok": True}
 
 
-@router.post("/email/change", response_model=OtpChallengeResponse)
+@router.post("/email/change", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def request_email_change(
     body: EmailChangeRequest,
     request: Request,
@@ -485,16 +519,70 @@ def verify_login(
     now = utcnow()
     if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= now:
         raise HTTPException(status_code=401, detail=INVALID_CODE)
-    if not tokens_match(record.code_hash, hash_token(body.code)):
+    recovery_code = None
+    if body.code.startswith("PCH-"):
+        recovery_code = db.scalar(
+            select(RecoveryCode).where(
+                RecoveryCode.user_id == user.id,
+                RecoveryCode.code_hash == hash_token(body.code),
+                RecoveryCode.consumed_at.is_(None),
+            )
+        )
+    code_is_valid = (
+        recovery_code is not None
+        if body.code.startswith("PCH-")
+        else tokens_match(record.code_hash, hash_token(body.code))
+    )
+    if not code_is_valid:
         record.attempts += 1
         if record.attempts >= 5:
             record.consumed_at = now
         db.commit()
         raise HTTPException(status_code=401, detail=INVALID_CODE)
     record.consumed_at = now
+    if recovery_code is not None:
+        recovery_code.consumed_at = now
     db.commit()
     _issue_session(db, user, response)
     return AuthResponse(user=_user_response(user))
+
+
+@router.get("/recovery-codes/status")
+def recovery_codes_status(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return {"available": _has_recovery_codes(db, user)}
+
+
+@router.post("/recovery-codes", response_model=RecoveryCodesResponse)
+def create_recovery_codes(
+    body: RecoveryCodesRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> RecoveryCodesResponse:
+    """Replace recovery OTPs after re-authentication and reveal them once."""
+
+    enforce_csrf(request)
+    _rate_limit("recovery-codes", request, user.email)
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+
+    now = utcnow()
+    for row in db.scalars(
+        select(RecoveryCode).where(
+            RecoveryCode.user_id == user.id,
+            RecoveryCode.consumed_at.is_(None),
+        )
+    ).all():
+        row.consumed_at = now
+
+    codes: list[str] = []
+    while len(codes) < RECOVERY_CODE_COUNT:
+        code = _new_recovery_code()
+        if code not in codes:
+            codes.append(code)
+            db.add(RecoveryCode(user_id=user.id, code_hash=hash_token(code)))
+    db.commit()
+    return RecoveryCodesResponse(codes=codes)
 
 
 @router.post("/logout")

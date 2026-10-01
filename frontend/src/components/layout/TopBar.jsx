@@ -87,13 +87,13 @@ export default function TopBar() {
   }
 
   return (
-    <header className="app-topbar" style={{ height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-surface)', position: 'sticky', top: 0, zIndex: 10 }}>
-      <div className="app-topbar-status" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--accent-green)' }}>
+    <header className="app-topbar">
+      <div className="app-topbar-status">
         <ShieldCheck size={20} />
-        <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{activeWorkspace ? `${activeWorkspace.name} · Guardrails active` : 'Guardrails active'}</span>
+        <span>{activeWorkspace ? `${activeWorkspace.name} · Guardrails active` : 'Guardrails active'}</span>
       </div>
 
-      <div className="app-topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div className="app-topbar-actions">
         <div style={{ position: 'relative' }}>
           <button type="button" aria-label="Notifications" aria-expanded={open} className="btn btn-secondary" style={{ position: 'relative', padding: '0.55rem' }} onClick={() => setOpen((value) => !value)}>
             <Bell size={17} />

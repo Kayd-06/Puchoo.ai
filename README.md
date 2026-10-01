@@ -47,25 +47,52 @@ Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` t
 | `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
 | `SMTP_FROM` | A verified `no-reply@your-domain` sender. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
 
-### Run both apps
+### Run the app (frontend + backend)
 
-From the repo root, in two terminals:
+Install the Python and frontend dependencies once, then open **two terminals at the
+repository root**. These project commands work on macOS, Linux, and Windows:
 
-```powershell
-.\scripts\dev-backend.ps1
-.\scripts\dev-frontend.ps1
+```bash
+# Terminal 1 — FastAPI backend at http://127.0.0.1:8000
+npm run dev:backend
 ```
 
-Or:
-
-```powershell
-npm run dev:backend
+```bash
+# Terminal 2 — Vite frontend at http://localhost:5173
 npm run dev:frontend
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies `/api` to the backend on port 8000.
+Open [http://localhost:5173](http://localhost:5173). The Vite development server
+proxies `/api` requests to the backend on port 8000, so login, OTP, uploads, and
+workspace APIs use the same origin.
 
-`uvicorn backend.main:app` serves accounts and the existing analytics API. `uvicorn apps.api.main:app` does the same if you already use that entrypoint.
+If you prefer to start the services directly, use the matching commands below.
+
+**macOS / Linux**
+
+```bash
+# Terminal 1
+./.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2
+npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
+```
+
+**Windows PowerShell**
+
+```powershell
+# Terminal 1
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Terminal 2
+npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
+```
+
+Verify the backend independently with:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
 
 Auth tests:
 
@@ -78,6 +105,7 @@ Auth tests:
 - `POST /api/v1/auth/signup` accepts `full_name`, `email`, `password`, `confirm_password`, and `workspace_type` (`personal` or `institute`). Institute workspaces also require `institute_name`. Email is stored in lowercase. Passwords need at least 10 characters, including a letter and a number, and are hashed with argon2. A duplicate email gets a generic error.
 - `POST /api/v1/auth/login` checks the email and password. The error is always `Invalid email or password`. A correct password does not open a session yet. It emails a 6-digit code that expires in 10 minutes. `POST /api/v1/auth/login/verify` checks that code and then creates the session. SMTP uses `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, and `SMTP_PASSWORD`.
 - A successful signup or login creates a signed JWT with a unique session ID (`jti`). The browser receives it only in an HttpOnly `puchoo_session` cookie with `SameSite=Lax` (and `Secure` when `COOKIE_SECURE=true`); React never receives or stores it. A SHA-256 hash of the JWT is bound to a server-side session record, so logout and revocation take effect immediately. Sessions last 7 days and rotate on authenticated requests.
+- Users can create ten single-use recovery OTPs in **Settings → Recovery OTPs** after confirming their current password. Save them in a password manager: a `PCH-XXXX-XXXX` recovery code can complete a password-verified login when email delivery is delayed, and it is consumed immediately after use. Only SHA-256 hashes of recovery codes are stored by the server.
 - `POST /api/v1/auth/logout` revokes that session and clears the cookie. `GET /api/v1/auth/me` returns the current user, or 401.
 - Changing an account email requires the current password, then a 6-digit OTP delivered to the new address. The address is updated only after `POST /api/v1/auth/email/change/verify` validates that OTP.
 - State-changing auth requests need a double-submit CSRF token: the non-HttpOnly `csrf_token` cookie and the same value in the `X-CSRF-Token` header.
@@ -91,30 +119,6 @@ When a user executes a proposed query, that action is treated as approval. Pucho
 The landing page is `/`. `/login` and `/signup` are the account forms. `/ask` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/ask`.
 
 To replace the final call-to-action image, add a file at `frontend/public/cta-visual.png`.
-
-## Run locally
-
-Use Python 3.10 or newer.
-
-1. **Install Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Start the FastAPI backend:**
-   ```bash
-   uvicorn apps.api.main:app --reload --port 8000
-   ```
-
-3. **Start the React frontend:**
-   In a new terminal window:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
-4. Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## Safe execution and verification
 
@@ -148,15 +152,7 @@ Example llama.cpp server command (replace the model path with your merged/fine-t
 .\llama-server.exe -m "C:\models\qwen2.5-coder-7b-instruct-q4_k_m.gguf" --host 127.0.0.1 --port 8080 -ngl 99 -c 8192
 ```
 
-Then run the backend and UI in two terminals:
-
-```powershell
-.\.venv\Scripts\uvicorn.exe apps.api.main:app --host 127.0.0.1 --port 8000
-```
-
-```powershell
-npm run dev --prefix frontend -- --host 127.0.0.1 --port 5173
-```
+Start Puchoo with the two commands in [Run the app (frontend + backend)](#run-the-app-frontend--backend).
 
 ## Plan-aware training data
 

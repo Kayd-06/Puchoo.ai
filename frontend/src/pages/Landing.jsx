@@ -57,7 +57,7 @@ function SignalField() {
     <div className="puchoo-signal-mesh" />
     <div className="puchoo-signal-wave puchoo-signal-wave-a" />
     <div className="puchoo-signal-wave puchoo-signal-wave-b" />
-    {Array.from({ length: 14 }, (_, index) => <i className={`puchoo-signal-dot dot-${index + 1}`} key={index} />)}
+    {Array.from({ length: 14 }, (_, index) => <i className={`puchoo-signal-dot dot-${index + 1}`} key={index} style={{ '--signal-delay': `${-index * 0.47}s` }} />)}
   </div>;
 }
 
