@@ -43,4 +43,5 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
 
     assert delivered["from"] == "sender@example.test"
     assert delivered["to"] == ["person@example.test"]
+    assert "From: Puchoo.ai no-reply <sender@example.test>" in delivered["message"]
     assert "To: person@example.test" in delivered["message"]

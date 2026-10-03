@@ -1,20 +1,46 @@
-import { useState } from 'react';
-import { ShieldCheck, Upload, Server } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowUpRight, Check, FileSpreadsheet, Server, ShieldCheck, Upload, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
+
+const ACCEPTED_FILES = '.csv,.xlsx,.xls,.db,.sqlite,.sqlite3';
+
+function fileLabel(file) {
+  const size = file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${file.name} · ${size}`;
+}
 
 export default function ConnectData() {
   const { workspaces, setWorkspaces, setActiveWorkspaceId } = useAppContext();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('upload');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [workspaceName, setWorkspaceName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [createdWorkspace, setCreatedWorkspace] = useState(null);
+  const [hoveredLetter, setHoveredLetter] = useState(null);
+  const wordRef = useRef(null);
   const [serverForm, setServerForm] = useState({
     name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true,
   });
   const [connecting, setConnecting] = useState(false);
   const [serverError, setServerError] = useState('');
+
+  if (user?.workspace_role === 'viewer') {
+    return <section className="connect-viewer-state"><ShieldCheck size={24} /><span>Viewer access</span><h1>Data sources are protected.</h1><p>Only workspace editors and admins can add or connect data sources. You can still inspect approved query history.</p><Link to="/history">View query history <ArrowUpRight size={16} /></Link></section>;
+  }
+
+  const selectFiles = (files) => {
+    const incoming = Array.from(files || []);
+    if (!incoming.length) return;
+    setSelectedFiles(incoming);
+    setUploadError('');
+    setCreatedWorkspace(null);
+  };
 
   const uploadFiles = async () => {
     if (!selectedFiles.length) return;
@@ -25,15 +51,10 @@ export default function ConnectData() {
       const multiple = selectedFiles.length > 1;
       selectedFiles.forEach((file) => form.append(multiple ? 'files' : 'file', file));
       form.append('name', workspaceName.trim());
-      const workspace = await fetchApi(
-        multiple ? '/workspaces/upload-multiple' : '/workspaces/upload',
-        {
-          method: 'POST',
-          body: form,
-        },
-      );
+      const workspace = await fetchApi(multiple ? '/workspaces/upload-multiple' : '/workspaces/upload', { method: 'POST', body: form });
       setWorkspaces([...workspaces, workspace]);
       setActiveWorkspaceId(workspace.id);
+      setCreatedWorkspace(workspace);
       setSelectedFiles([]);
       setWorkspaceName('');
     } catch (error) {
@@ -43,9 +64,7 @@ export default function ConnectData() {
     }
   };
 
-  const updateServerForm = (field, value) => {
-    setServerForm((current) => ({ ...current, [field]: value }));
-  };
+  const updateServerForm = (field, value) => setServerForm((current) => ({ ...current, [field]: value }));
 
   const connectServer = async (event) => {
     event.preventDefault();
@@ -67,6 +86,7 @@ export default function ConnectData() {
       });
       setWorkspaces([...workspaces, workspace]);
       setActiveWorkspaceId(workspace.id);
+      setCreatedWorkspace(workspace);
       setServerForm({ name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true });
     } catch (error) {
       setServerError(error.message || 'Could not connect to that database.');
@@ -75,186 +95,77 @@ export default function ConnectData() {
     }
   };
 
+  const handleStagePointerMove = (event) => {
+    const word = wordRef.current;
+    if (!word) return;
+    const bounds = word.getBoundingClientRect();
+    const closeToWord = event.clientY >= bounds.top - 34 && event.clientY <= bounds.bottom + 34;
+    let nextLetter = null;
+    if (closeToWord) {
+      Array.from(word.children).some((letter, index) => {
+        const letterBounds = letter.getBoundingClientRect();
+        const horizontalPadding = Math.min(38, letterBounds.width * .16);
+        const insideLetter = event.clientX >= letterBounds.left - horizontalPadding
+          && event.clientX <= letterBounds.right + horizontalPadding;
+        if (insideLetter) {
+          nextLetter = index;
+          return true;
+        }
+        return false;
+      });
+    }
+    setHoveredLetter((current) => current === nextLetter ? current : nextLetter);
+  };
+
+  const displayWord = uploading ? 'SYNC' : selectedFiles.length ? 'READY' : activeTab === 'server' ? 'LINK' : 'DATA';
+
   return (
-    <div>
-      <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Connect your data</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
-        Link your database or upload a local file. Puchoo accesses your schema securely in read-only
-        mode with zero mutations guaranteed.
-      </p>
-
-      <div
-        className="card"
-        style={{
-          backgroundColor: 'var(--accent-green-bg)',
-          borderColor: 'rgba(34, 197, 94, 0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '1rem',
-          marginBottom: '2rem',
-        }}
-      >
-        <div style={{ color: 'var(--accent-green)' }}>
-          <ShieldCheck size={32} />
-        </div>
-        <div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              marginBottom: '0.25rem',
-            }}
-          >
-            <h3 style={{ margin: 0, color: 'var(--accent-green)' }}>
-              100% Read-Only Safety Guarantee
-            </h3>
-            <span
-              className="badge badge-ok"
-              style={{ border: '1px solid rgba(34,197,94,0.3)', background: 'transparent' }}
-            >
-              Strict Read Mode
-            </span>
-          </div>
-          <p style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.875rem' }}>
-            Puchoo connects exclusively in read-only mode. Your source data cannot be changed,
-            deleted, or overwritten under any condition. All SQL mutations are blocked at the driver
-            layer.
-          </p>
-        </div>
-      </div>
-
-      <div className="connect-layout" style={{ display: 'flex', gap: '2rem' }}>
-        <div style={{ flex: 2 }}>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <button
-              className={`btn ${activeTab === 'upload' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setActiveTab('upload')}
-              style={{ flex: 1 }}
-            >
-              <Upload size={16} style={{ marginRight: '0.5rem' }} /> Upload database file
-            </button>
-            <button
-              className={`btn ${activeTab === 'server' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setActiveTab('server')}
-              style={{ flex: 1 }}
-            >
-              <Server size={16} style={{ marginRight: '0.5rem' }} /> Connect database server
-            </button>
+    <div className="connect-page">
+      <section className="connect-stage" onPointerMove={handleStagePointerMove} onPointerLeave={() => setHoveredLetter(null)}>
+        <div ref={wordRef} className="connect-word" aria-hidden="true">{displayWord.split('').map((letter, index) => <span key={`${displayWord}-${index}`} className={hoveredLetter === index ? 'is-illuminated' : ''}>{letter}</span>)}</div>
+        <header className="connect-stage-header"><span>Secure ingestion</span><span><i /> Read-only by design</span></header>
+        <div className="connect-stage-content">
+          <div className="connect-tablist" role="tablist" aria-label="Data source type">
+            <button type="button" role="tab" aria-selected={activeTab === 'upload'} className={activeTab === 'upload' ? 'is-active' : ''} onClick={() => setActiveTab('upload')}><Upload size={15} /> Upload files</button>
+            <button type="button" role="tab" aria-selected={activeTab === 'server'} className={activeTab === 'server' ? 'is-active' : ''} onClick={() => setActiveTab('server')}><Server size={15} /> Connect server</button>
           </div>
 
-          <div className="card">
-            {activeTab === 'upload' ? (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-                <Upload size={48} color="var(--bg-primary)" style={{ marginBottom: '1rem' }} />
-                <h3>Upload one or more data files</h3>
-                <p className="text-muted" style={{ marginBottom: '1.5rem' }}>
-                  Select multiple CSV or Excel files to combine them into one queryable workspace.
-                  SQLite databases are uploaded individually.
-                </p>
-                <input
-                  type="file"
-                  multiple
-                  accept=".csv,.xlsx,.xls,.db,.sqlite,.sqlite3"
-                  style={{ display: 'none' }}
-                  id="fileUpload"
-                  onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
-                />
-                <label
-                  htmlFor="fileUpload"
-                  className="btn btn-secondary"
-                  style={{ cursor: 'pointer' }}
-                >
-                  Browse files
-                </label>
-                {selectedFiles.length > 0 && (
-                  <div style={{ marginTop: '1.5rem', textAlign: 'left' }}>
-                    <input
-                      className="input"
-                      value={workspaceName}
-                      onChange={(event) => setWorkspaceName(event.target.value)}
-                      placeholder="Workspace name (optional)"
-                      style={{ marginBottom: '1rem' }}
-                    />
-                    <div className="text-muted text-xs" style={{ marginBottom: '1rem' }}>
-                      {selectedFiles.map((file) => file.name).join(', ')}
-                    </div>
-                    {uploadError && (
-                      <div style={{ color: 'var(--accent-red)', marginBottom: '1rem' }}>
-                        {uploadError}
-                      </div>
-                    )}
-                    <button className="btn btn-primary" onClick={uploadFiles} disabled={uploading}>
-                      {uploading
-                        ? 'Uploading…'
-                        : `Create workspace from ${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'}`}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <form onSubmit={connectServer} noValidate>
-                <h3 style={{ marginBottom: '1.5rem' }}>Server Connection</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <input type="text" className="input" placeholder="Workspace name" value={serverForm.name} onChange={(event) => updateServerForm('name', event.target.value)} />
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '.75rem' }}>
-                    <select className="input" value={serverForm.engine} onChange={(event) => { const engine = event.target.value; updateServerForm('engine', engine); updateServerForm('port', engine === 'mysql' ? '3306' : '5432'); }} aria-label="Database engine"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select>
-                    <input type="number" className="input" placeholder="Port" min="1" max="65535" value={serverForm.port} onChange={(event) => updateServerForm('port', event.target.value)} aria-label="Database port" />
-                  </div>
-                  <input type="text" className="input" placeholder="Host (e.g. db.example.com)" value={serverForm.host} onChange={(event) => updateServerForm('host', event.target.value)} />
-                  <input type="text" className="input" placeholder="Database name" value={serverForm.database} onChange={(event) => updateServerForm('database', event.target.value)} />
-                  <input type="text" className="input" placeholder="Read-only username" autoComplete="username" value={serverForm.username} onChange={(event) => updateServerForm('username', event.target.value)} />
-                  <input type="password" className="input" placeholder="Password" autoComplete="current-password" value={serverForm.password} onChange={(event) => updateServerForm('password', event.target.value)} />
-                  <label style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: '.875rem', color: 'var(--text-muted)' }}><input type="checkbox" checked={serverForm.ssl_required} onChange={(event) => updateServerForm('ssl_required', event.target.checked)} /> Require SSL/TLS</label>
-                  {serverError && <p role="alert" style={{ color: 'var(--accent-red)', fontSize: '.875rem' }}>{serverError}</p>}
-                  <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }} disabled={connecting}>
-                    {connecting ? 'Checking connection…' : 'Connect server'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
+          {createdWorkspace ? (
+            <div className="connect-complete" role="status"><div><Check size={22} /></div><span>Workspace ready</span><h1>{createdWorkspace.name}</h1><p>Your source is now isolated and available for verified, read-only analysis.</p><Link to="/ask">Ask your data <ArrowUpRight size={17} /></Link><button type="button" onClick={() => setCreatedWorkspace(null)}>Add another source</button></div>
+          ) : activeTab === 'upload' ? (
+            <div className="connect-upload-flow">
+              <h1>Bring your data<br />into focus.</h1>
+              <p>Upload CSV, Excel, or SQLite files. Puchoo builds one private, queryable workspace without mutating the source.</p>
+              <input id="fileUpload" type="file" multiple accept={ACCEPTED_FILES} onChange={(event) => selectFiles(event.target.files)} hidden />
+              <label htmlFor="fileUpload" className={`connect-dropzone${isDragging ? ' is-dragging' : ''}${uploading ? ' is-uploading' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); selectFiles(event.dataTransfer.files); }}>
+                <div className="connect-dropzone-mark"><Upload size={23} /></div>
+                <strong>{uploading ? 'Creating isolated workspace…' : selectedFiles.length ? `${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} selected` : 'Drop files here'}</strong>
+                <span>{uploading ? 'Validating structure and access boundaries' : 'or browse from your device'}</span>
+              </label>
 
-        <div style={{ flex: 1 }}>
-          <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <h3
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}
-            >
-              <ShieldCheck size={20} color="var(--bg-primary)" /> How Puchoo Protects You
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div>
-                <h4 style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-                  Transaction Isolation
-                </h4>
-                <p className="text-muted text-xs">
-                  Every inquiry wraps in an explicit SET TRANSACTION READ ONLY statement before
-                  dispatch.
-                </p>
-              </div>
-              <div>
-                <h4 style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-                  Zero Data Ingestion
-                </h4>
-                <p className="text-muted text-xs">
-                  Puchoo only reads schema metadata and aggregate summaries. Raw customer PII
-                  remains in your enclave.
-                </p>
-              </div>
-              <div>
-                <h4 style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-                  Automatic Timeout Caps
-                </h4>
-                <p className="text-muted text-xs">
-                  Queries running beyond 4,000ms are safely aborted to prevent lock contention on
-                  your transactional databases.
-                </p>
-              </div>
+              {selectedFiles.length > 0 && !uploading && <div className="connect-selected-files"><div>{selectedFiles.map((file) => <span key={`${file.name}-${file.size}`}><FileSpreadsheet size={14} />{fileLabel(file)}<button type="button" onClick={() => setSelectedFiles((current) => current.filter((item) => item !== file))} aria-label={`Remove ${file.name}`}><X size={14} /></button></span>)}</div><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="Name this workspace (optional)" aria-label="Workspace name" /><button type="button" className="connect-submit" onClick={uploadFiles}>Create workspace <ArrowUpRight size={17} /></button></div>}
+              {uploadError && <p className="connect-error" role="alert">{uploadError}</p>}
             </div>
-          </div>
+          ) : (
+            <form className="connect-server-form" onSubmit={connectServer} noValidate>
+              <h1>Connect a<br />trusted source.</h1><p>Use a restricted database user. Puchoo validates every connection in read-only mode.</p>
+              <div className="connect-server-grid">
+                <input type="text" placeholder="Workspace name" value={serverForm.name} onChange={(event) => updateServerForm('name', event.target.value)} />
+                <select value={serverForm.engine} onChange={(event) => { const engine = event.target.value; updateServerForm('engine', engine); updateServerForm('port', engine === 'mysql' ? '3306' : '5432'); }} aria-label="Database engine"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select>
+                <input type="text" placeholder="Host (db.example.com)" value={serverForm.host} onChange={(event) => updateServerForm('host', event.target.value)} />
+                <input type="number" placeholder="Port" min="1" max="65535" value={serverForm.port} onChange={(event) => updateServerForm('port', event.target.value)} aria-label="Database port" />
+                <input type="text" placeholder="Database name" value={serverForm.database} onChange={(event) => updateServerForm('database', event.target.value)} />
+                <input type="text" placeholder="Read-only username" autoComplete="username" value={serverForm.username} onChange={(event) => updateServerForm('username', event.target.value)} />
+                <input type="password" placeholder="Password" autoComplete="current-password" value={serverForm.password} onChange={(event) => updateServerForm('password', event.target.value)} />
+              </div>
+              <label className="connect-ssl"><input type="checkbox" checked={serverForm.ssl_required} onChange={(event) => updateServerForm('ssl_required', event.target.checked)} /> Require SSL/TLS</label>
+              {serverError && <p className="connect-error" role="alert">{serverError}</p>}
+              <button type="submit" className="connect-submit" disabled={connecting}>{connecting ? 'Checking connection…' : 'Connect source'} <ArrowUpRight size={17} /></button>
+            </form>
+          )}
         </div>
-      </div>
+        <footer className="connect-stage-footer"><span>CSV · XLSX · SQLITE</span><span>Source data is never altered</span><span>Encrypted in transit</span></footer>
+      </section>
     </div>
   );
 }

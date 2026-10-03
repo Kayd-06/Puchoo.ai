@@ -1,10 +1,11 @@
 """Sarvam language adapter router."""
 
 from typing import Dict
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
+from apps.api.security import require_data_manager
 
 router = APIRouter(prefix="/sarvam", tags=["sarvam"])
 
@@ -14,7 +15,7 @@ class TranslationRequest(BaseModel):
     source_language: str = "en-IN"
 
 @router.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)) -> Dict[str, str | None]:
+async def transcribe(file: UploadFile = File(...), user=Depends(require_data_manager)) -> Dict[str, str | None]:
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Empty audio file provided.")
@@ -34,7 +35,7 @@ async def transcribe(file: UploadFile = File(...)) -> Dict[str, str | None]:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
 
 @router.post("/translate")
-def translate(request: TranslationRequest) -> Dict[str, str]:
+def translate(request: TranslationRequest, user=Depends(require_data_manager)) -> Dict[str, str]:
     try:
         client = SarvamClient()
         translated = client.translate(

@@ -162,6 +162,25 @@ class ApprovedConversationMemory:
         except Exception as exc:
             raise ChatMemoryError("Could not clear approved conversation memory.") from exc
 
+    def delete_approved_conversation(self, *, tenant_id: str, workspace_id: str, record_id: str) -> None:
+        """Delete one approved conversation after verifying its tenant/workspace scope.
+
+        The lookup is deliberately scoped before deleting by id. This avoids an
+        identifier-only deletion becoming a cross-tenant operation should a
+        record id ever be reused by another storage source.
+        """
+
+        where = self._scope(tenant_id, workspace_id)
+        clean_record_id = _compact_text(record_id, 120)
+        if not clean_record_id:
+            raise ChatMemoryError("Conversation memory requires a record id.")
+        try:
+            found = self._collection.get(ids=[clean_record_id], where=where, include=[])
+            if clean_record_id in (found.get("ids") or []):
+                self._collection.delete(ids=[clean_record_id])
+        except Exception as exc:
+            raise ChatMemoryError("Could not delete approved conversation memory.") from exc
+
 
 _memory: ApprovedConversationMemory | None = None
 

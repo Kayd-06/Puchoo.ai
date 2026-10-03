@@ -12,11 +12,15 @@ import {
 
 const AuthContext = createContext(null);
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children, loadSession = true }) {
   const [user, setUser] = useState(null);
-  const [status, setStatus] = useState('loading');
+  const [sessionChecked, setSessionChecked] = useState(() => !loadSession);
 
   useEffect(() => {
+    if (!loadSession) {
+      return undefined;
+    }
+
     let cancelled = false;
     api('/api/v1/auth/me')
       .then((nextUser) => {
@@ -26,17 +30,25 @@ export function AuthProvider({ children }) {
         if (!cancelled) setUser(null);
       })
       .finally(() => {
-        if (!cancelled) setStatus('ready');
+        if (!cancelled) setSessionChecked(true);
       });
     return () => {
       cancelled = true;
     };
+  }, [loadSession]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+    };
+    window.addEventListener('puchoo:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('puchoo:unauthorized', handleUnauthorized);
   }, []);
 
   const value = useMemo(
     () => ({
       user,
-      status,
+      status: loadSession && !sessionChecked ? 'loading' : 'ready',
       async requestLogin(payload) {
         return loginRequest(payload);
       },
@@ -64,7 +76,7 @@ export function AuthProvider({ children }) {
         setUser(null);
       },
     }),
-    [user, status],
+    [user, loadSession, sessionChecked],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

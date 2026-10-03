@@ -33,6 +33,38 @@ def clear_history(
     return Response(status_code=204)
 
 
+@router.delete("/{workspace_id}/records/{record_id}")
+def delete_history_record(
+    workspace_id: str,
+    record_id: str,
+    workspace: Dict = Depends(require_workspace_admin),
+    user=Depends(current_user),
+) -> Response:
+    """Permanently remove one history record and its scoped approved memory.
+
+    Only workspace administrators can mutate history.  The record is resolved
+    inside the selected workspace before its Chroma memory entry is touched.
+    """
+
+    records = session_manager.query_history.get(workspace_id, [])
+    record = next((item for item in records if str(item.get("id")) == record_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="History record not found.")
+
+    try:
+        get_chat_memory().delete_approved_conversation(
+            tenant_id=tenant_owner_id(user),
+            workspace_id=workspace_id,
+            record_id=record_id,
+        )
+    except ChatMemoryError as exc:
+        raise HTTPException(status_code=503, detail="Conversation memory is temporarily unavailable; the history record was not deleted.") from exc
+
+    session_manager.query_history[workspace_id] = [item for item in records if str(item.get("id")) != record_id]
+    session_manager.save(active_workspace_id=workspace_id)
+    return Response(status_code=204)
+
+
 @router.get("/{workspace_id}/memory/search")
 def search_approved_memory(
     workspace_id: str,

@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, Code2, LoaderCircle, MessageSquarePlus, Mic, Play, Sparkles, Square } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 
 const DEFAULT_RESULT_LABELS = {
@@ -18,9 +19,216 @@ const DEFAULT_RESULT_LABELS = {
   needs_review: 'Needs review',
 };
 
+function QueryUniverse() {
+  const canvasRef = useRef(null);
+  const pointerRef = useRef({ x: 0, y: 0, active: false });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!canvas || reducedMotion.matches) return undefined;
+    const context = canvas.getContext('2d', { alpha: true });
+    if (!context) return undefined;
+    let frame = 0;
+    let width = 0;
+    let height = 0;
+    let particles = [];
+    const stage = canvas.parentElement;
+    const updatePointer = (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      pointerRef.current = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        active: true,
+      };
+    };
+    const clearPointer = () => { pointerRef.current.active = false; };
+    const setup = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      width = Math.max(1, bounds.width);
+      height = Math.max(1, bounds.height);
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const dustCount = Math.min(300, Math.max(150, Math.round(width / 6)));
+      const streamCount = Math.min(430, Math.max(240, Math.round(width / 4.2)));
+      const dust = Array.from({ length: dustCount }, () => ({
+        kind: 'dust',
+        x: Math.random() * width,
+        y: Math.random() * height,
+        drift: (Math.random() - .5) * .00065,
+        size: Math.random() > .91 ? 1.7 : .35 + Math.random() * .8,
+        alpha: .21 + Math.random() * .72,
+        phase: Math.random() * Math.PI * 2,
+      }));
+      const streams = Array.from({ length: streamCount }, (_, index) => ({
+        kind: 'stream',
+        angle: Math.random() * Math.PI * 2,
+        radius: .19 + Math.pow(Math.random(), .55) * .65,
+        speed: (.00009 + Math.random() * .00026) * (index % 3 === 0 ? -1 : 1),
+        lane: .16 + Math.random() * .29,
+        size: Math.random() > .92 ? 1.55 : .35 + Math.random() * .8,
+        alpha: .15 + Math.random() * .62,
+        phase: Math.random() * Math.PI * 2,
+        tail: .014 + Math.random() * .035,
+      }));
+      const clusters = Array.from({ length: 17 }, () => ({
+        kind: 'cluster',
+        x: Math.random() * width,
+        y: Math.random() * height,
+        radius: 18 + Math.random() * 50,
+        alpha: .015 + Math.random() * .035,
+        phase: Math.random() * Math.PI * 2,
+      }));
+      particles = [...clusters, ...dust, ...streams];
+    };
+    const draw = (time) => {
+      context.clearRect(0, 0, width, height);
+      const centerX = width / 2;
+      const centerY = height * .58;
+      context.globalCompositeOperation = 'lighter';
+      const pointer = pointerRef.current;
+
+      if (pointer.active) {
+        const pointerGlow = context.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 150);
+        pointerGlow.addColorStop(0, 'rgba(119, 200, 255, .075)');
+        pointerGlow.addColorStop(.42, 'rgba(78, 151, 219, .028)');
+        pointerGlow.addColorStop(1, 'rgba(31, 92, 147, 0)');
+        context.fillStyle = pointerGlow;
+        context.fillRect(pointer.x - 150, pointer.y - 150, 300, 300);
+
+        for (let ring = 0; ring < 3; ring += 1) {
+          const pulse = (time * .00017 + ring / 3) % 1;
+          context.beginPath();
+          context.arc(pointer.x, pointer.y, 18 + pulse * 76, 0, Math.PI * 2);
+          context.strokeStyle = `rgba(155, 220, 255, ${(1 - pulse) * .11})`;
+          context.lineWidth = .65;
+          context.stroke();
+        }
+      }
+      // Slow, transparent orbital paths give the field depth without becoming
+      // a bright static panel behind the composer.
+      context.save();
+      context.translate(centerX, centerY);
+      for (let index = 0; index < 4; index += 1) {
+        const phase = time * (.000018 + index * .000004) * (index % 2 ? -1 : 1);
+        const horizontal = width * (.24 + index * .105);
+        const vertical = Math.max(56, height * (.10 + index * .038));
+        context.rotate(phase + index * .34);
+        context.beginPath();
+        context.ellipse(0, 0, horizontal, vertical, 0, 0, Math.PI * 2);
+        context.strokeStyle = `rgba(139, 197, 239, ${.022 + index * .009})`;
+        context.lineWidth = .55;
+        context.stroke();
+        context.rotate(-(phase + index * .34));
+      }
+      context.restore();
+
+      // Three expanding, very low-opacity pulses provide movement between the
+      // star streams without introducing a white glow in the idle UI.
+      for (let index = 0; index < 3; index += 1) {
+        const progress = (time * .000035 + index / 3) % 1;
+        context.beginPath();
+        context.ellipse(
+          centerX,
+          centerY,
+          width * (.13 + progress * .54),
+          Math.max(44, height * (.055 + progress * .19)),
+          -.07,
+          0,
+          Math.PI * 2,
+        );
+        context.strokeStyle = `rgba(112, 185, 238, ${(1 - progress) * .035})`;
+        context.lineWidth = .65;
+        context.stroke();
+      }
+      particles.forEach((particle) => {
+        if (particle.kind === 'cluster') {
+          const breathing = .72 + Math.sin(time * .0007 + particle.phase) * .28;
+          const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, particle.radius);
+          gradient.addColorStop(0, `rgba(131, 199, 255, ${particle.alpha * breathing})`);
+          gradient.addColorStop(1, 'rgba(56, 126, 196, 0)');
+          context.fillStyle = gradient;
+          context.beginPath();
+          context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+          context.fill();
+          return;
+        }
+        if (particle.kind === 'dust') {
+          const x = (particle.x + time * particle.drift) % width;
+          const y = particle.y + Math.sin(time * .00035 + particle.phase) * 3;
+          const distance = pointer.active ? Math.hypot(x - pointer.x, y - pointer.y) : Infinity;
+          const cursorLift = distance < 170 ? (1 - distance / 170) * .7 : 0;
+          const twinkle = .62 + Math.sin(time * .0022 + particle.phase) * .38 + cursorLift;
+          context.fillStyle = `rgba(224, 240, 255, ${Math.min(1, particle.alpha * twinkle)})`;
+          context.beginPath();
+          context.arc(x < 0 ? x + width : x, y, particle.size, 0, Math.PI * 2);
+          context.fill();
+          if (particle.size > 1.35) {
+            context.strokeStyle = `rgba(205, 231, 255, ${particle.alpha * .55})`;
+            context.lineWidth = .55;
+            context.beginPath();
+            context.moveTo(x - 5, y);
+            context.lineTo(x + 5, y);
+            context.stroke();
+          }
+          return;
+        }
+        const angle = particle.angle + time * particle.speed;
+        const ellipticalRadius = particle.radius * width;
+        const verticalRadius = Math.max(58, height * particle.radius * particle.lane);
+        const x = centerX + Math.cos(angle) * ellipticalRadius;
+        const y = centerY + Math.sin(angle) * verticalRadius;
+        const trailingAngle = angle - Math.sign(particle.speed) * particle.tail;
+        const trailX = centerX + Math.cos(trailingAngle) * ellipticalRadius;
+        const trailY = centerY + Math.sin(trailingAngle) * verticalRadius;
+        const distance = pointer.active ? Math.hypot(x - pointer.x, y - pointer.y) : Infinity;
+        const cursorLift = distance < 190 ? (1 - distance / 190) * .55 : 0;
+        const twinkle = .62 + Math.sin(time * .0024 + particle.phase) * .38 + cursorLift;
+        if (particle.size > .72) {
+          context.beginPath();
+          context.strokeStyle = `rgba(173, 218, 251, ${particle.alpha * .46 * twinkle})`;
+          context.lineWidth = particle.size > 1.3 ? .9 : .42;
+          context.moveTo(trailX, trailY);
+          context.lineTo(x, y);
+          context.stroke();
+        }
+        context.beginPath();
+        context.fillStyle = `rgba(230, 244, 255, ${particle.alpha * twinkle})`;
+        context.arc(x, y, particle.size, 0, Math.PI * 2);
+        context.fill();
+        if (particle.size > 1.35) {
+          context.strokeStyle = `rgba(185, 225, 255, ${particle.alpha * .62})`;
+          context.beginPath();
+          context.moveTo(x - 7, y);
+          context.lineTo(x + 7, y);
+          context.stroke();
+        }
+      });
+      context.globalCompositeOperation = 'source-over';
+      frame = window.requestAnimationFrame(draw);
+    };
+    setup();
+    frame = window.requestAnimationFrame(draw);
+    window.addEventListener('resize', setup);
+    stage?.addEventListener('pointermove', updatePointer, { passive: true });
+    stage?.addEventListener('pointerleave', clearPointer);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', setup);
+      stage?.removeEventListener('pointermove', updatePointer);
+      stage?.removeEventListener('pointerleave', clearPointer);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="ask-universe" aria-hidden="true" />;
+}
+
 export default function AskData() {
   const location = useLocation();
-  const { activeWorkspaceId, refreshWorkspaces } = useAppContext();
+  const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
+  const { user } = useAuth();
   const [question, setQuestion] = useState('');
   const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
   const [questionLanguage, setQuestionLanguage] = useState(() => location.state?.continuation?.languageCode || null);
@@ -33,6 +241,7 @@ export default function AskData() {
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const resultRef = useRef(null);
   const presentation = result?.presentation || {};
   const resultLabels = { ...DEFAULT_RESULT_LABELS, ...presentation.labels };
   const verificationStatus = result?.record?.verification?.status;
@@ -155,12 +364,76 @@ export default function AskData() {
     recorder.stop();
   };
 
+  const onComposerKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleAsk();
+    }
+  };
+
+  useEffect(() => {
+    if (!result) return undefined;
+    const timer = window.setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 90);
+    return () => window.clearTimeout(timer);
+  }, [result]);
+
+  if (user?.workspace_role === 'viewer') {
+    return <section className="ask-viewer-state"><div className="ask-viewer-icon"><ShieldCheck size={22} /></div><span>Viewer access</span><h1>Explore approved answers.</h1><p>Your role can review shared query history, while prompts, data sources, and workspace settings remain protected.</p><Link className="ask-primary-action" to="/history">Open history <ArrowUpRight size={17} /></Link></section>;
+  }
+
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--bg-primary)' }}>
-        <Sparkles size={20} />
-        <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Deterministic Natural-SQL Engine</span>
-      </div>
+    <div className="ask-page">
+      <section className="ask-stage">
+        <QueryUniverse />
+        <div className="ask-stage-content">
+          <h1>A clearer way<br />to see <em>data.</em></h1>
+          <p>{continuation ? 'Continue your analysis with secure context from the selected question.' : activeWorkspace ? 'Ask, verify, and act on the numbers that matter.' : 'Connect a data source to ask secure, verified questions in your own workspace.'}</p>
+
+          {!activeWorkspace ? (
+            <Link className="ask-connect-action" to="/connect"><Database size={17} /> Connect a data source <ArrowUpRight size={16} /></Link>
+          ) : (
+            <div className={`ask-prompt-shell${loading ? ' is-loading' : ''}`} aria-busy={loading}>
+              <textarea
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={onComposerKeyDown}
+                placeholder={continuation ? 'For example: Break that down by month.' : 'Ask a question about your data…'}
+                aria-label="Ask a question about your data"
+                aria-describedby={loading ? 'query-processing-status' : undefined}
+                rows="3"
+              />
+              <div className="ask-prompt-controls">
+                <div className="ask-prompt-meta">
+                  <span><ShieldCheck size={14} /> Read-only</span>
+                  <span className="ask-prompt-divider" />
+                  <button
+                    type="button"
+                    className={`voice-button ${voiceState === 'recording' ? 'is-recording' : ''}`}
+                    onClick={voiceState === 'recording' ? stopVoiceInput : startVoiceInput}
+                    disabled={voiceState === 'requesting' || voiceState === 'transcribing'}
+                    aria-pressed={voiceState === 'recording'}
+                    aria-label={voiceState === 'recording' ? 'Stop recording' : 'Speak your question'}
+                  >
+                    {voiceState === 'requesting' || voiceState === 'transcribing' ? <LoaderCircle size={15} className="voice-spinner" /> : voiceState === 'recording' ? <Square size={12} fill="currentColor" /> : <Mic size={15} />}
+                    <span>{voiceState === 'recording' ? 'Stop' : voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'requesting' ? 'Starting…' : 'Voice'}</span>
+                  </button>
+                </div>
+                <div className="ask-prompt-actions">
+                  {loading ? <span id="query-processing-status" className="ask-query-mode ask-query-processing"><i /> Generating answer</span> : <span className="ask-query-mode">Verified query <ChevronDown size={14} /></span>}
+                  {question && <button className="ask-clear-button" type="button" onClick={() => { setQuestion(''); setQuestionLanguage(null); }}>Clear</button>}
+                  <button className="ask-submit-button" type="button" onClick={handleAsk} disabled={loading || !question.trim()} aria-label="Run secure query">
+                    {loading ? <LoaderCircle size={19} className="voice-spinner" /> : <ArrowUpRight size={20} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="ask-stage-footer"><span>Puchoo intelligence · {activeWorkspace?.name || 'Private workspace'}</span></div>
+        </div>
+      </section>
 
       {clarification && (
         <div className="card animate-fade-slide" style={{ marginBottom: '2rem', borderColor: 'var(--accent-amber)', background: 'var(--accent-amber-bg)' }}>
@@ -199,76 +472,12 @@ export default function AskData() {
           <button type="button" className="btn btn-secondary" onClick={() => { setContinuation(null); setQuestion(''); setQuestionLanguage(null); }}><ArrowLeft size={16} /> Start fresh</button>
         </div>
       )}
-      <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>What would you like to know?</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
-        {continuation ? 'Ask a follow-up and Puchoo will use the selected question as context.' : 'Type or speak your question. Puchoo will safely generate, run, and verify a read-only query in an isolated sandbox.'}
-      </p>
-
-      <div className="card" style={{ padding: '0', display: 'flex', flexDirection: 'column', overflow: 'hidden', marginBottom: '2rem' }}>
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={continuation ? 'For example: Break that down by month.' : 'What were our top 5 products by revenue last month?'}
-          style={{
-            width: '100%',
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-primary)',
-            padding: '1.5rem',
-            fontSize: '1.125rem',
-            resize: 'none',
-            outline: 'none',
-            minHeight: '120px'
-          }}
-        />
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          padding: '1rem 1.5rem',
-          borderTop: '1px solid var(--border-color)',
-          backgroundColor: 'var(--bg-surface-raised)'
-        }}>
-          <div className="ask-composer-status">
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Press Return ↵ to ask</span>
-            <span style={{ color: 'var(--border-color)' }}>•</span>
-            <span style={{ fontSize: '0.875rem', color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <span className="badge badge-ok">Read-only enforced</span>
-            </span>
-            <span style={{ color: 'var(--border-color)' }}>•</span>
-            <button
-              type="button"
-              className={`voice-button ${voiceState === 'recording' ? 'is-recording' : ''}`}
-              onClick={voiceState === 'recording' ? stopVoiceInput : startVoiceInput}
-              disabled={voiceState === 'requesting' || voiceState === 'transcribing'}
-              aria-pressed={voiceState === 'recording'}
-              aria-label={voiceState === 'recording' ? 'Stop recording' : 'Speak your question'}
-              title={voiceState === 'recording' ? 'Stop recording' : 'Speak your question'}
-            >
-              {voiceState === 'requesting' || voiceState === 'transcribing'
-                ? <LoaderCircle size={16} className="voice-spinner" />
-                : voiceState === 'recording' ? <Square size={13} fill="currentColor" /> : <Mic size={16} />}
-              <span>{voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'requesting' ? 'Starting…' : 'Speak'}</span>
-            </button>
-          </div>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button className="btn btn-secondary" onClick={() => { setQuestion(''); setQuestionLanguage(null); }}>Clear</button>
-            <button 
-              className="btn btn-primary" 
-              onClick={handleAsk} 
-              disabled={loading || !question.trim()}
-              style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
-            >
-              <Play size={16} fill="currentColor" />
-              {loading ? 'Generating...' : 'Generate answer'}
-            </button>
-          </div>
-        </div>
-      </div>
       {questionLanguage && <p className="voice-language" role="status">Voice language detected: {questionLanguage}. Your transcript and executive answer stay in this language.</p>}
       {voiceError && <p className="voice-error" role="status">{voiceError}</p>}
 
       {result && (
+        <section ref={resultRef} className="ask-results" aria-label="Query results" tabIndex="-1">
+        <div className="ask-results-heading"><span>Verified output</span><p>Generated from your active workspace</p></div>
         <div className="result-stack animate-fade-slide">
           {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
             <details className="query-details interpretation-details">
@@ -348,6 +557,7 @@ export default function AskData() {
             </div>
           </section>
         </div>
+        </section>
       )}
     </div>
   );

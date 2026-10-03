@@ -41,3 +41,31 @@ def test_approved_memory_is_scoped_to_tenant_and_workspace(tmp_path):
     assert memory.search_approved_conversations(
         tenant_id="tenant-a", workspace_id="workspace-a", query="attendance"
     ) == []
+
+
+def test_deleting_one_conversation_keeps_other_scoped_records(tmp_path):
+    memory = ApprovedConversationMemory(tmp_path / "chroma")
+    memory.save_approved_conversation(
+        tenant_id="tenant-a", workspace_id="workspace-a", actor_user_id="user-a",
+        record=_record("keep-this", "Show attendance this month"),
+    )
+    memory.save_approved_conversation(
+        tenant_id="tenant-a", workspace_id="workspace-a", actor_user_id="user-a",
+        record=_record("remove-this", "Show late arrivals this month"),
+    )
+    memory.save_approved_conversation(
+        tenant_id="tenant-b", workspace_id="workspace-b", actor_user_id="user-b",
+        record=_record("other-tenant", "Show confidential grades"),
+    )
+
+    memory.delete_approved_conversation(
+        tenant_id="tenant-a", workspace_id="workspace-a", record_id="remove-this"
+    )
+
+    remaining = memory.search_approved_conversations(
+        tenant_id="tenant-a", workspace_id="workspace-a", query="month"
+    )
+    assert [item["id"] for item in remaining] == ["keep-this"]
+    assert memory.search_approved_conversations(
+        tenant_id="tenant-b", workspace_id="workspace-b", query="grades"
+    )[0]["id"] == "other-tenant"

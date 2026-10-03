@@ -1,5 +1,6 @@
 """Request and response models for account routes."""
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
@@ -86,11 +87,13 @@ class VerifyLoginRequest(BaseModel):
 
     @field_validator("code")
     @classmethod
-    def six_digits(cls, value: str) -> str:
-        cleaned = value.strip()
-        if len(cleaned) != 6 or not cleaned.isdigit():
-            raise ValueError("Enter the 6-digit code from your email.")
-        return cleaned
+    def verification_code(cls, value: str) -> str:
+        cleaned = value.strip().upper()
+        if cleaned.isdigit() and len(cleaned) == 6:
+            return cleaned
+        if re.fullmatch(r"PCH-[A-Z0-9]{4}-[A-Z0-9]{4}", cleaned):
+            return cleaned
+        raise ValueError("Enter the 6-digit email code or a PCH-XXXX-XXXX recovery code.")
 
 
 class ResendOtpRequest(BaseModel):
@@ -163,6 +166,8 @@ class EmailChangeVerifyRequest(BaseModel):
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str
+    email_delivered: bool | None = None
+    recovery_available: bool | None = None
 
 
 class LoginRequest(BaseModel):
@@ -204,3 +209,18 @@ class WorkspaceInviteRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     user: UserResponse
+
+
+class RecoveryCodesRequest(BaseModel):
+    current_password: str
+
+    @field_validator("current_password")
+    @classmethod
+    def require_current_password(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Enter your current password.")
+        return value
+
+
+class RecoveryCodesResponse(BaseModel):
+    codes: list[str]

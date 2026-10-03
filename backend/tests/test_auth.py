@@ -79,16 +79,16 @@ def test_login_success_and_me(client: TestClient, otp_codes):
     assert me.json()["workspace_type"] == "personal"
 
 
-def test_concurrent_refresh_checks_do_not_invalidate_a_valid_session(client: TestClient, otp_codes):
-    """A duplicate browser /me request may carry the cookie before rotation."""
+def test_refresh_checks_keep_a_stable_valid_session(client: TestClient, otp_codes):
+    """Parallel page-load calls must not rotate a browser session out of sync."""
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
     finish_signup(client, "ada@college.edu", otp_codes)
     original_token = client.cookies.get("puchoo_session")
     assert original_token
 
-    # First refresh check rotates the session token.
     assert client.get("/api/v1/auth/me").status_code == 200
-    # A second check already in flight still uses the original request cookie.
+    assert client.cookies.get("puchoo_session") == original_token
+    # A duplicate request carrying the original cookie is equally valid.
     client.cookies.set("puchoo_session", original_token)
     second = client.get("/api/v1/auth/me")
     assert second.status_code == 200
@@ -502,3 +502,46 @@ def test_signup_removes_account_when_email_delivery_fails(client: TestClient, mo
     db = database.SessionLocal()
     assert db.query(User).count() == 0
     db.close()
+
+
+def test_single_use_recovery_otp_can_complete_a_password_verified_login(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    generated = client.post(
+        "/api/v1/auth/recovery-codes",
+        json={"current_password": "language10"},
+        headers=csrf_headers(client),
+    )
+    assert generated.status_code == 200
+    codes = generated.json()["codes"]
+    assert len(codes) == 10
+    assert all(code.startswith("PCH-") for code in codes)
+
+    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
+    challenge = client.post(
+        "/api/v1/auth/login",
+        json={"email": "ada@college.edu", "password": "language10"},
+        headers=csrf_headers(client),
+    )
+    assert challenge.status_code == 200
+    assert challenge.json()["recovery_available"] is True
+    verified = client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": "ada@college.edu", "code": codes[0]},
+        headers=csrf_headers(client),
+    )
+    assert verified.status_code == 200
+
+    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "ada@college.edu", "password": "language10"},
+        headers=csrf_headers(client),
+    ).status_code == 200
+    reused = client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": "ada@college.edu", "code": codes[0]},
+        headers=csrf_headers(client),
+    )
+    assert reused.status_code == 401

@@ -16,6 +16,8 @@ export default function Login() {
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState('');
   const [pending, setPending] = useState(false);
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const [emailDelivered, setEmailDelivered] = useState(true);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -34,9 +36,13 @@ export default function Login() {
     setPending(true);
     setToast('');
     try {
-      await requestLogin({ email: email.trim().toLowerCase(), password });
+      const challenge = await requestLogin({ email: email.trim().toLowerCase(), password });
+      setRecoveryAvailable(Boolean(challenge.recovery_available));
+      setEmailDelivered(challenge.email_delivered !== false);
       setStep('code');
-      setToast('We sent a 6-digit code to your email.');
+      setToast(challenge.email_delivered === false
+        ? 'Email delivery is unavailable. Use one of your recovery codes.'
+        : 'We sent a 6-digit code to your email.');
     } catch (error) {
       setToast(error.message || 'Invalid email or password');
     } finally {
@@ -46,14 +52,15 @@ export default function Login() {
 
   async function onVerify(event) {
     event.preventDefault();
-    if (!/^\d{6}$/.test(code.trim())) {
-      setErrors({ code: 'Enter the 6-digit code from your email.' });
+    const normalizedCode = code.trim().toUpperCase();
+    if (!/^\d{6}$/.test(normalizedCode) && !/^PCH-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalizedCode)) {
+      setErrors({ code: 'Enter a 6-digit email code or PCH-XXXX-XXXX recovery code.' });
       return;
     }
     setPending(true);
     setToast('');
     try {
-      await verifyLogin({ email: email.trim().toLowerCase(), code: code.trim() });
+      await verifyLogin({ email: email.trim().toLowerCase(), code: normalizedCode });
       navigate('/ask', { replace: true });
     } catch (error) {
       setToast(error.message || 'That code is invalid or has expired.');
@@ -67,9 +74,13 @@ export default function Login() {
     setToast('');
     setErrors({});
     try {
-      await resendLoginCode({ email: email.trim().toLowerCase() });
+      const challenge = await resendLoginCode({ email: email.trim().toLowerCase() });
       setCode('');
-      setToast('We sent a new 6-digit code to your email.');
+      setRecoveryAvailable(Boolean(challenge.recovery_available));
+      setEmailDelivered(challenge.email_delivered !== false);
+      setToast(challenge.email_delivered === false
+        ? 'Email delivery is still unavailable. Use one of your recovery codes.'
+        : 'We sent a new 6-digit code to your email.');
     } catch (error) {
       setToast(error.message || 'Unable to resend the verification code.');
     } finally {
@@ -84,7 +95,9 @@ export default function Login() {
         title={step === 'code' ? 'Check your email' : 'Log in'}
         subtitle={
           step === 'code'
-            ? `Enter the 6-digit code sent to ${email.trim().toLowerCase()}. It expires in 10 minutes.`
+            ? recoveryAvailable
+              ? `Enter the 6-digit email code sent to ${email.trim().toLowerCase()} or one of your recovery codes.`
+              : `Enter the 6-digit code sent to ${email.trim().toLowerCase()}. It expires in 10 minutes.`
             : 'A verification code is emailed after your password is accepted.'
         }
         footer={
@@ -105,16 +118,17 @@ export default function Login() {
               <input
                 id="code"
                 name="code"
-                inputMode="numeric"
+                inputMode={recoveryAvailable ? 'text' : 'numeric'}
                 autoComplete="one-time-code"
-                maxLength={6}
+                maxLength={13}
                 value={code}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 13))}
                 aria-invalid={Boolean(errors.code)}
                 aria-describedby={errors.code ? 'code-error' : undefined}
                 className={`${inputClass(Boolean(errors.code))} tracking-[0.4em]`}
               />
             </Field>
+            {recoveryAvailable ? <p className="rounded-xl border border-[#9dbaf5]/50 bg-white/55 px-3 py-2 text-xs leading-relaxed text-[#3f5474]">{emailDelivered ? 'Email delayed? ' : 'Email is currently unavailable. '}Use a saved <strong>PCH-XXXX-XXXX</strong> recovery code. Each code works once.</p> : null}
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Checking code…' : 'Verify and continue'}
             </PillButton>

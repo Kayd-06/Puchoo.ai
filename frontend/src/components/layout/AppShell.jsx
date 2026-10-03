@@ -6,7 +6,7 @@ export default function AppShell() {
   return (
     <div className="app-container">
       <Sidebar />
-      <main className="main-content">
+      <main id="main-content" className="main-content">
         <TopBar />
         <div className="page-container animate-fade-slide">
           <Outlet />

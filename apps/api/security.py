@@ -65,6 +65,17 @@ def can_administer_workspace(user) -> bool:
     return workspace_role(user) in {"owner", "admin"}
 
 
+def require_data_manager(user=Depends(current_user)):
+    """Require a role that may create or modify workspace configuration."""
+
+    if not can_manage_data(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Viewer access is read-only. Ask a workspace admin for editor access.",
+        )
+    return user
+
+
 def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
     """Return a workspace only within the caller's explicit tenant boundary."""
     from apps.api.session import session_manager
@@ -80,10 +91,8 @@ def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
 
 def require_workspace_editor(
     workspace: dict = Depends(get_workspace_guard),
-    user=Depends(current_user),
+    user=Depends(require_data_manager),
 ):
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access is read-only. Ask a workspace admin for editor access.")
     return workspace
 
 

@@ -59,12 +59,13 @@ def create_app(*, include_product: bool = True) -> FastAPI:
 
     if include_product:
         app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=settings.cookie_secure)
-        from apps.api.routers import history, query, sarvam, settings as settings_router, workspaces
+        from apps.api.routers import history, notifications, query, sarvam, settings as settings_router, workspaces
 
         app.include_router(workspaces.router, prefix="/api")
         app.include_router(query.router, prefix="/api")
         app.include_router(history.router, prefix="/api")
         app.include_router(settings_router.router, prefix="/api")
+        app.include_router(notifications.router, prefix="/api")
         app.include_router(sarvam.router, prefix="/api")
 
     @app.get("/api/health")

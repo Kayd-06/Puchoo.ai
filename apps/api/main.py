@@ -6,8 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from apps.api.security import CSRFMiddleware
-from apps.api.routers import workspaces, query, history, settings, sarvam
+from apps.api.routers import workspaces, query, history, notifications, settings, sarvam
+from backend.config import settings as backend_settings
+from backend.csrf import CSRFCookieMiddleware
 from backend.database import init_db
 from backend.routers.auth import router as auth_router
 
@@ -28,26 +29,29 @@ app = FastAPI(
 # CORS middleware for local React dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=backend_settings.frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "X-CSRF-Token"],
 )
 
-# Session middleware for simple in-memory session (to be replaced with Redis/real session)
+# Session middleware supports the analytics UI; account auth uses server-bound JWTs.
 app.add_middleware(
     SessionMiddleware, 
-    secret_key="dev-secret-key-do-not-use-in-prod"
+    secret_key=backend_settings.session_secret,
+    same_site="lax",
+    https_only=backend_settings.cookie_secure,
 )
 
 # CSRF protection
-app.add_middleware(CSRFMiddleware)
+app.add_middleware(CSRFCookieMiddleware)
 
 # Include routers
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(sarvam.router, prefix="/api")
 app.include_router(auth_router, prefix="/api/v1")
 

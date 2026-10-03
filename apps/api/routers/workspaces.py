@@ -2,7 +2,10 @@
 
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from sqlalchemy.orm import Session
 from backend.routers.auth import current_user
+from backend.database import get_db
+from backend.notifications import create_notification
 from pydantic import BaseModel
 
 from apps.core.workspaces import (
@@ -16,9 +19,10 @@ from apps.core.workspaces import (
     get_schema_table_stats,
 )
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard, require_workspace_admin, require_workspace_editor, tenant_owner_id
+from apps.api.security import require_data_manager, require_workspace_admin, require_workspace_editor, tenant_owner_id
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+PUBLIC_WORKSPACE_FIELDS = ("id", "name", "dialect", "source_type")
 
 class ServerWorkspaceRequest(BaseModel):
     name: str
@@ -33,17 +37,23 @@ class ServerWorkspaceRequest(BaseModel):
 def _owner_id(user) -> str:
     return tenant_owner_id(user)
 
+
+def _public_workspace(workspace: Dict[str, Any]) -> Dict[str, Any]:
+    """Never send database URIs (which may embed passwords) to a browser."""
+
+    return {field: workspace[field] for field in PUBLIC_WORKSPACE_FIELDS if field in workspace}
+
 @router.get("/")
 def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
     owner_id = _owner_id(user)
-    return [workspace for workspace in session_manager.workspaces.values() if workspace.get("owner_user_id") == owner_id]
+    return [
+        _public_workspace(workspace)
+        for workspace in session_manager.workspaces.values()
+        if workspace.get("owner_user_id") == owner_id
+    ]
 
 @router.post("/server")
-def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) -> Dict[str, Any]:
-    # New workspaces are data-management operations, not viewer actions.
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot connect data sources.")
+def connect_server(request: ServerWorkspaceRequest, user=Depends(require_data_manager), db: Session = Depends(get_db)) -> Dict[str, Any]:
     try:
         workspace = create_server_workspace(
             request.name,
@@ -58,7 +68,9 @@ def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) 
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
-        return ws_dict
+        create_notification(db, user_id=user.id, kind="workspace_connected", title="Database connected", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
+        return _public_workspace(ws_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -66,11 +78,9 @@ def connect_server(request: ServerWorkspaceRequest, user=Depends(current_user)) 
 async def upload_file(
     file: UploadFile = File(...),
     name: str = Form(""),
-    user=Depends(current_user),
+    user=Depends(require_data_manager),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     contents = await file.read()
     filename = file.filename or "uploaded_file"
     ws_name = name.strip() or filename.rsplit(".", 1)[0]
@@ -86,7 +96,9 @@ async def upload_file(
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
-        return ws_dict
+        create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data source added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
+        return _public_workspace(ws_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -94,11 +106,9 @@ async def upload_file(
 async def upload_multiple_files(
     files: List[UploadFile] = File(...),
     name: str = Form(""),
-    user=Depends(current_user),
+    user=Depends(require_data_manager),
+    db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    from apps.api.security import can_manage_data
-    if not can_manage_data(user):
-        raise HTTPException(status_code=403, detail="Viewer access cannot upload data.")
     if not files:
         raise HTTPException(status_code=400, detail="Choose at least one CSV or Excel file")
     payloads: list[tuple[str, bytes]] = []
@@ -116,13 +126,15 @@ async def upload_multiple_files(
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
         session_manager.add_workspace(ws_dict)
-        return ws_dict
+        create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data sources added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
+        db.commit()
+        return _public_workspace(ws_dict)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @router.get("/{workspace_id}")
-def get_workspace(workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
-    return workspace
+def get_workspace(workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, Any]:
+    return _public_workspace(workspace)
 
 @router.delete("/{workspace_id}")
 def delete_workspace(workspace_id: str, workspace: Dict = Depends(require_workspace_admin)) -> Response:
@@ -130,7 +142,7 @@ def delete_workspace(workspace_id: str, workspace: Dict = Depends(require_worksp
     return Response(status_code=204)
 
 @router.get("/{workspace_id}/schema")
-def get_schema(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, str]:
+def get_schema(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, str]:
     cache_key = f"schema_{workspace_id}"
     if cache_key not in session_manager.schema_snapshots:
         try:
@@ -149,14 +161,14 @@ def refresh_schema(workspace_id: str, workspace: Dict = Depends(require_workspac
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{workspace_id}/metrics")
-def get_metrics(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, int]:
+def get_metrics(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, int]:
     try:
         return get_schema_metrics(workspace["database_uri"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{workspace_id}/tables")
-def get_tables(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> List[Dict[str, Any]]:
+def get_tables(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> List[Dict[str, Any]]:
     local_source = workspace.get("source_type") in {"spreadsheet", "spreadsheet_collection", "file"}
     try:
         stats = get_schema_table_stats(workspace["database_uri"], include_row_counts=local_source)

@@ -27,6 +27,7 @@ export async function fetchApi(endpoint, options = {}) {
   const config = {
     ...options,
     headers,
+    credentials: 'include',
   };
 
   try {
@@ -43,6 +44,9 @@ export async function fetchApi(endpoint, options = {}) {
       : { detail: (await response.text()).trim() };
 
     if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new Event('puchoo:unauthorized'));
+      }
       throw new Error(data.detail || data.message || `API request failed (${response.status})`);
     }
 
