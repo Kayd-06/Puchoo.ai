@@ -70,8 +70,10 @@ class TabularWorkspaceTests(unittest.TestCase):
 
 
 class ServerWorkspaceTests(unittest.TestCase):
+    @patch("apps.core.workspaces.checked_connection_host", return_value="8.8.8.8")
     @patch("apps.core.workspaces.get_schema_snapshot", return_value="Table: events\nColumns: id (INTEGER)")
-    def test_postgres_uri_is_built_from_discrete_connection_fields(self, schema_mock: object) -> None:
+    def test_postgres_uri_is_built_from_discrete_connection_fields(self, schema_mock: object, _host_mock: object) -> None:
+        password = "p@ss word"
         workspace = create_server_workspace(
             "Reporting",
             engine="postgresql",
@@ -79,14 +81,16 @@ class ServerWorkspaceTests(unittest.TestCase):
             port=5432,
             database="reporting",
             username="readonly",
-            password="p@ss word",
-            ssl_required=True,
+            password=password,
         )
 
         self.assertEqual("server", workspace.source_type)
         self.assertEqual("postgresql", workspace.dialect)
-        self.assertIn("postgresql+psycopg://readonly:p%40ss+word@db.example.com:5432/reporting", workspace.database_uri)
-        self.assertTrue(workspace.database_uri.endswith("sslmode=require"))
+        self.assertEqual("postgresql+psycopg://readonly@8.8.8.8:5432/reporting", workspace.database_uri)
+        self.assertNotIn("?", workspace.database_uri)
+        self.assertNotIn(password, workspace.database_uri)
+        self.assertNotIn(password, repr(workspace))
+        self.assertEqual("require", workspace.connect_args["sslmode"])
         self.assertTrue(schema_mock.called)  # type: ignore[attr-defined]
 
     def test_server_rejects_invalid_host_before_connecting(self) -> None:
@@ -99,5 +103,4 @@ class ServerWorkspaceTests(unittest.TestCase):
                 database="reporting",
                 username="readonly",
                 password="secret",
-                ssl_required=True,
             )

@@ -97,7 +97,9 @@ class VerifyLoginRequest(BaseModel):
 
 
 class ResendOtpRequest(BaseModel):
-    email: EmailStr
+    """Email is ignored. Resend is authorized by the login-challenge cookie."""
+
+    email: EmailStr | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -107,8 +109,15 @@ class ResendOtpRequest(BaseModel):
         return value
 
 
-class PasswordForgotRequest(ResendOtpRequest):
-    pass
+class PasswordForgotRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class PasswordResetRequest(VerifyLoginRequest):
@@ -166,8 +175,6 @@ class EmailChangeVerifyRequest(BaseModel):
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str
-    email_delivered: bool | None = None
-    recovery_available: bool | None = None
 
 
 class LoginRequest(BaseModel):

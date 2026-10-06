@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from apps.core.db_connection import materialize_connect_args
 from apps.core.guardrails import GuardedSQL, SQLGuardrailError, SQLGuardrails
 
 
@@ -50,6 +51,7 @@ class ReadOnlyExecutor:
         max_rows: int = 500,
         dialect: str | None = "sqlite",
         timeout_seconds: int = 30,
+        connect_args: dict[str, Any] | None = None,
     ) -> None:
         if not isinstance(database_uri, str) or not database_uri.strip():
             raise ValueError("database_uri must be a non-empty string")
@@ -58,16 +60,17 @@ class ReadOnlyExecutor:
         self.database_uri = database_uri
         self.timeout_seconds = timeout_seconds
         self.guardrails = SQLGuardrails(max_limit=max_rows, dialect=dialect)
-        connect_args: dict[str, Any] = {}
+        driver_args = materialize_connect_args(connect_args)
         if database_uri.startswith("sqlite"):
-            connect_args["timeout"] = timeout_seconds
+            driver_args.setdefault("timeout", timeout_seconds)
         elif database_uri.startswith("postgresql"):
-            connect_args["connect_timeout"] = timeout_seconds
+            driver_args.setdefault("connect_timeout", timeout_seconds)
         elif database_uri.startswith("mysql"):
-            connect_args.update(
-                {"connect_timeout": timeout_seconds, "read_timeout": timeout_seconds, "write_timeout": timeout_seconds}
-            )
-        self.engine: Engine = create_engine(database_uri, connect_args=connect_args)
+            driver_args["local_infile"] = False
+            driver_args.setdefault("connect_timeout", timeout_seconds)
+            driver_args.setdefault("read_timeout", timeout_seconds)
+            driver_args.setdefault("write_timeout", timeout_seconds)
+        self.engine: Engine = create_engine(database_uri, connect_args=driver_args)
 
     def prepare(self, proposed_sql: str) -> GuardedSQL:
         """Parse, reject writes/multiple statements, and apply an outer LIMIT."""

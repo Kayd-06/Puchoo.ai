@@ -52,8 +52,8 @@ export function AuthProvider({ children, loadSession = true }) {
       async requestLogin(payload) {
         return loginRequest(payload);
       },
-      async resendLoginCode(payload) {
-        return resendLoginCodeRequest(payload);
+      async resendLoginCode() {
+        return resendLoginCodeRequest();
       },
       async verifyLogin(payload) {
         const result = await verifyRequest(payload);

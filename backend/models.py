@@ -55,6 +55,23 @@ class AuthSession(Base):
     user: Mapped[User] = relationship(back_populates="sessions")
 
 
+class LoginChallenge(Base):
+    """Password-proven login attempt. The id is only returned in an HttpOnly cookie."""
+
+    __tablename__ = "login_challenges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    resend_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class LoginCode(Base):
     __tablename__ = "login_codes"
 

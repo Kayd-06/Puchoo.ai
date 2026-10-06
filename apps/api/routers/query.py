@@ -194,7 +194,9 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
     controls = session_manager.get_guardrails(workspace_id)
     
     try:
-        schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(workspace["database_uri"])
+        schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
+            workspace["database_uri"], connect_args=workspace.get("connect_args")
+        )
         autonomous = _autonomous_mode()
         clarification = None if autonomous else question_clarification(schema, planning_question)
         if clarification:
@@ -254,10 +256,11 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             public_plan = intent_plan.as_dict()
             structured_plan = None
         executor = ReadOnlyExecutor(
-            workspace["database_uri"], 
-            max_rows=controls["max_rows"], 
-            dialect=workspace.get("dialect", "sqlite"), 
-            timeout_seconds=controls["timeout_seconds"]
+            workspace["database_uri"],
+            max_rows=controls["max_rows"],
+            dialect=workspace.get("dialect", "sqlite"),
+            timeout_seconds=controls["timeout_seconds"],
+            connect_args=workspace.get("connect_args"),
         )
         max_attempts = 1
         
@@ -400,10 +403,11 @@ def execute_query(
     
     try:
         executor = ReadOnlyExecutor(
-            workspace["database_uri"], 
-            max_rows=controls["max_rows"], 
-            dialect=workspace.get("dialect", "sqlite"), 
-            timeout_seconds=controls["timeout_seconds"]
+            workspace["database_uri"],
+            max_rows=controls["max_rows"],
+            dialect=workspace.get("dialect", "sqlite"),
+            timeout_seconds=controls["timeout_seconds"],
+            connect_args=workspace.get("connect_args"),
         )
         
         try:
@@ -413,7 +417,7 @@ def execute_query(
             if not isinstance(client, LocalMLXSQLClient):
                 raise
             schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
-                workspace["database_uri"]
+                workspace["database_uri"], connect_args=workspace.get("connect_args")
             )
             selected_schema = _schema_for_tables(schema, proposal.get("selected_tables", []))
             repair_question = (

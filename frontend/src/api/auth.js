@@ -85,8 +85,8 @@ export function verifyLogin(payload) {
   return api('/api/v1/auth/login/verify', { method: 'POST', body: payload });
 }
 
-export function resendLoginCode(payload) {
-  return api('/api/v1/auth/login/resend', { method: 'POST', body: payload });
+export function resendLoginCode() {
+  return api('/api/v1/auth/login/resend', { method: 'POST', body: {} });
 }
 
 export function signup(payload) {
