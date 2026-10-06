@@ -23,6 +23,26 @@ class SQLParseError(SQLGuardrailError):
     """Raised when model output is incomplete or malformed, but not executable."""
 
 
+# Workspace records say "postgresql". sqlglot's dialect name is "postgres".
+_SQLGLOT_DIALECTS = {
+    "postgresql": "postgres",
+    "postgres": "postgres",
+    "mysql": "mysql",
+    "sqlite": "sqlite",
+}
+
+
+def sqlglot_dialect(dialect: str | None) -> str | None:
+    """Return the sqlglot name for a workspace dialect."""
+
+    if dialect is None:
+        return None
+    normalized = dialect.strip().lower()
+    if not normalized:
+        return None
+    return _SQLGLOT_DIALECTS.get(normalized, normalized)
+
+
 @dataclass(frozen=True)
 class GuardedSQL:
     sql: str
@@ -93,6 +113,7 @@ class SQLGuardrails:
     def __post_init__(self) -> None:
         if isinstance(self.max_limit, bool) or not isinstance(self.max_limit, int) or self.max_limit <= 0:
             raise ValueError("max_limit must be a positive integer")
+        object.__setattr__(self, "dialect", sqlglot_dialect(self.dialect))
 
     def validate_and_clamp(self, sql: str) -> GuardedSQL:
         statement = _only_one_select(sql, self.dialect)

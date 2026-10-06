@@ -14,6 +14,7 @@ import socket
 from typing import Mapping
 from urllib.parse import quote_plus
 
+import certifi
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.engine import URL
 
@@ -29,6 +30,11 @@ DRIVERS = {
 CONNECT_TIMEOUT_SECONDS = 10
 STATEMENT_TIMEOUT_MS = 30_000
 GENERIC_CONNECTION_ERROR = "Could not connect to the database"
+HOST_NOT_ALLOWED_ERROR = "That database host is not allowed."
+HOST_UNRESOLVED_ERROR = "Could not resolve the database host."
+# These stay off the HTTP response. Callers return GENERIC_CONNECTION_ERROR instead.
+GENERIC_HOST_ERRORS = frozenset({HOST_NOT_ALLOWED_ERROR, HOST_UNRESOLVED_ERROR})
+POSTGRES_SSL_MODES = frozenset({"require", "verify-ca"})
 
 
 class DatabaseConnectionError(RuntimeError):
@@ -146,36 +152,32 @@ def allowed_db_hosts() -> set[str]:
 
 
 def ip_is_blocked(raw: str) -> bool:
-    """Reject loopback, private, link-local, multicast, reserved, and unspecified addresses."""
+    """Reject every address that is not globally routable.
+
+    ``is_global`` is false for loopback, private, link-local, multicast,
+    reserved, and unspecified addresses, and also for carrier-grade NAT
+    (100.64.0.0/10), where ``is_private`` is false as well.
+    """
 
     address: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(raw.split("%", 1)[0])
     mapped = getattr(address, "ipv4_mapped", None)
     if mapped is not None:
         address = mapped
-    return any(
-        (
-            address.is_loopback,
-            address.is_private,
-            address.is_link_local,
-            address.is_multicast,
-            address.is_reserved,
-            address.is_unspecified,
-        )
-    )
+    return not address.is_global
 
 
 def resolved_ips(host: str, port: int) -> list[str]:
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
-        raise ValueError("Could not resolve the database host.") from exc
+        raise ValueError(HOST_UNRESOLVED_ERROR) from exc
     found: list[str] = []
     for info in infos:
         ip = str(info[4][0]).split("%", 1)[0]
         if ip not in found:
             found.append(ip)
     if not found:
-        raise ValueError("Could not resolve the database host.")
+        raise ValueError(HOST_UNRESOLVED_ERROR)
     return found
 
 
@@ -194,7 +196,7 @@ def checked_connection_host(host: str, port: int) -> str:
     ips = resolved_ips(host, port)
     blocked = [ip for ip in ips if ip_is_blocked(ip)]
     if blocked and not host_is_allowlisted(host, ips):
-        raise ValueError("That database host is not allowed.")
+        raise ValueError(HOST_NOT_ALLOWED_ERROR)
     for ip in ips:
         if not ip_is_blocked(ip):
             return ip
@@ -239,6 +241,13 @@ def render_password_free(url: URL) -> str:
     return rendered
 
 
+def mysql_ca_file() -> str:
+    """CA bundle for MySQL. DB_SSL_CA overrides certifi's Mozilla bundle."""
+
+    configured = os.getenv("DB_SSL_CA", "").strip()
+    return configured or certifi.where()
+
+
 def mysql_connect_args(password: str) -> dict:
     args: dict = {
         "password": SecretValue(password),
@@ -246,11 +255,31 @@ def mysql_connect_args(password: str) -> dict:
         "connect_timeout": CONNECT_TIMEOUT_SECONDS,
     }
     if db_ssl_required():
-        args["ssl"] = {}
+        # An empty ssl dict only prefers TLS and can fall back to plaintext.
+        # ssl_verify_cert makes PyMySQL require a valid certificate. The same
+        # path is also passed as ssl_ca: when that flag is set, PyMySQL rebuilds
+        # its SSL dict from ssl_ca and would otherwise drop the bundle.
+        ca_file = mysql_ca_file()
+        args["ssl"] = {"ca": ca_file}
+        args["ssl_ca"] = ca_file
+        args["ssl_verify_cert"] = True
         args["ssl_disabled"] = False
     else:
         args["ssl_disabled"] = True
     return args
+
+
+def db_ssl_mode() -> str:
+    """Postgres TLS mode. verify-full cannot work: the socket uses a checked IP."""
+
+    mode = os.getenv("DB_SSL_MODE", "require").strip().lower() or "require"
+    if mode == "verify-full":
+        raise ValueError(
+            "DB_SSL_MODE=verify-full cannot be used because the connection uses the resolved IP, not the hostname."
+        )
+    if mode not in POSTGRES_SSL_MODES:
+        raise ValueError("DB_SSL_MODE must be require or verify-ca.")
+    return mode
 
 
 def postgres_connect_args(password: str) -> dict:
@@ -260,7 +289,13 @@ def postgres_connect_args(password: str) -> dict:
         "options": "-c default_transaction_read_only=on -c statement_timeout=" + str(STATEMENT_TIMEOUT_MS),
     }
     if db_ssl_required():
-        args["sslmode"] = "require"
+        mode = db_ssl_mode()
+        args["sslmode"] = mode
+        if mode == "verify-ca":
+            root_cert = os.getenv("DB_SSL_ROOT_CERT", "").strip()
+            if not root_cert:
+                raise ValueError("DB_SSL_ROOT_CERT is required when DB_SSL_MODE=verify-ca.")
+            args["sslrootcert"] = root_cert
     return args
 
 

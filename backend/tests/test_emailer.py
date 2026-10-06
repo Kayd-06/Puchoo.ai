@@ -18,7 +18,14 @@ def _decoded_message(raw: str) -> str:
     return "\n".join(parts)
 
 
-def test_the_suite_does_not_contact_the_configured_smtp_account():
+def test_the_suite_does_not_contact_the_configured_smtp_account(monkeypatch):
+    monkeypatch.setattr(emailer.settings, "smtp_server", "smtp.example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_port", 587)
+    monkeypatch.setattr(emailer.settings, "smtp_username", "sender@example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_password", "not-a-real-password")
+    monkeypatch.setattr(emailer.settings, "smtp_from", None)
+    monkeypatch.setattr(emailer.settings, "smtp_use_ssl", False)
+    monkeypatch.setattr(emailer.settings, "smtp_use_tls", True)
     with pytest.raises(EmailDeliveryError, match="disabled during tests"):
         emailer.send_otp_email("person@example.test", "123456")
 

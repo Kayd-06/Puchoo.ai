@@ -1,6 +1,7 @@
 """Server connection routes reject injection, editors, and raw driver errors."""
 
 import logging
+import socket
 
 import pytest
 from fastapi.testclient import TestClient
@@ -149,6 +150,43 @@ def test_connection_attempts_are_rate_limited(owner_client, monkeypatch):
     assert blocked.status_code == 429
     assert blocked.json()["detail"] == "Too many connection attempts. Try again later."
     assert blocked.headers["retry-after"] == "900"
+
+
+def test_blocked_and_unresolved_hosts_share_one_generic_error(owner_client, monkeypatch, caplog):
+    connection_limiter.reset()
+    monkeypatch.setenv("ALLOWED_DB_HOSTS", "")
+
+    def resolve(host, port, *args, **kwargs):
+        if host == "missing.example":
+            raise socket.gaierror(8, "nodename nor servname provided, or not known")
+        if host == "100.100.100.200":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, port))]
+        raise AssertionError(host)
+
+    monkeypatch.setattr("apps.core.db_connection.socket.getaddrinfo", resolve)
+    with caplog.at_level(logging.INFO):
+        blocked = owner_client.post(
+            "/api/workspaces/server",
+            json=_body(host="100.100.100.200"),
+            headers=csrf_headers(owner_client),
+        )
+        missing = owner_client.post(
+            "/api/workspaces/server",
+            json=_body(host="missing.example"),
+            headers=csrf_headers(owner_client),
+        )
+    assert blocked.status_code == 400
+    assert missing.status_code == 400
+    assert blocked.json()["detail"] == GENERIC
+    assert missing.json()["detail"] == GENERIC
+    for response in (blocked, missing):
+        assert "not allowed" not in response.text.lower()
+        assert "resolve" not in response.text.lower()
+        assert "100.100.100.200" not in response.text
+        assert "missing.example" not in response.text
+        assert "gaierror" not in response.text.lower()
+    assert "100.100.100.200" not in caplog.text
+    assert "missing.example" not in caplog.text
 
 
 def test_http_connection_errors_hide_driver_text(owner_client, monkeypatch, caplog):

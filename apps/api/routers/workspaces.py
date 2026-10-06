@@ -11,7 +11,12 @@ from backend.database import get_db
 from backend.notifications import create_notification
 from backend.rate_limit import connection_limiter
 
-from apps.core.db_connection import GENERIC_CONNECTION_ERROR, DatabaseConnectionError, ServerConnection
+from apps.core.db_connection import (
+    GENERIC_CONNECTION_ERROR,
+    GENERIC_HOST_ERRORS,
+    DatabaseConnectionError,
+    ServerConnection,
+)
 from apps.core.workspaces import (
     create_server_workspace,
     create_sqlite_workspace,
@@ -131,6 +136,9 @@ def connect_server(request: ServerWorkspaceRequest, user=Depends(require_connect
         logger.warning("database connection failed: %s", type(exc).__name__)
         raise HTTPException(status_code=400, detail=GENERIC_CONNECTION_ERROR) from None
     except ValueError as exc:
+        if str(exc) in GENERIC_HOST_ERRORS:
+            logger.info("database host rejected")
+            raise HTTPException(status_code=400, detail=GENERIC_CONNECTION_ERROR) from None
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 @router.post("/upload")
