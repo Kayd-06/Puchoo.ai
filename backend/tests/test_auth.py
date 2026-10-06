@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend import database
 from backend.emailer import EmailDeliveryError
+from backend.main import create_app
 from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, User
 from backend.security import as_utc, decode_session_token, utcnow
 from backend.tests.conftest import csrf_headers, finish_login, finish_signup, signup_payload
@@ -44,6 +45,28 @@ def test_signup_sends_code_and_verification_creates_session(client: TestClient, 
     token = client.cookies.get("puchoo_session")
     assert token is not None and token.count(".") == 2
     assert decode_session_token(token) is not None
+
+
+def test_otp_challenge_does_not_depend_on_chroma_memory(app, otp_codes, monkeypatch):
+    """A missing or unavailable conversation store must never block sign-in."""
+
+    def chroma_unavailable():
+        raise AssertionError("OTP routes must not initialize ChromaDB")
+
+    # Product routes import this lazily, so patch both consumers before using
+    # the full application configuration that production runs.
+    monkeypatch.setattr("apps.api.routers.history.get_chat_memory", chroma_unavailable)
+    monkeypatch.setattr("apps.api.routers.query.get_chat_memory", chroma_unavailable)
+
+    with TestClient(create_app(include_product=True)) as product_client:
+        response = product_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email="chroma-independent@college.edu"),
+            headers=csrf_headers(product_client),
+        )
+
+    assert response.status_code == 202
+    assert otp_codes["chroma-independent@college.edu"]
 
 
 def test_duplicate_signup_is_generic(client: TestClient):

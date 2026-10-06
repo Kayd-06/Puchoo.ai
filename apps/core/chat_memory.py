@@ -188,5 +188,14 @@ _memory: ApprovedConversationMemory | None = None
 def get_chat_memory() -> ApprovedConversationMemory:
     global _memory
     if _memory is None:
-        _memory = ApprovedConversationMemory()
+        # Keep a damaged or unavailable local Chroma store contained to the
+        # memory-dependent endpoint. Authentication, startup, and approved
+        # query execution must remain available when local persistence cannot
+        # be opened (a missing directory itself is recreated in __init__).
+        try:
+            _memory = ApprovedConversationMemory()
+        except ChatMemoryError:
+            raise
+        except Exception as exc:
+            raise ChatMemoryError("Could not initialize approved conversation memory.") from exc
     return _memory
