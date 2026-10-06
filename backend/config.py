@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from apps.core.db_connection import validate_db_ssl_mode
+
 BACKEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BACKEND_DIR.parent
 DEFAULT_DATABASE_PATH = BACKEND_DIR / "puchoo_auth.db"
@@ -126,3 +128,4 @@ def load_settings() -> Settings:
 
 settings = load_settings()
 ensure_production_secrets(settings.environment, settings.session_secret, settings.otp_secret)
+validate_db_ssl_mode()

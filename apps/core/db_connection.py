@@ -35,6 +35,10 @@ HOST_UNRESOLVED_ERROR = "Could not resolve the database host."
 # These stay off the HTTP response. Callers return GENERIC_CONNECTION_ERROR instead.
 GENERIC_HOST_ERRORS = frozenset({HOST_NOT_ALLOWED_ERROR, HOST_UNRESOLVED_ERROR})
 POSTGRES_SSL_MODES = frozenset({"require", "verify-ca"})
+# Deprecated IPv4-compatible form (::a.b.c.d). Python can report these as global.
+_IPV4_COMPATIBLE_NETWORK = ipaddress.IPv6Network("::/96")
+# Well-known NAT64 prefix. The last 32 bits are the embedded IPv4 address.
+_NAT64_NETWORK = ipaddress.IPv6Network("64:ff9b::/96")
 
 
 class DatabaseConnectionError(RuntimeError):
@@ -151,19 +155,30 @@ def allowed_db_hosts() -> set[str]:
     return {item.strip().lower().rstrip(".") for item in raw.split(",") if item.strip()}
 
 
-def ip_is_blocked(raw: str) -> bool:
-    """Reject every address that is not globally routable.
+def _address_is_blocked(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when an address must not be used as a database endpoint.
 
-    ``is_global`` is false for loopback, private, link-local, multicast,
-    reserved, and unspecified addresses, and also for carrier-grade NAT
-    (100.64.0.0/10), where ``is_private`` is false as well.
+    Multicast is checked on its own: Python reports 224.0.0.0/4 and ff00::/8
+    as global. CGNAT (100.64.0.0/10) is not global even though it is not private.
     """
+
+    return (not address.is_global) or address.is_multicast
+
+
+def ip_is_blocked(raw: str) -> bool:
+    """Reject addresses that are not safe to open a database connection to."""
 
     address: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(raw.split("%", 1)[0])
     mapped = getattr(address, "ipv4_mapped", None)
     if mapped is not None:
         address = mapped
-    return not address.is_global
+    if isinstance(address, ipaddress.IPv6Address):
+        if address in _IPV4_COMPATIBLE_NETWORK:
+            return True
+        if address in _NAT64_NETWORK:
+            embedded = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+            return _address_is_blocked(embedded)
+    return _address_is_blocked(address)
 
 
 def resolved_ips(host: str, port: int) -> list[str]:
@@ -270,16 +285,23 @@ def mysql_connect_args(password: str) -> dict:
 
 
 def db_ssl_mode() -> str:
-    """Postgres TLS mode. verify-full cannot work: the socket uses a checked IP."""
+    """Return DB_SSL_MODE. Call validate_db_ssl_mode() at startup before using it."""
 
-    mode = os.getenv("DB_SSL_MODE", "require").strip().lower() or "require"
+    return os.getenv("DB_SSL_MODE", "require").strip().lower() or "require"
+
+
+def validate_db_ssl_mode() -> None:
+    """Reject a Postgres TLS mode this process cannot use. Run once at startup."""
+
+    mode = db_ssl_mode()
     if mode == "verify-full":
         raise ValueError(
             "DB_SSL_MODE=verify-full cannot be used because the connection uses the resolved IP, not the hostname."
         )
     if mode not in POSTGRES_SSL_MODES:
         raise ValueError("DB_SSL_MODE must be require or verify-ca.")
-    return mode
+    if mode == "verify-ca" and not os.getenv("DB_SSL_ROOT_CERT", "").strip():
+        raise ValueError("DB_SSL_ROOT_CERT is required when DB_SSL_MODE=verify-ca.")
 
 
 def postgres_connect_args(password: str) -> dict:

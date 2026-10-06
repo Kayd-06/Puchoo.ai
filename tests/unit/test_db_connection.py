@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import socket
 import ssl
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +27,7 @@ from apps.core.db_connection import (
     mysql_connect_args,
     postgres_connect_args,
     render_password_free,
+    validate_db_ssl_mode,
 )
 from apps.core.executor import ReadOnlyExecutor
 from apps.core.workspaces import create_server_workspace
@@ -183,21 +186,46 @@ def test_postgres_verify_ca_uses_the_configured_root_cert(monkeypatch):
     assert args["sslrootcert"] == r"C:\certs\root.pem"
 
 
-def test_postgres_rejects_verify_full_and_plaintext_modes(monkeypatch):
+def test_postgres_ssl_mode_is_validated_at_startup_not_per_connection(monkeypatch):
     monkeypatch.setenv("DB_SSL_REQUIRED", "true")
     monkeypatch.setenv("DB_SSL_MODE", "verify-full")
+    args = postgres_connect_args("s3cret-db-password")
+    assert args["sslmode"] == "verify-full"
     with pytest.raises(ValueError, match="resolved IP"):
-        postgres_connect_args("s3cret-db-password")
+        validate_db_ssl_mode()
 
     monkeypatch.setenv("DB_SSL_MODE", "verify-ca")
     monkeypatch.delenv("DB_SSL_ROOT_CERT", raising=False)
+    with pytest.raises(ValueError, match="DB_SSL_ROOT_CERT"):
+        validate_db_ssl_mode()
     with pytest.raises(ValueError, match="DB_SSL_ROOT_CERT"):
         postgres_connect_args("s3cret-db-password")
 
     for mode in ("disable", "allow", "prefer", "require-or-else"):
         monkeypatch.setenv("DB_SSL_MODE", mode)
         with pytest.raises(ValueError, match="require or verify-ca"):
-            postgres_connect_args("s3cret-db-password")
+            validate_db_ssl_mode()
+
+    monkeypatch.setenv("DB_SSL_MODE", "require")
+    validate_db_ssl_mode()
+
+
+def test_invalid_db_ssl_mode_stops_process_startup():
+    root = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.environ['DB_SSL_MODE']='verify-full'; import backend.config",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "resolved IP" in completed.stderr
 
 
 def test_postgres_omits_sslmode_when_tls_is_disabled(monkeypatch):
@@ -230,6 +258,11 @@ BLOCKED_HOSTS = [
     "100.64.0.1",
     "100.100.100.200",
     "100.127.255.255",
+    "224.0.0.1",
+    "239.255.255.250",
+    "ff02::1",
+    "64:ff9b::a00:5",
+    "::8.8.8.8",
     "::1",
     "fd00::1",
     "internal.example",
@@ -259,10 +292,26 @@ def test_internal_hosts_are_blocked(host, monkeypatch):
         ("::ffff:8.8.8.8", False),
         ("127.0.0.1", True),
         ("0.0.0.0", True),
+        ("224.0.0.1", True),
+        ("239.255.255.250", True),
+        ("ff02::1", True),
+        ("64:ff9b::a00:5", True),
+        ("64:ff9b::808:808", False),
+        ("64:ff9b::e000:1", True),
+        ("::8.8.8.8", True),
+        ("::808:808", True),
+        ("::ffff:224.0.0.1", True),
     ],
 )
 def test_only_global_addresses_are_allowed(raw, blocked):
     assert ip_is_blocked(raw) is blocked
+
+
+def test_nat64_public_embed_is_allowed(monkeypatch):
+    monkeypatch.setenv("ALLOWED_DB_HOSTS", "")
+    mapping = {"64:ff9b::808:808": "64:ff9b::808:808"}
+    with patch("apps.core.db_connection.socket.getaddrinfo", side_effect=_addrinfo(mapping)):
+        assert checked_connection_host("64:ff9b::808:808", 5432) == "64:ff9b::808:808"
 
 
 def test_allowlisted_cgnat_host_uses_the_checked_address(monkeypatch):
