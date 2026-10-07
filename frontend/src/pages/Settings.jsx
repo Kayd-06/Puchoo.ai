@@ -2,7 +2,6 @@ import { ShieldCheck, History as HistoryIcon, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangeEmailPanel from '../components/auth/ChangeEmailPanel';
-import RecoveryCodesPanel from '../components/auth/RecoveryCodesPanel';
 import WorkspaceInvitePanel from '../components/workspace/WorkspaceInvitePanel';
 
 export default function Settings() {
@@ -28,7 +27,7 @@ export default function Settings() {
         <div className="settings-hero-copy">
           <div>
             <h1>Settings</h1>
-            <p>Control your profile, workspace access, and secure sign-in recovery.</p>
+            <p>Control your profile, workspace access, and verified account settings.</p>
           </div>
           <span className="settings-security-chip"><ShieldCheck size={15} /> Tenant isolated</span>
         </div>
@@ -36,8 +35,6 @@ export default function Settings() {
 
       <div className="settings-flow">
         <WorkspaceInvitePanel />
-        <RecoveryCodesPanel />
-
         <section className="settings-section settings-profile" aria-labelledby="profile-title">
           <div className="settings-profile-topline">
             <div className="settings-avatar">
@@ -50,7 +47,7 @@ export default function Settings() {
                   {user?.workspace_type === 'institution' ? `Institution ${user?.workspace_role || 'member'}` : user?.workspace_type === 'business' ? `Business ${user?.workspace_role || 'member'}` : 'Personal workspace'}
                 </span>
               </div>
-              <p>{user?.workspace_name || user?.institute_name || 'Puchoo.ai workspace'} <span>•</span> {user?.email || 'email@example.com'}</p>
+              <p>{user?.workspace_name || user?.institute_name || 'Puchoo.si workspace'} <span>•</span> {user?.email || 'email@example.com'}</p>
             </div>
             <span className="settings-verified"><ShieldCheck size={14} /> Email verified</span>
           </div>
@@ -62,7 +59,7 @@ export default function Settings() {
             <label>Timezone<input type="text" className="input" value={Intl.DateTimeFormat().resolvedOptions().timeZone} readOnly /></label>
           </div>
           <div className="settings-section-footer">
-            <p>Identity information comes from your verified Puchoo.ai profile.</p>
+            <p>Identity information comes from your verified Puchoo.si profile.</p>
             <ChangeEmailPanel />
           </div>
         </section>

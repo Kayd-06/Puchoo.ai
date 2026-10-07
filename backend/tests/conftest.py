@@ -1,11 +1,35 @@
 """Isolated SQLite database and a clean rate-limit window for each test."""
 
+import sys
+import types
+
 import pytest
 from fastapi.testclient import TestClient
 
+# Chroma imports the OTLP gRPC exporter at startup. That native module is
+# optional telemetry, and some Windows code-integrity policies block it.
+# The app disables Chroma telemetry, so tests can load the local client
+# without the blocked exporter.
+if "opentelemetry.exporter.otlp.proto.grpc.trace_exporter" not in sys.modules:
+    _otlp_grpc = types.ModuleType("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
+    _otlp_grpc.OTLPSpanExporter = object
+    sys.modules["opentelemetry.exporter.otlp.proto.grpc.trace_exporter"] = _otlp_grpc
+
 from backend.database import configure_database, init_db
+from backend.emailer import EmailDeliveryError
 from backend.main import create_app
-from backend.rate_limit import limiter
+from backend.rate_limit import authenticated_limiter, connection_limiter, limiter, public_limiter
+
+
+@pytest.fixture(autouse=True)
+def block_outbound_smtp(monkeypatch):
+    """The suite must not log into the SMTP account configured in .env."""
+
+    def refuse(*_args, **_kwargs):
+        raise EmailDeliveryError("SMTP is disabled during tests")
+
+    monkeypatch.setattr("backend.emailer.smtplib.SMTP", refuse)
+    monkeypatch.setattr("backend.emailer.smtplib.SMTP_SSL", refuse)
 
 
 @pytest.fixture
@@ -13,17 +37,30 @@ def app(tmp_path):
     configure_database("sqlite:///" + (tmp_path / "auth.db").as_posix())
     init_db()
     limiter.reset()
+    connection_limiter.reset()
+    public_limiter.reset()
+    authenticated_limiter.reset()
     return create_app(include_product=False)
+
+
+class CapturedCodes(dict):
+    def __init__(self) -> None:
+        super().__init__()
+        self.notices: list[str] = []
 
 
 @pytest.fixture
 def otp_codes(monkeypatch):
-    sent: dict[str, str] = {}
+    sent = CapturedCodes()
 
     def capture(to_email: str, otp_code: str) -> None:
         sent[to_email] = otp_code
 
+    def capture_notice(to_email: str) -> None:
+        sent.notices.append(to_email)
+
     monkeypatch.setattr("backend.emailer.send_otp_email", capture)
+    monkeypatch.setattr("backend.emailer.send_email_changed_notice", capture_notice)
     return sent
 
 

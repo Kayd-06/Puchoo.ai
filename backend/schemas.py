@@ -1,18 +1,21 @@
 """Request and response models for account routes."""
 
-import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from backend.security import password_is_valid
 
 
-class SignupRequest(BaseModel):
+class RequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SignupRequest(RequestModel):
     full_name: str
     email: EmailStr
-    password: str
-    confirm_password: str
+    password: str = Field(max_length=1_024)
+    confirm_password: str = Field(max_length=1_024)
     workspace_type: Literal["personal", "business", "institution", "institute"]
     workspace_name: str | None = None
     invite_code: str | None = None
@@ -25,9 +28,9 @@ class SignupRequest(BaseModel):
             return value
         payload = dict(value)
         if "workspace_name" not in payload and "institute_name" in payload:
-            payload["workspace_name"] = payload["institute_name"]
+            payload["workspace_name"] = payload.pop("institute_name")
         if "invite_code" not in payload and "institute_code" in payload:
-            payload["invite_code"] = payload["institute_code"]
+            payload["invite_code"] = payload.pop("institute_code")
         return payload
 
     @field_validator("email", mode="before")
@@ -67,6 +70,8 @@ class SignupRequest(BaseModel):
             )
         if self.invite_code:
             self.invite_code = self.invite_code.strip()
+            if len(self.invite_code) > 128:
+                raise ValueError("Invite code is too long.")
         if self.workspace_type in {"business", "institution", "institute"} and not self.invite_code and not self.workspace_name:
             raise ValueError("Workspace name is required.")
         if self.workspace_type == "personal":
@@ -74,7 +79,7 @@ class SignupRequest(BaseModel):
         return self
 
 
-class VerifyLoginRequest(BaseModel):
+class VerifyLoginRequest(RequestModel):
     email: EmailStr
     code: str
 
@@ -88,15 +93,26 @@ class VerifyLoginRequest(BaseModel):
     @field_validator("code")
     @classmethod
     def verification_code(cls, value: str) -> str:
-        cleaned = value.strip().upper()
+        cleaned = value.strip()
         if cleaned.isdigit() and len(cleaned) == 6:
             return cleaned
-        if re.fullmatch(r"PCH-[A-Z0-9]{4}-[A-Z0-9]{4}", cleaned):
-            return cleaned
-        raise ValueError("Enter the 6-digit email code or a PCH-XXXX-XXXX recovery code.")
+        raise ValueError("Enter the 6-digit email code.")
 
 
-class ResendOtpRequest(BaseModel):
+class ResendOtpRequest(RequestModel):
+    """Email is ignored. Resend is authorized by the login-challenge cookie."""
+
+    email: EmailStr | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
+class PasswordForgotRequest(RequestModel):
     email: EmailStr
 
     @field_validator("email", mode="before")
@@ -107,13 +123,9 @@ class ResendOtpRequest(BaseModel):
         return value
 
 
-class PasswordForgotRequest(ResendOtpRequest):
-    pass
-
-
 class PasswordResetRequest(VerifyLoginRequest):
-    password: str
-    confirm_password: str
+    password: str = Field(max_length=1_024)
+    confirm_password: str = Field(max_length=1_024)
 
     @model_validator(mode="after")
     def valid_password(self):
@@ -124,9 +136,9 @@ class PasswordResetRequest(VerifyLoginRequest):
         return self
 
 
-class EmailChangeRequest(BaseModel):
+class EmailChangeRequest(RequestModel):
     new_email: EmailStr
-    current_password: str
+    current_password: str = Field(max_length=1_024)
 
     @field_validator("new_email", mode="before")
     @classmethod
@@ -143,7 +155,7 @@ class EmailChangeRequest(BaseModel):
         return value
 
 
-class EmailChangeVerifyRequest(BaseModel):
+class EmailChangeVerifyRequest(RequestModel):
     new_email: EmailStr
     code: str
 
@@ -166,13 +178,11 @@ class EmailChangeVerifyRequest(BaseModel):
 class OtpChallengeResponse(BaseModel):
     otp_required: bool = True
     email: str
-    email_delivered: bool | None = None
-    recovery_available: bool | None = None
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(RequestModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=1_024)
 
     @field_validator("email", mode="before")
     @classmethod
@@ -203,24 +213,20 @@ class InstituteInviteResponse(BaseModel):
     role: str
 
 
-class WorkspaceInviteRequest(BaseModel):
+class WorkspaceInviteRequest(RequestModel):
     role: Literal["admin", "editor", "viewer"] = "editor"
+
+
+class WorkspaceMemberRoleRequest(RequestModel):
+    role: Literal["admin", "editor", "viewer"]
+
+
+class WorkspaceMemberResponse(BaseModel):
+    id: str
+    full_name: str
+    email: str
+    role: Literal["owner", "admin", "editor", "viewer"]
 
 
 class AuthResponse(BaseModel):
     user: UserResponse
-
-
-class RecoveryCodesRequest(BaseModel):
-    current_password: str
-
-    @field_validator("current_password")
-    @classmethod
-    def require_current_password(cls, value: str) -> str:
-        if not value:
-            raise ValueError("Enter your current password.")
-        return value
-
-
-class RecoveryCodesResponse(BaseModel):
-    codes: list[str]

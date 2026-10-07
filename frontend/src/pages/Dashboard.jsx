@@ -29,14 +29,14 @@ export default function Dashboard() {
 
   return (
     <div className="site min-h-screen bg-[#F9FAFB] text-[#111827]">
-      <title>Workspace · Puchoo.ai</title>
+      <title>Workspace · Puchoo.si</title>
       <header className="flex items-center justify-between px-5 py-5 md:px-10">
         <Link
           to="/"
           className={`flex items-center gap-2 font-medium tracking-[-0.03em] ${focusRing} rounded-full`}
         >
           <Mark className="h-6 w-6" />
-          Puchoo.ai
+          Puchoo.si
         </Link>
         <PillButton variant="dark" onClick={onLogout} disabled={pending}>
           {pending ? 'Logging out…' : 'Log out'}

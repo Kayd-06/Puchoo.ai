@@ -1,8 +1,11 @@
 """SQLAlchemy engine and session factory. SQLite for development, Postgres via DATABASE_URL."""
 
 from collections.abc import Generator
+from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from backend.config import settings
@@ -17,7 +20,7 @@ SessionLocal = None
 
 
 def make_engine(url: str):
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    connect_args = {"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
     created = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
     if url.startswith("sqlite"):
 
@@ -51,7 +54,28 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     from backend import models  # noqa: F401
 
+    # Existing databases must run migrations: create_all() never adds a new
+    # column to an existing table, which previously broke invite creation.
+    if inspect(engine).has_table("alembic_version"):
+        command.upgrade(_alembic_config(), "head")
+        return
+
+    # A fresh database can be created directly from current metadata, then
+    # stamped so every later startup follows the migration path.
     Base.metadata.create_all(bind=engine)
+    command.stamp(_alembic_config(), "head")
+
+
+def _alembic_config() -> Config:
+    backend_dir = Path(__file__).resolve().parent
+    config = Config(str(backend_dir / "alembic.ini"))
+    # Alembic's CLI logging config must not replace the application's logging
+    # handlers when migrations run inside API startup.
+    config.config_file_name = None
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    database_url = engine.url.render_as_string(hide_password=False).replace("%", "%%")
+    config.set_main_option("sqlalchemy.url", database_url)
+    return config
 
 
 configure_database()

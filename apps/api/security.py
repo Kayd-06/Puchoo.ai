@@ -65,6 +65,17 @@ def can_administer_workspace(user) -> bool:
     return workspace_role(user) in {"owner", "admin"}
 
 
+def require_connection_admin(user=Depends(current_user)):
+    """Server connections can reach other machines, so editors may not add them."""
+
+    if not can_administer_workspace(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only workspace owners and admins can add database connections.",
+        )
+    return user
+
+
 def require_data_manager(user=Depends(current_user)):
     """Require a role that may create or modify workspace configuration."""
 

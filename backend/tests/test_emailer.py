@@ -1,6 +1,34 @@
 """SMTP envelope tests: OTPs must go to the account holder, never the sender."""
 
+from email import message_from_string
+
+import pytest
+from email.utils import parseaddr
+
 from backend import emailer
+from backend.emailer import EmailDeliveryError
+
+
+def _decoded_message(raw: str) -> str:
+    parsed = message_from_string(raw)
+    parts = []
+    for part in parsed.walk():
+        payload = part.get_payload(decode=True)
+        if isinstance(payload, bytes):
+            parts.append(payload.decode())
+    return "\n".join(parts)
+
+
+def test_the_suite_does_not_contact_the_configured_smtp_account(monkeypatch):
+    monkeypatch.setattr(emailer.settings, "smtp_server", "smtp.example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_port", 587)
+    monkeypatch.setattr(emailer.settings, "smtp_username", "sender@example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_password", "not-a-real-password")
+    monkeypatch.setattr(emailer.settings, "smtp_from", None)
+    monkeypatch.setattr(emailer.settings, "smtp_use_ssl", False)
+    monkeypatch.setattr(emailer.settings, "smtp_use_tls", True)
+    with pytest.raises(EmailDeliveryError, match="disabled during tests"):
+        emailer.send_otp_email("person@example.test", "123456")
 
 
 def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
@@ -43,5 +71,10 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
 
     assert delivered["from"] == "sender@example.test"
     assert delivered["to"] == ["person@example.test"]
-    assert "From: Puchoo.ai no-reply <sender@example.test>" in delivered["message"]
-    assert "To: person@example.test" in delivered["message"]
+    message = message_from_string(delivered["message"])
+    assert parseaddr(message["From"]) == ("Puchoo.si no-reply", "sender@example.test")
+    assert message["To"] == "person@example.test"
+    assert message["Subject"] == "123456 is your Puchoo.ai verification code"
+    body = _decoded_message(delivered["message"])
+    assert "expires in 5 minutes" in body
+    assert "10 minutes" not in body

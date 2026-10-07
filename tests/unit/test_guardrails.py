@@ -52,3 +52,11 @@ class SQLGuardrailsTests(unittest.TestCase):
             self.guardrails.validate(
                 "WITH deleted AS (DELETE FROM orders RETURNING id) SELECT * FROM deleted"
             )
+
+    def test_postgresql_select_uses_the_postgres_dialect(self) -> None:
+        guardrails = SQLGuardrails(dialect="postgresql")
+        self.assertEqual("postgres", guardrails.dialect)
+        guarded = guardrails.validate_and_clamp("SELECT id FROM events")
+        self.assertIn("LIMIT 500", guarded.sql)
+        self.assertEqual(500, guarded.limit)
+        self.assertIn("events", guarded.sql)

@@ -52,7 +52,7 @@ const capabilities = [
     title: 'Explainable results',
     icon: BarChart3,
     description:
-      'After approval, Puchoo.ai runs exactly one validated read-only query and returns the results, a chart suggestion, and an explanation in your language.',
+      'After approval, Puchoo.si runs exactly one validated read-only query and returns the results, a chart suggestion, and an explanation in your language.',
   },
   {
     id: 'audit',
@@ -128,9 +128,9 @@ const examples = [
 const faqs = [
   {
     category: 'General',
-    question: 'What is Puchoo.ai?',
+    question: 'What is Puchoo.si?',
     answer:
-      'Puchoo.ai is a secure, multilingual Text-to-SQL analytics platform. You ask about your data in English or an Indian language, by typing or by voice. It turns the question into SQL, shows that SQL with a plain-language explanation, and runs one read-only query after you approve it.',
+      'Puchoo.si is a secure, multilingual Text-to-SQL analytics platform. You ask about your data in English or an Indian language, by typing or by voice. It turns the question into SQL, shows that SQL with a plain-language explanation, and runs one read-only query after you approve it.',
   },
   {
     category: 'General',
@@ -191,7 +191,7 @@ export function About() {
         <Reveal>
           <SectionHeading title="Turn plain-language questions" muted="into governed answers." />
           <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
-            Ask in English or an Indian language, by typing or by voice. Puchoo.ai proposes SQL,
+            Ask in English or an Indian language, by typing or by voice. Puchoo.si proposes SQL,
             explains it in plain language, and runs one validated read-only query only after you
             approve it.
           </p>
@@ -629,7 +629,7 @@ export function Faq() {
               Still have questions?
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-[#6B7280]">
-              Puchoo.ai is a college OJT project. Ask your project supervisor, or use the contact
+              Puchoo.si is a college OJT project. Ask your project supervisor, or use the contact
               note in the footer.
             </p>
           </div>
@@ -740,8 +740,8 @@ export function Footer() {
     <footer className="mx-3 mb-3 rounded-[28px] bg-[#0A0F14] px-5 py-14 text-[#D1D5DB] md:mx-4 md:mb-4 md:px-8">
       <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
-          <p className="text-lg font-medium tracking-[-0.03em] text-white">Puchoo.ai</p>
-          <p className="mt-3 text-sm">© 2026 Puchoo.ai · A college OJT project</p>
+          <p className="text-lg font-medium tracking-[-0.03em] text-white">Puchoo.si</p>
+          <p className="mt-3 text-sm">© 2026 Puchoo.si · A college OJT project</p>
         </div>
         <FooterColumn
           title="Product"

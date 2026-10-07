@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from apps.core.executor import QueryExecutionError, ReadOnlyExecutor
@@ -56,8 +56,10 @@ logger = logging.getLogger(__name__)
 _translation_cache: dict[tuple[str, str], str] = {}
 
 class GenerateRequest(BaseModel):
-    question: str
-    language_code: str | None = None
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    question: str = Field(min_length=1, max_length=4_000, strict=True)
+    language_code: str | None = Field(default=None, max_length=16, strict=True)
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -189,12 +191,15 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             _translate_for_sql(question, language_code)
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.info("query question rejected type=%s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="The question could not be processed.") from None
 
     controls = session_manager.get_guardrails(workspace_id)
     
     try:
-        schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(workspace["database_uri"])
+        schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
+            workspace["database_uri"], connect_args=workspace.get("connect_args")
+        )
         autonomous = _autonomous_mode()
         clarification = None if autonomous else question_clarification(schema, planning_question)
         if clarification:
@@ -254,10 +259,11 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             public_plan = intent_plan.as_dict()
             structured_plan = None
         executor = ReadOnlyExecutor(
-            workspace["database_uri"], 
-            max_rows=controls["max_rows"], 
-            dialect=workspace.get("dialect", "sqlite"), 
-            timeout_seconds=controls["timeout_seconds"]
+            workspace["database_uri"],
+            max_rows=controls["max_rows"],
+            dialect=workspace.get("dialect", "sqlite"),
+            timeout_seconds=controls["timeout_seconds"],
+            connect_args=workspace.get("connect_args"),
         )
         max_attempts = 1
         
@@ -367,21 +373,25 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
         return proposal
         
     except SQLGuardrailError as exc:
+        logger.warning("query blocked by safety policy: %s", type(exc).__name__, exc_info=True)
         blocked_record = {
             "id": f"qry_{uuid4().hex[:12]}", "workspace_id": workspace_id, "question": question,
             "language_code": language_code,
             "sql": "", "status": "blocked", "created_at": utc_now(), "row_count": 0, "rows": [], "elapsed_ms": 0,
-            "verification": {"status": "BLOCKED", "summary": "Blocked before execution.", "details": str(exc)},
+            "verification": {"status": "BLOCKED", "summary": "Blocked before execution.", "details": "The query did not pass the safety policy."},
         }
         session_manager.query_history.setdefault(workspace_id, []).insert(0, blocked_record)
         session_manager.save(active_workspace_id=workspace_id)
-        raise HTTPException(status_code=403, detail=f"Blocked for safety: {exc}")
+        raise HTTPException(status_code=403, detail="The query was blocked by the safety policy.") from None
         
     except (AnthropicConfigurationError, LocalMLXConfigurationError, QueryExecutionError, QueryPlanError, SQLGenerationError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.exception("query generation failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="The query could not be generated.") from None
 
 class ExecuteRequest(BaseModel):
-    proposal_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(pattern=r"^qry_[a-f0-9]{12}$", strict=True)
 
 @router.post("/{workspace_id}/execute")
 def execute_query(
@@ -400,10 +410,11 @@ def execute_query(
     
     try:
         executor = ReadOnlyExecutor(
-            workspace["database_uri"], 
-            max_rows=controls["max_rows"], 
-            dialect=workspace.get("dialect", "sqlite"), 
-            timeout_seconds=controls["timeout_seconds"]
+            workspace["database_uri"],
+            max_rows=controls["max_rows"],
+            dialect=workspace.get("dialect", "sqlite"),
+            timeout_seconds=controls["timeout_seconds"],
+            connect_args=workspace.get("connect_args"),
         )
         
         try:
@@ -413,7 +424,7 @@ def execute_query(
             if not isinstance(client, LocalMLXSQLClient):
                 raise
             schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
-                workspace["database_uri"]
+                workspace["database_uri"], connect_args=workspace.get("connect_args")
             )
             selected_schema = _schema_for_tables(schema, proposal.get("selected_tables", []))
             repair_question = (
@@ -538,4 +549,5 @@ def execute_query(
         }
         
     except (QueryExecutionError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.exception("query execution failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="The query could not be executed.") from None

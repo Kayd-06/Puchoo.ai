@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from backend import database
 from backend.emailer import EmailDeliveryError
 from backend.main import create_app
-from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, User
+from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginChallenge, User
 from backend.security import as_utc, decode_session_token, utcnow
 from backend.tests.conftest import csrf_headers, finish_login, finish_signup, signup_payload
 
@@ -30,7 +30,7 @@ def test_signup_sends_code_and_verification_creates_session(client: TestClient, 
 
     db = database.SessionLocal()
     user = db.query(User).one()
-    code = db.query(LoginCode).one()
+    code = db.query(LoginChallenge).one()
     db.close()
     assert user.password_hash != "language10"
     assert user.password_hash.startswith("$argon2")
@@ -79,12 +79,14 @@ def test_duplicate_signup_is_generic(client: TestClient):
         json=signup_payload(email="ADA@college.edu", full_name="Another Person"),
         headers=csrf_headers(client),
     )
-    assert second.status_code == 400
-    detail = second.json()["detail"].lower()
-    assert detail == "unable to create an account with those details."
-    assert "exist" not in detail
-    assert "duplicate" not in detail
-    assert "registered" not in detail
+    assert second.status_code == first.status_code == 202
+    assert second.json() == first.json() == {"otp_required": True, "email": "ada@college.edu"}
+    assert "exist" not in second.text.lower()
+    assert "duplicate" not in second.text.lower()
+    assert "registered" not in second.text.lower()
+    db = database.SessionLocal()
+    assert db.query(User).count() == 1
+    db.close()
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
@@ -265,7 +267,7 @@ def test_login_rate_limit_per_ip(app):
             headers=headers,
         )
     assert blocked.status_code == 429
-    assert blocked.headers["retry-after"] == "900"
+    assert blocked.headers["retry-after"] == "60"
 
 
 def test_signup_rate_limit_per_email(app):
@@ -494,6 +496,11 @@ def test_business_role_codes_are_independent_and_rotate_only_their_role(client: 
 def test_resend_replaces_the_previous_otp(client: TestClient, otp_codes):
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
     original = otp_codes["ada@college.edu"]
+    db = database.SessionLocal()
+    challenge = db.query(LoginChallenge).one()
+    challenge.last_sent_at = utcnow() - timedelta(seconds=61)
+    db.commit()
+    db.close()
     response = client.post(
         "/api/v1/auth/login/resend",
         json={"email": "ada@college.edu"},
@@ -527,19 +534,18 @@ def test_signup_removes_account_when_email_delivery_fails(client: TestClient, mo
     db.close()
 
 
-def test_single_use_recovery_otp_can_complete_a_password_verified_login(client: TestClient, otp_codes):
+def test_recovery_code_endpoints_and_login_format_are_removed(client: TestClient, otp_codes):
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
     finish_signup(client, "ada@college.edu", otp_codes)
 
+    status = client.get("/api/v1/auth/recovery-codes/status")
     generated = client.post(
         "/api/v1/auth/recovery-codes",
         json={"current_password": "language10"},
         headers=csrf_headers(client),
     )
-    assert generated.status_code == 200
-    codes = generated.json()["codes"]
-    assert len(codes) == 10
-    assert all(code.startswith("PCH-") for code in codes)
+    assert status.status_code == 404
+    assert generated.status_code == 404
 
     assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
     challenge = client.post(
@@ -548,23 +554,11 @@ def test_single_use_recovery_otp_can_complete_a_password_verified_login(client: 
         headers=csrf_headers(client),
     )
     assert challenge.status_code == 200
-    assert challenge.json()["recovery_available"] is True
+    assert challenge.json() == {"otp_required": True, "email": "ada@college.edu"}
+    assert "recovery_available" not in challenge.json()
     verified = client.post(
         "/api/v1/auth/login/verify",
-        json={"email": "ada@college.edu", "code": codes[0]},
+        json={"email": "ada@college.edu", "code": "PCH-ABCD-EFGH"},
         headers=csrf_headers(client),
     )
-    assert verified.status_code == 200
-
-    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
-    assert client.post(
-        "/api/v1/auth/login",
-        json={"email": "ada@college.edu", "password": "language10"},
-        headers=csrf_headers(client),
-    ).status_code == 200
-    reused = client.post(
-        "/api/v1/auth/login/verify",
-        json={"email": "ada@college.edu", "code": codes[0]},
-        headers=csrf_headers(client),
-    )
-    assert reused.status_code == 401
+    assert verified.status_code == 422

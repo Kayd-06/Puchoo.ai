@@ -1,19 +1,29 @@
 """Signup, login, logout, and the current-user endpoint."""
 
+import logging
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import select
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend import emailer
+from backend.config import settings
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
-from backend.models import AuthSession, EmailChangeCode, InstituteInvite, LoginCode, PasswordResetCode, RecoveryCode, User
+from backend.models import (
+    AuthSession,
+    EmailChangeCode,
+    InstituteInvite,
+    LoginChallenge,
+    PasswordResetCode,
+    User,
+)
 from backend.notifications import create_notification
-from backend.rate_limit import limiter
+from backend.rate_limit import authenticated_limiter, limiter, public_limiter
 from backend.schemas import (
     AuthResponse,
     EmailChangeRequest,
@@ -24,12 +34,12 @@ from backend.schemas import (
     WorkspaceInviteRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
-    RecoveryCodesRequest,
-    RecoveryCodesResponse,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
     VerifyLoginRequest,
+    WorkspaceMemberResponse,
+    WorkspaceMemberRoleRequest,
 )
 from backend.security import (
     GENERIC_SIGNUP_ERROR,
@@ -41,9 +51,13 @@ from backend.security import (
     client_ip,
     decode_session_token,
     enforce_csrf,
+    clear_login_challenge_cookie,
+    hash_otp,
     hash_password,
     hash_token,
     new_session_token,
+    otp_matches,
+    set_login_challenge_cookie,
     set_session_cookie,
     tokens_match,
     utcnow,
@@ -51,31 +65,64 @@ from backend.security import (
     verify_password_for_missing_user,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
-OTP_TTL = timedelta(minutes=10)
+OTP_TTL = timedelta(minutes=5)
+RESEND_COOLDOWN = timedelta(seconds=60)
+MAX_CHALLENGE_ATTEMPTS = 5
+MAX_RESENDS = 3
 SESSION_ROTATION_GRACE = timedelta(minutes=2)
 # Renew only close to expiry. Per-request rotation races with parallel browser
 # calls and SSE connections, while this preserves a seven-day sliding session.
 SESSION_RENEWAL_WINDOW = timedelta(hours=24)
 INVALID_CODE = "That code is invalid or has expired."
+LOGIN_EXPIRED = "Login session expired, please sign in again"
 EMAIL_FAILED = "We could not send the verification email. Try again in a moment."
-RECOVERY_CODE_COUNT = 10
-RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+RESEND_COOLDOWN_ERROR = "Please wait before requesting another code."
+RESEND_LIMIT_ERROR = "Too many codes were sent. Check your email for the latest code or sign in again."
+INVITE_TTL = timedelta(days=7)
 
 
 def _user_response(user: User) -> UserResponse:
     return UserResponse.model_validate(user)
 
 
+def _invite_expired(invite: InstituteInvite, now: datetime) -> bool:
+    expiry = invite.expires_at or (as_utc(invite.created_at) + INVITE_TTL)
+    return as_utc(expiry) <= now
+
+
+def _workspace_member_response(user: User, tenant_id: str) -> WorkspaceMemberResponse:
+    return WorkspaceMemberResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        role="owner" if user.id == tenant_id else user.workspace_role,
+    )
+
+
+def _managed_workspace_member(db: Session, tenant_id: str, member_id: str) -> User:
+    member = db.get(User, member_id)
+    if member is None or member.id == tenant_id or member.workspace_owner_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Workspace member not found")
+    return member
+
+
 def _rate_limit(action: str, request: Request, email: str) -> None:
-    allowed = limiter.allow(
+    allowed, retry_after = limiter.allow_with_backoff(
         [
             f"{action}:ip:{client_ip(request)}",
-            f"{action}:email:{email}",
+            f"{action}:account:{email}",
         ]
     )
     if not allowed:
-        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": "900"})
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": str(retry_after)})
+
+
+def _rate_limit_ip(action: str, request: Request) -> None:
+    allowed, retry_after = limiter.allow_with_backoff([f"{action}:ip:{client_ip(request)}"])
+    if not allowed:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": str(retry_after)})
 
 
 def _issue_session(db: Session, user: User, response: Response) -> None:
@@ -127,11 +174,15 @@ def current_user(
     response: Response,
     db: Session = Depends(get_db),
 ) -> User:
-    from backend.config import settings
-
     record = _active_session(db, request.cookies.get(settings.session_cookie_name))
     if record is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    if not authenticated_limiter.allow([f"user:{record.user_id}"]):
+        raise HTTPException(
+            status_code=429,
+            detail=RATE_LIMIT_ERROR,
+            headers={"Retry-After": str(settings.authenticated_rate_window_seconds)},
+        )
     # Keep a signed session stable during normal use. Per-request rotation is
     # unsafe in a browser: parallel calls (including an SSE connection) can
     # return Set-Cookie headers out of order and strand the client with a token
@@ -150,9 +201,15 @@ def current_user(
 
 
 @router.get("/csrf", status_code=204)
-def issue_csrf() -> Response:
+def issue_csrf(request: Request) -> Response:
     """The CSRF cookie middleware attaches the double-submit cookie."""
 
+    if not public_limiter.allow([f"csrf:ip:{client_ip(request)}"]):
+        raise HTTPException(
+            status_code=429,
+            detail=RATE_LIMIT_ERROR,
+            headers={"Retry-After": str(settings.public_rate_window_seconds)},
+        )
     return Response(status_code=204)
 
 
@@ -165,21 +222,23 @@ def signup(
 ) -> OtpChallengeResponse:
     enforce_csrf(request)
     _rate_limit("signup", request, body.email)
-    existing = db.scalar(select(User).where(User.email == body.email))
-    if existing is not None:
-        raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR)
-
     owner = None
     invite = None
     if body.invite_code:
         invite = db.scalar(select(InstituteInvite).where(InstituteInvite.code_hash == hash_token(body.invite_code), InstituteInvite.revoked_at.is_(None)))
-        if invite is None:
+        if invite is None or _invite_expired(invite, utcnow()):
             raise HTTPException(status_code=400, detail="That workspace invite code is invalid.")
         owner = db.get(User, invite.owner_user_id)
         if owner is None:
             raise HTTPException(status_code=400, detail="That workspace invite code is invalid.")
         if owner.workspace_type != invite.workspace_type:
             raise HTTPException(status_code=400, detail="That workspace invite code is invalid.")
+    existing = db.scalar(select(User).where(User.email == body.email))
+    if existing is not None:
+        # Same status and body as a new signup. Do not send a login code:
+        # that would let the caller skip the password.
+        hash_password(body.password)
+        return OtpChallengeResponse(email=body.email)
     user = User(
         full_name=body.full_name,
         email=body.email,
@@ -219,13 +278,14 @@ def signup(
         db.rollback()
         raise HTTPException(status_code=400, detail=GENERIC_SIGNUP_ERROR) from None
     db.refresh(user)
+    record, raw_code = _create_login_challenge(db, user)
     try:
-        _send_login_code(db, user)
-    except HTTPException:
+        emailer.send_otp_email(user.email, raw_code)
+    except EmailDeliveryError:
         # Do not leave an unreachable account behind when delivery is unavailable.
-        db.delete(user)
-        db.commit()
-        raise
+        _delete_user_and_challenges(db, user)
+        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    set_login_challenge_cookie(response, record.id)
     return OtpChallengeResponse(email=user.email)
 
 
@@ -265,6 +325,7 @@ def _create_workspace_invite(
         code_hash=hash_token(code),
         workspace_type=user.workspace_type,
         role=role,
+        expires_at=now + INVITE_TTL,
     ))
     db.commit()
     return InstituteInviteResponse(
@@ -291,56 +352,203 @@ def create_institute_invite(request: Request, response: Response, db: Session = 
     return _create_workspace_invite(WorkspaceInviteRequest(role="viewer"), request, response, db)
 
 
-def _send_login_code(db: Session, user: User) -> bool:
+@router.get("/workspace/members", response_model=list[WorkspaceMemberResponse])
+def list_workspace_members(
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[WorkspaceMemberResponse]:
+    from apps.api.security import tenant_owner_id
+
+    tenant_id = tenant_owner_id(user)
+    if user.workspace_type == "personal":
+        return [_workspace_member_response(user, tenant_id)]
+    members = db.scalars(
+        select(User).where((User.id == tenant_id) | (User.workspace_owner_id == tenant_id)).order_by(User.created_at)
+    ).all()
+    return [_workspace_member_response(member, tenant_id) for member in members]
+
+
+@router.patch("/workspace/members/{member_id}", response_model=WorkspaceMemberResponse)
+def update_workspace_member_role(
+    member_id: str,
+    body: WorkspaceMemberRoleRequest,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WorkspaceMemberResponse:
+    from apps.api.security import can_administer_workspace, tenant_owner_id
+
+    enforce_csrf(request)
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
+    tenant_id = tenant_owner_id(user)
+    member = _managed_workspace_member(db, tenant_id, member_id)
+    member.workspace_role = body.role
+    db.commit()
+    return _workspace_member_response(member, tenant_id)
+
+
+@router.delete("/workspace/members/{member_id}", status_code=204)
+def remove_workspace_member(
+    member_id: str,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    from apps.api.security import can_administer_workspace, tenant_owner_id
+
+    enforce_csrf(request)
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
+    member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
+    now = utcnow()
+    _revoke_sessions_and_challenges(db, member.id, now)
+    member.workspace_type = "personal"
+    member.workspace_name = None
+    member.workspace_owner_id = None
+    member.workspace_role = "owner"
+    member.institute_name = None
+    member.institute_owner_id = None
+    db.commit()
+    return Response(status_code=204)
+
+
+def _new_otp() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _delete_user_and_challenges(db: Session, user: User) -> None:
+    for row in db.scalars(select(LoginChallenge).where(LoginChallenge.user_id == user.id)).all():
+        db.delete(row)
+    db.delete(user)
+    db.commit()
+
+
+def _create_login_challenge(db: Session, user: User) -> tuple[LoginChallenge, str]:
+    """Open one password-proven challenge and retire any older unused ones."""
+
     now = utcnow()
     pending = db.scalars(
-        select(LoginCode).where(LoginCode.user_id == user.id, LoginCode.consumed_at.is_(None))
+        select(LoginChallenge).where(LoginChallenge.user_id == user.id, LoginChallenge.consumed_at.is_(None))
     ).all()
     for row in pending:
         row.consumed_at = now
-    raw_code = f"{secrets.randbelow(1_000_000):06d}"
-    record = LoginCode(
+    raw_code = _new_otp()
+    record = LoginChallenge(
         user_id=user.id,
-        code_hash=hash_token(raw_code),
+        code_hash=hash_otp(raw_code),
         attempts=0,
+        resend_count=0,
         created_at=now,
         expires_at=now + OTP_TTL,
+        last_sent_at=now,
     )
     db.add(record)
     db.commit()
-    try:
-        emailer.send_otp_email(user.email, raw_code)
-    except EmailDeliveryError:
-        # A pre-enrolled recovery OTP can complete this pending, password-
-        # verified challenge without depending on mailbox delivery. Keep the
-        # challenge active for that path; otherwise invalidate it as before.
-        if _has_recovery_codes(db, user):
-            return False
-        record.consumed_at = utcnow()
-        db.commit()
-        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
-    return True
+    db.refresh(record)
+    return record, raw_code
 
 
-def _has_recovery_codes(db: Session, user: User) -> bool:
-    return db.scalar(
-        select(RecoveryCode.id).where(
-            RecoveryCode.user_id == user.id,
-            RecoveryCode.consumed_at.is_(None),
-        ).limit(1)
-    ) is not None
+def _challenge_row(request: Request, db: Session) -> LoginChallenge | None:
+    from backend.config import settings
+
+    challenge_id = request.cookies.get(settings.login_challenge_cookie_name)
+    if not challenge_id:
+        return None
+    return db.get(LoginChallenge, challenge_id)
 
 
-def _new_recovery_code() -> str:
-    left = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
-    right = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
-    return f"PCH-{left}-{right}"
+def _challenge_is_open(record: LoginChallenge) -> bool:
+    if record.consumed_at is not None or record.locked_at is not None:
+        return False
+    if record.attempts >= MAX_CHALLENGE_ATTEMPTS:
+        return False
+    return as_utc(record.expires_at) > utcnow()
+
+
+def _open_challenge(request: Request, response: Response, db: Session) -> LoginChallenge:
+    record = _challenge_row(request, db)
+    if record is None:
+        _rate_limit_ip("verify", request)
+        _reject_login_challenge(response)
+    if not _challenge_is_open(record):
+        _reject_login_challenge(response)
+    return record
+
+
+def _reject_login_challenge(response: Response) -> NoReturn:
+    clear_login_challenge_cookie(response)
+    raise HTTPException(status_code=400, detail=LOGIN_EXPIRED)
+
+
+def _register_failed_attempt(db: Session, challenge_id: str) -> bool:
+    """Atomically count one wrong code. Return True when this try locks the challenge.
+
+    One conditional UPDATE is the lock, on SQLite and Postgres. A parallel
+    request cannot increment past five because the predicate is attempts < 5.
+    """
+
+    now = utcnow()
+    row = db.execute(
+        update(LoginChallenge)
+        .where(
+            LoginChallenge.id == challenge_id,
+            LoginChallenge.attempts < MAX_CHALLENGE_ATTEMPTS,
+            LoginChallenge.consumed_at.is_(None),
+        )
+        .values(
+            attempts=LoginChallenge.attempts + 1,
+            locked_at=case(
+                (LoginChallenge.attempts + 1 >= MAX_CHALLENGE_ATTEMPTS, now),
+                else_=LoginChallenge.locked_at,
+            ),
+        )
+        .returning(LoginChallenge.attempts)
+        .execution_options(synchronize_session=False)
+    ).first()
+    db.commit()
+    if row is None:
+        return True
+    return row.attempts >= MAX_CHALLENGE_ATTEMPTS
+
+
+def _consume_challenge(db: Session, challenge_id: str, now: datetime) -> bool:
+    result = db.execute(
+        update(LoginChallenge)
+        .where(
+            LoginChallenge.id == challenge_id,
+            LoginChallenge.attempts < MAX_CHALLENGE_ATTEMPTS,
+            LoginChallenge.consumed_at.is_(None),
+            LoginChallenge.locked_at.is_(None),
+        )
+        .values(consumed_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
+
+
+def _revoke_sessions_and_challenges(db: Session, user_id: str, now: datetime) -> None:
+    sessions = db.scalars(
+        select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+    ).all()
+    for record in sessions:
+        record.revoked_at = now
+    challenges = db.scalars(
+        select(LoginChallenge).where(LoginChallenge.user_id == user_id, LoginChallenge.consumed_at.is_(None))
+    ).all()
+    for challenge in challenges:
+        challenge.consumed_at = now
+        if challenge.locked_at is None:
+            challenge.locked_at = now
 
 
 @router.post("/login", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> OtpChallengeResponse:
     enforce_csrf(request)
@@ -351,34 +559,66 @@ def login(
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_ERROR)
-    email_delivered = _send_login_code(db, user)
-    return OtpChallengeResponse(
-        email=user.email,
-        email_delivered=email_delivered,
-        recovery_available=_has_recovery_codes(db, user),
-    )
+    record, raw_code = _create_login_challenge(db, user)
+    try:
+        emailer.send_otp_email(user.email, raw_code)
+    except EmailDeliveryError:
+        record.consumed_at = utcnow()
+        db.commit()
+        clear_login_challenge_cookie(response)
+        logger.warning("login verification email could not be sent")
+        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    set_login_challenge_cookie(response, record.id)
+    return OtpChallengeResponse(email=user.email)
 
 
 @router.post("/login/resend", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def resend_login_code(
     body: ResendOtpRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> OtpChallengeResponse:
-    """Replace a pending code without requiring the user to re-enter a password."""
+    """Replace the code on the password-proven challenge named by the cookie."""
 
     enforce_csrf(request)
-    _rate_limit("resend", request, str(body.email))
-    user = db.scalar(select(User).where(User.email == str(body.email)))
-    if user is not None:
-        email_delivered = _send_login_code(db, user)
-        return OtpChallengeResponse(
-            email=user.email,
-            email_delivered=email_delivered,
-            recovery_available=_has_recovery_codes(db, user),
+    challenge = _open_challenge(request, response, db)
+    _rate_limit_ip("resend", request)
+    user = db.get(User, challenge.user_id)
+    if user is None:
+        _reject_login_challenge(response)
+    now = utcnow()
+    if challenge.resend_count >= MAX_RESENDS:
+        raise HTTPException(status_code=429, detail=RESEND_LIMIT_ERROR)
+    if as_utc(challenge.last_sent_at) + RESEND_COOLDOWN > now:
+        raise HTTPException(status_code=429, detail=RESEND_COOLDOWN_ERROR, headers={"Retry-After": "60"})
+    raw_code = _new_otp()
+    result = db.execute(
+        update(LoginChallenge)
+        .where(
+            LoginChallenge.id == challenge.id,
+            LoginChallenge.resend_count < MAX_RESENDS,
+            LoginChallenge.consumed_at.is_(None),
+            LoginChallenge.locked_at.is_(None),
+            LoginChallenge.last_sent_at <= now - RESEND_COOLDOWN,
         )
-    # Keep this response uniform so the endpoint does not disclose accounts.
-    return OtpChallengeResponse(email=str(body.email))
+        .values(
+            code_hash=hash_otp(raw_code),
+            resend_count=LoginChallenge.resend_count + 1,
+            last_sent_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=429, detail=RESEND_COOLDOWN_ERROR, headers={"Retry-After": "60"})
+    try:
+        emailer.send_otp_email(user.email, raw_code)
+    except EmailDeliveryError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
+    db.commit()
+    return OtpChallengeResponse(email=user.email)
 
 
 @router.post("/password/forgot", response_model=OtpChallengeResponse, response_model_exclude_none=True)
@@ -411,8 +651,11 @@ def reset_password(body: PasswordResetRequest, request: Request, db: Session = D
             record.attempts += 1
             db.commit()
         raise HTTPException(status_code=401, detail=INVALID_CODE)
-    record.consumed_at = utcnow()
+    now = utcnow()
+    record.consumed_at = now
+    assert user is not None
     user.password_hash = hash_password(body.password)
+    _revoke_sessions_and_challenges(db, user.id, now)
     db.commit()
     return {"ok": True}
 
@@ -465,6 +708,7 @@ def request_email_change(
 def verify_email_change(
     body: EmailChangeVerifyRequest,
     request: Request,
+    response: Response,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> AuthResponse:
@@ -493,9 +737,15 @@ def verify_email_change(
     existing = db.scalar(select(User.id).where(User.email == new_email, User.id != user.id))
     if existing is not None:
         raise HTTPException(status_code=400, detail="That email address is unavailable.")
+    old_email = user.email
     record.consumed_at = now
     user.email = new_email
-    db.commit()
+    _revoke_sessions_and_challenges(db, user.id, now)
+    _issue_session(db, user, response)
+    try:
+        emailer.send_email_changed_notice(old_email)
+    except EmailDeliveryError:
+        logger.warning("email change notice could not be sent")
     return AuthResponse(user=_user_response(user))
 
 
@@ -507,82 +757,33 @@ def verify_login(
     db: Session = Depends(get_db),
 ) -> AuthResponse:
     enforce_csrf(request)
-    _rate_limit("verify", request, str(body.email))
-    user = db.scalar(select(User).where(User.email == str(body.email)))
-    record = None
-    if user is not None:
-        record = db.scalar(
-            select(LoginCode)
-            .where(LoginCode.user_id == user.id, LoginCode.consumed_at.is_(None))
-            .order_by(LoginCode.created_at.desc())
-        )
+    record = _open_challenge(request, response, db)
+    user = db.get(User, record.user_id)
+    if user is None:
+        _reject_login_challenge(response)
+    _rate_limit("verify", request, user.email)
     now = utcnow()
-    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= now:
-        raise HTTPException(status_code=401, detail=INVALID_CODE)
-    recovery_code = None
-    if body.code.startswith("PCH-"):
-        recovery_code = db.scalar(
-            select(RecoveryCode).where(
-                RecoveryCode.user_id == user.id,
-                RecoveryCode.code_hash == hash_token(body.code),
-                RecoveryCode.consumed_at.is_(None),
-            )
-        )
-    code_is_valid = (
-        recovery_code is not None
-        if body.code.startswith("PCH-")
-        else tokens_match(record.code_hash, hash_token(body.code))
-    )
+    code_is_valid = otp_matches(body.code, record.code_hash)
     if not code_is_valid:
-        record.attempts += 1
-        if record.attempts >= 5:
-            record.consumed_at = now
-        db.commit()
+        locked = _register_failed_attempt(db, record.id)
+        if locked:
+            _reject_login_challenge(response)
         raise HTTPException(status_code=401, detail=INVALID_CODE)
-    record.consumed_at = now
-    if recovery_code is not None:
-        recovery_code.consumed_at = now
+    if not _consume_challenge(db, record.id, now):
+        db.rollback()
+        _reject_login_challenge(response)
+    clear_login_challenge_cookie(response)
+    first_name = user.full_name.strip().split(maxsplit=1)[0] or "there"
+    create_notification(
+        db,
+        user_id=user.id,
+        kind="session_started",
+        title=f"Welcome, {first_name}",
+        body="Your secure workspace is ready. Ask a question whenever you are ready.",
+    )
     db.commit()
     _issue_session(db, user, response)
     return AuthResponse(user=_user_response(user))
-
-
-@router.get("/recovery-codes/status")
-def recovery_codes_status(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return {"available": _has_recovery_codes(db, user)}
-
-
-@router.post("/recovery-codes", response_model=RecoveryCodesResponse)
-def create_recovery_codes(
-    body: RecoveryCodesRequest,
-    request: Request,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> RecoveryCodesResponse:
-    """Replace recovery OTPs after re-authentication and reveal them once."""
-
-    enforce_csrf(request)
-    _rate_limit("recovery-codes", request, user.email)
-    if not verify_password(body.current_password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Current password is incorrect.")
-
-    now = utcnow()
-    for row in db.scalars(
-        select(RecoveryCode).where(
-            RecoveryCode.user_id == user.id,
-            RecoveryCode.consumed_at.is_(None),
-        )
-    ).all():
-        row.consumed_at = now
-
-    codes: list[str] = []
-    while len(codes) < RECOVERY_CODE_COUNT:
-        code = _new_recovery_code()
-        if code not in codes:
-            codes.append(code)
-            db.add(RecoveryCode(user_id=user.id, code_hash=hash_token(code)))
-    db.commit()
-    return RecoveryCodesResponse(codes=codes)
 
 
 @router.post("/logout")
@@ -595,6 +796,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
         record.revoked_at = utcnow()
         db.commit()
     clear_session_cookie(response)
+    clear_login_challenge_cookie(response)
     return {"ok": True}
 
 

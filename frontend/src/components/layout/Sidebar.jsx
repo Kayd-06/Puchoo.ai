@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Database, History, MessageSquare, Plus, Settings, ShieldCheck } from 'lucide-react';
+import { Database, History, MessageSquare, Plus, Settings, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -19,8 +19,8 @@ export default function Sidebar() {
   return (
     <aside className="app-sidebar" aria-label="Workspace navigation">
       <div className="app-sidebar-brand">
-        <div className="app-brand-mark" aria-hidden="true"><span>⌁</span></div>
-        <div><strong>Puchoo</strong><span>Data intelligence</span></div>
+        <div className="app-brand-mark" aria-hidden="true"><Sparkles size={16} /></div>
+        <div><strong>Puchoo.si</strong><span>Secure intelligence</span></div>
       </div>
 
       <div className="app-sidebar-section-label">Workspace</div>

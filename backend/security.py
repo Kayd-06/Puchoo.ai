@@ -4,6 +4,7 @@ Raw passwords and session tokens are never written to logs or to the database.
 """
 
 import hashlib
+import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -92,6 +93,22 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def hash_otp(code: str) -> str:
+    """HMAC-SHA256 of a one-time code. The raw code is never stored."""
+
+    return hmac.new(
+        settings.otp_secret.encode("utf-8"),
+        code.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def otp_matches(code: str, code_hash: str) -> bool:
+    if not code_hash or len(code_hash) != 64:
+        return False
+    return hmac.compare_digest(hash_otp(code), code_hash)
+
+
 def new_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -153,3 +170,30 @@ def set_csrf_cookie(response: Response, token: str | None = None) -> str:
     value = token or new_csrf_token()
     response.set_cookie(settings.csrf_cookie_name, value, **_cookie_kwargs(http_only=False))
     return value
+
+
+LOGIN_CHALLENGE_MAX_AGE = 300
+
+
+def set_login_challenge_cookie(response: Response, challenge_id: str) -> None:
+    """Hand the password-proven challenge id to the browser only as a cookie."""
+
+    response.set_cookie(
+        settings.login_challenge_cookie_name,
+        challenge_id,
+        httponly=True,
+        samesite="strict",
+        secure=settings.cookie_secure,
+        path="/",
+        max_age=LOGIN_CHALLENGE_MAX_AGE,
+    )
+
+
+def clear_login_challenge_cookie(response: Response) -> None:
+    response.delete_cookie(
+        settings.login_challenge_cookie_name,
+        path="/",
+        samesite="strict",
+        secure=settings.cookie_secure,
+        httponly=True,
+    )

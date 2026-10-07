@@ -135,7 +135,7 @@ export default function ConnectData() {
           ) : activeTab === 'upload' ? (
             <div className="connect-upload-flow">
               <h1>Bring your data<br />into focus.</h1>
-              <p>Upload CSV, Excel, or SQLite files. Puchoo builds one private, queryable workspace without mutating the source.</p>
+              <p>Upload CSV, Excel, or SQLite files. Puchoo.si builds one private, queryable workspace without mutating the source.</p>
               <input id="fileUpload" type="file" multiple accept={ACCEPTED_FILES} onChange={(event) => selectFiles(event.target.files)} hidden />
               <label htmlFor="fileUpload" className={`connect-dropzone${isDragging ? ' is-dragging' : ''}${uploading ? ' is-uploading' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); selectFiles(event.dataTransfer.files); }}>
                 <div className="connect-dropzone-mark"><Upload size={23} /></div>
@@ -148,7 +148,7 @@ export default function ConnectData() {
             </div>
           ) : (
             <form className="connect-server-form" onSubmit={connectServer} noValidate>
-              <h1>Connect a<br />trusted source.</h1><p>Use a restricted database user. Puchoo validates every connection in read-only mode.</p>
+              <h1>Connect a<br />trusted source.</h1><p>Use a restricted database user. Puchoo.si validates every connection in read-only mode.</p>
               <div className="connect-server-grid">
                 <input type="text" placeholder="Workspace name" value={serverForm.name} onChange={(event) => updateServerForm('name', event.target.value)} />
                 <select value={serverForm.engine} onChange={(event) => { const engine = event.target.value; updateServerForm('engine', engine); updateServerForm('port', engine === 'mysql' ? '3306' : '5432'); }} aria-label="Database engine"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select>
@@ -158,7 +158,7 @@ export default function ConnectData() {
                 <input type="text" placeholder="Read-only username" autoComplete="username" value={serverForm.username} onChange={(event) => updateServerForm('username', event.target.value)} />
                 <input type="password" placeholder="Password" autoComplete="current-password" value={serverForm.password} onChange={(event) => updateServerForm('password', event.target.value)} />
               </div>
-              <label className="connect-ssl"><input type="checkbox" checked={serverForm.ssl_required} onChange={(event) => updateServerForm('ssl_required', event.target.checked)} /> Require SSL/TLS</label>
+              <label className="connect-ssl"><input type="checkbox" checked readOnly disabled /> TLS is required by the server</label>
               {serverError && <p className="connect-error" role="alert">{serverError}</p>}
               <button type="submit" className="connect-submit" disabled={connecting}>{connecting ? 'Checking connection…' : 'Connect source'} <ArrowUpRight size={17} /></button>
             </form>
