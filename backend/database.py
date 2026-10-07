@@ -17,7 +17,7 @@ SessionLocal = None
 
 
 def make_engine(url: str):
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    connect_args = {"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
     created = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
     if url.startswith("sqlite"):
 

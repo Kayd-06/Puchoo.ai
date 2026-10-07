@@ -158,7 +158,7 @@ export default function ConnectData() {
                 <input type="text" placeholder="Read-only username" autoComplete="username" value={serverForm.username} onChange={(event) => updateServerForm('username', event.target.value)} />
                 <input type="password" placeholder="Password" autoComplete="current-password" value={serverForm.password} onChange={(event) => updateServerForm('password', event.target.value)} />
               </div>
-              <label className="connect-ssl"><input type="checkbox" checked={serverForm.ssl_required} onChange={(event) => updateServerForm('ssl_required', event.target.checked)} /> Require SSL/TLS</label>
+              <label className="connect-ssl"><input type="checkbox" checked readOnly disabled /> TLS is required by the server</label>
               {serverError && <p className="connect-error" role="alert">{serverError}</p>}
               <button type="submit" className="connect-submit" disabled={connecting}>{connecting ? 'Checking connection…' : 'Connect source'} <ArrowUpRight size={17} /></button>
             </form>

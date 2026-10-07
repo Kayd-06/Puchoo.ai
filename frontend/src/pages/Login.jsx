@@ -1,9 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthShell, { Field, inputClass } from '../components/auth/AuthShell';
 import PasswordField from '../components/auth/PasswordField';
 import { PillButton, focusRing } from '../components/landing/ui';
 import { useAuth } from '../context/AuthContext';
+
+const CHALLENGE_SECONDS = 5 * 60;
+const RESEND_SECONDS = 60;
+const LOGIN_EXPIRED = 'Login session expired, please sign in again';
+
+function formatClock(total) {
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,14 +26,34 @@ export default function Login() {
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState('');
   const [pending, setPending] = useState(false);
-  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
-  const [emailDelivered, setEmailDelivered] = useState(true);
+  const [challengeLeft, setChallengeLeft] = useState(CHALLENGE_SECONDS);
+  const [resendLeft, setResendLeft] = useState(RESEND_SECONDS);
 
   useEffect(() => {
     if (!toast) return undefined;
     const timer = setTimeout(() => setToast(''), 5200);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  const returnToLogin = useCallback((message) => {
+    setStep('password');
+    setCode('');
+    setErrors({});
+    setToast(message);
+    navigate('/login', { replace: true, state: null });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (step !== 'code') return undefined;
+    const timer = setInterval(() => {
+      setResendLeft((value) => Math.max(0, value - 1));
+      setChallengeLeft((value) => {
+        if (value <= 1) returnToLogin(LOGIN_EXPIRED);
+        return Math.max(0, value - 1);
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [step, returnToLogin]);
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -36,13 +66,11 @@ export default function Login() {
     setPending(true);
     setToast('');
     try {
-      const challenge = await requestLogin({ email: email.trim().toLowerCase(), password });
-      setRecoveryAvailable(Boolean(challenge.recovery_available));
-      setEmailDelivered(challenge.email_delivered !== false);
+      await requestLogin({ email: email.trim().toLowerCase(), password });
+      setChallengeLeft(CHALLENGE_SECONDS);
+      setResendLeft(RESEND_SECONDS);
       setStep('code');
-      setToast(challenge.email_delivered === false
-        ? 'Email delivery is unavailable. Use one of your recovery codes.'
-        : 'We sent a 6-digit code to your email.');
+      setToast('We sent a 6-digit code to your email.');
     } catch (error) {
       setToast(error.message || 'Invalid email or password');
     } finally {
@@ -63,6 +91,10 @@ export default function Login() {
       await verifyLogin({ email: email.trim().toLowerCase(), code: normalizedCode });
       navigate('/ask', { replace: true });
     } catch (error) {
+      if (error.message === LOGIN_EXPIRED) {
+        returnToLogin(error.message);
+        return;
+      }
       setToast(error.message || 'That code is invalid or has expired.');
     } finally {
       setPending(false);
@@ -74,14 +106,15 @@ export default function Login() {
     setToast('');
     setErrors({});
     try {
-      const challenge = await resendLoginCode({ email: email.trim().toLowerCase() });
+      await resendLoginCode();
       setCode('');
-      setRecoveryAvailable(Boolean(challenge.recovery_available));
-      setEmailDelivered(challenge.email_delivered !== false);
-      setToast(challenge.email_delivered === false
-        ? 'Email delivery is still unavailable. Use one of your recovery codes.'
-        : 'We sent a new 6-digit code to your email.');
+      setResendLeft(RESEND_SECONDS);
+      setToast('We sent a new 6-digit code to your email.');
     } catch (error) {
+      if (error.message === LOGIN_EXPIRED) {
+        returnToLogin(error.message);
+        return;
+      }
       setToast(error.message || 'Unable to resend the verification code.');
     } finally {
       setPending(false);
@@ -95,9 +128,7 @@ export default function Login() {
         title={step === 'code' ? 'Check your email' : 'Log in'}
         subtitle={
           step === 'code'
-            ? recoveryAvailable
-              ? `Enter the 6-digit email code sent to ${email.trim().toLowerCase()} or one of your recovery codes.`
-              : `Enter the 6-digit code sent to ${email.trim().toLowerCase()}. It expires in 10 minutes.`
+            ? `Enter the 6-digit code sent to ${email.trim().toLowerCase()}, or a saved recovery code.`
             : 'A verification code is emailed after your password is accepted.'
         }
         footer={
@@ -118,7 +149,7 @@ export default function Login() {
               <input
                 id="code"
                 name="code"
-                inputMode={recoveryAvailable ? 'text' : 'numeric'}
+                inputMode="text"
                 autoComplete="one-time-code"
                 maxLength={13}
                 value={code}
@@ -128,17 +159,22 @@ export default function Login() {
                 className={`${inputClass(Boolean(errors.code))} tracking-[0.4em]`}
               />
             </Field>
-            {recoveryAvailable ? <p className="rounded-xl border border-[#9dbaf5]/50 bg-white/55 px-3 py-2 text-xs leading-relaxed text-[#3f5474]">{emailDelivered ? 'Email delayed? ' : 'Email is currently unavailable. '}Use a saved <strong>PCH-XXXX-XXXX</strong> recovery code. Each code works once.</p> : null}
+            <p className="text-sm text-[#3f5474]" role="timer" aria-live="polite">
+              This code expires in {formatClock(challengeLeft)}.
+            </p>
+            <p className="rounded-xl border border-[#9dbaf5]/50 bg-white/55 px-3 py-2 text-xs leading-relaxed text-[#3f5474]">
+              Email delayed? Use a saved <strong>PCH-XXXX-XXXX</strong> recovery code. Each code works once, and only after your password is accepted.
+            </p>
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Checking code…' : 'Verify and continue'}
             </PillButton>
             <button
               type="button"
-              className={`text-sm text-[#111827] underline-offset-4 hover:underline ${focusRing} rounded-full`}
-              disabled={pending}
+              className={`text-sm text-[#111827] underline-offset-4 hover:underline ${focusRing} rounded-full disabled:opacity-60`}
+              disabled={pending || resendLeft > 0}
               onClick={onResend}
             >
-              Resend code
+              {resendLeft > 0 ? `Resend code in ${resendLeft}s` : 'Resend code'}
             </button>
             <button
               type="button"

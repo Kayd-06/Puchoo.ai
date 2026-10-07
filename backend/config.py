@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from apps.core.db_connection import validate_db_ssl_mode
+
 BACKEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BACKEND_DIR.parent
 DEFAULT_DATABASE_PATH = BACKEND_DIR / "puchoo_auth.db"
@@ -32,6 +34,44 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+DEFAULT_SESSION_SECRET = "dev-secret-key-do-not-use-in-prod"
+DEFAULT_OTP_SECRET = "dev-otp-secret-do-not-use-in-prod"
+# Values that ship with the repo. Production must replace both secrets.
+UNSAFE_SECRET_VALUES = frozenset(
+    {
+        "",
+        DEFAULT_SESSION_SECRET,
+        DEFAULT_OTP_SECRET,
+        "replace-with-a-long-random-string",
+        "changeme",
+        "change-me",
+    }
+)
+
+
+def secret_is_unsafe(value: str | None) -> bool:
+    if value is None:
+        return True
+    return value.strip().lower() in UNSAFE_SECRET_VALUES
+
+
+def ensure_production_secrets(environment: str, session_secret: str | None, otp_secret: str | None) -> None:
+    """Stop the process when a production deploy is still using placeholder secrets."""
+
+    if environment.strip().lower() != "production":
+        return
+    missing: list[str] = []
+    if secret_is_unsafe(session_secret):
+        missing.append("SESSION_SECRET")
+    if secret_is_unsafe(otp_secret):
+        missing.append("OTP_SECRET")
+    if missing:
+        names = " and ".join(missing)
+        raise RuntimeError(
+            f"Refusing to start: {names} must be set to a non-default value when ENVIRONMENT=production."
+        )
+
+
 @dataclass
 class Settings:
     database_url: str
@@ -39,10 +79,12 @@ class Settings:
     cookie_secure: bool
     environment: str
     session_cookie_name: str = "puchoo_session"
+    login_challenge_cookie_name: str = "puchoo_login_challenge"
     csrf_cookie_name: str = "csrf_token"
     csrf_header_name: str = "X-CSRF-Token"
     session_days: int = 7
-    session_secret: str = "dev-secret-key-do-not-use-in-prod"
+    session_secret: str = DEFAULT_SESSION_SECRET
+    otp_secret: str = DEFAULT_OTP_SECRET
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "puchoo.ai"
     smtp_server: str | None = None
@@ -70,7 +112,8 @@ def load_settings() -> Settings:
         frontend_origins=[item.strip() for item in origins.split(",") if item.strip()],
         cookie_secure=_as_bool(os.getenv("COOKIE_SECURE"), default=False),
         environment=os.getenv("ENVIRONMENT", "development"),
-        session_secret=os.getenv("SESSION_SECRET", "dev-secret-key-do-not-use-in-prod"),
+        session_secret=os.getenv("SESSION_SECRET", DEFAULT_SESSION_SECRET),
+        otp_secret=os.getenv("OTP_SECRET", DEFAULT_OTP_SECRET),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
         jwt_issuer=os.getenv("JWT_ISSUER", "puchoo.ai"),
         smtp_server=os.getenv("SMTP_SERVER"),
@@ -84,3 +127,5 @@ def load_settings() -> Settings:
 
 
 settings = load_settings()
+ensure_production_secrets(settings.environment, settings.session_secret, settings.otp_secret)
+validate_db_ssl_mode()

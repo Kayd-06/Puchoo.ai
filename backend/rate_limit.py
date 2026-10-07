@@ -36,3 +36,5 @@ class SlidingWindowLimiter:
 
 
 limiter = SlidingWindowLimiter()
+# Connection probes are expensive and can be aimed at internal networks.
+connection_limiter = SlidingWindowLimiter(limit=5, window_seconds=15 * 60)

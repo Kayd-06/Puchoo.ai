@@ -3,18 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
 import re
 import sqlite3
 import tempfile
 from zipfile import BadZipFile
 from pathlib import Path
-from typing import Literal
-from urllib.parse import quote_plus
+from typing import Any, Literal
 from uuid import uuid4
 
 import pandas as pd
+from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
+
+from apps.core.db_connection import (
+    GENERIC_CONNECTION_ERROR,
+    DatabaseConnectionError,
+    ServerConnection,
+    build_server_url,
+    checked_connection_host,
+    connect_args_for,
+    materialize_connect_args,
+    redact_secret,
+    render_password_free,
+)
+
+logger = logging.getLogger(__name__)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -28,9 +43,19 @@ class Workspace:
     database_uri: str
     dialect: str = "sqlite"
     source_type: str = "file"
+    connect_args: dict | None = None
 
-    def as_dict(self) -> dict[str, str]:
-        return asdict(self)
+    def __repr__(self) -> str:
+        return (
+            f"Workspace(id={self.id!r}, name={self.name!r}, database_uri={self.database_uri!r}, "
+            f"dialect={self.dialect!r}, source_type={self.source_type!r})"
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        if payload.get("connect_args") is None:
+            payload.pop("connect_args", None)
+        return payload
 
 
 def sqlite_uri(database_path: str) -> str:
@@ -209,6 +234,15 @@ def create_tabular_collection_workspace(
     )
 
 
+def _connection_value_error(exc: ValidationError) -> ValueError:
+    error = exc.errors()[0]
+    message = str(error.get("msg", "Check the connection details and try again."))
+    prefix = "Value error, "
+    if message.startswith(prefix):
+        message = message[len(prefix):]
+    return ValueError(message)
+
+
 def create_server_workspace(
     name: str,
     *,
@@ -218,43 +252,54 @@ def create_server_workspace(
     database: str,
     username: str,
     password: str,
-    ssl_required: bool,
 ) -> Workspace:
     """Validate and connect a server workspace using discrete connection fields.
 
-    Passwords are kept only in the current Streamlit server session. A database
-    role with read-only permissions is still required; app-side guardrails are
-    an additional protection, not a substitute for database permissions.
+    The password is kept beside the URL, not inside it. A database role with
+    read-only permissions is still required; app-side guardrails are an
+    additional protection, not a substitute for database permissions.
     """
 
     if not name or not name.strip():
         raise ValueError("Workspace name is required.")
-    if engine not in {"postgresql", "mysql"}:
-        raise ValueError("Choose PostgreSQL or MySQL.")
-    if not host.strip() or not database.strip() or not username.strip():
-        raise ValueError("Host, database name, and username are required.")
-    if not password:
-        raise ValueError("Password is required for a database-server connection.")
-    if not 1 <= int(port) <= 65535:
-        raise ValueError("Port must be between 1 and 65535.")
-    if not re.fullmatch(r"[A-Za-z0-9._:-]+", host.strip()):
-        raise ValueError("Host may contain only a hostname, IPv4 address, or IPv6 address.")
+    try:
+        fields = ServerConnection(
+            dialect=engine,
+            host=host,
+            port=port,
+            database=database,
+            username=username,
+            password=password,
+        )
+    except ValidationError as exc:
+        raise _connection_value_error(exc) from None
 
-    driver = "postgresql+psycopg" if engine == "postgresql" else "mysql+pymysql"
-    encoded_user = quote_plus(username.strip())
-    encoded_password = quote_plus(password)
-    uri = f"{driver}://{encoded_user}:{encoded_password}@{host.strip()}:{int(port)}/{database.strip()}"
-    if ssl_required:
-        uri += "?sslmode=require" if engine == "postgresql" else "?ssl=true"
-
-    # Test schema access before this workspace becomes selectable.
-    get_schema_snapshot(uri)
+    connect_host = checked_connection_host(fields.host, fields.port)
+    built = build_server_url(
+        dialect=fields.dialect,
+        username=fields.username,
+        password=fields.password,
+        host=connect_host,
+        port=fields.port,
+        database=fields.database,
+    )
+    stored_uri = render_password_free(built)
+    if fields.password in stored_uri:
+        raise RuntimeError("Refusing to keep the database password in the URL string.")
+    args = connect_args_for(fields.dialect, fields.password)
+    try:
+        get_schema_snapshot(stored_uri, connect_args=args)
+    except (SQLAlchemyError, ValueError, OSError) as exc:
+        detail = redact_secret(str(getattr(exc, "__cause__", None) or exc), fields.password)
+        logger.warning("database connection failed for %s: %s", stored_uri, detail)
+        raise DatabaseConnectionError(GENERIC_CONNECTION_ERROR) from None
     return Workspace(
         id=f"ws_{uuid4().hex[:12]}",
         name=name.strip(),
-        database_uri=uri,
-        dialect=engine,
+        database_uri=stored_uri,
+        dialect=fields.dialect,
         source_type="server",
+        connect_args=args,
     )
 
 
@@ -298,10 +343,17 @@ def _unique_column_names(columns: list[object]) -> list[str]:
     return result
 
 
-def get_schema_snapshot(database_uri: str) -> str:
+def _open_engine(database_uri: str, connect_args: dict | None = None):
+    args = materialize_connect_args(connect_args)
+    if database_uri.startswith("mysql"):
+        args["local_infile"] = False
+    return create_engine(database_uri, connect_args=args)
+
+
+def get_schema_snapshot(database_uri: str, *, connect_args: dict | None = None) -> str:
     engine = None
     try:
-        engine = create_engine(database_uri)
+        engine = _open_engine(database_uri, connect_args)
         inspector = inspect(engine)
         lines: list[str] = []
         column_tables: dict[str, list[str]] = {}
@@ -346,11 +398,11 @@ def get_schema_snapshot(database_uri: str) -> str:
     return "\n\n".join(lines)
 
 
-def get_schema_metrics(database_uri: str) -> dict[str, int]:
+def get_schema_metrics(database_uri: str, *, connect_args: dict | None = None) -> dict[str, int]:
     """Return live table/column counts without reading source-table rows."""
 
     try:
-        engine = create_engine(database_uri)
+        engine = _open_engine(database_uri, connect_args)
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         columns = sum(len(inspector.get_columns(table)) for table in tables)
@@ -360,7 +412,12 @@ def get_schema_metrics(database_uri: str) -> dict[str, int]:
         raise ValueError("Could not inspect the workspace database.") from exc
 
 
-def get_schema_table_stats(database_uri: str, *, include_row_counts: bool = False) -> list[dict[str, int | str | None]]:
+def get_schema_table_stats(
+    database_uri: str,
+    *,
+    include_row_counts: bool = False,
+    connect_args: dict | None = None,
+) -> list[dict[str, int | str | None]]:
     """Return live schema statistics for the connected source.
 
     Counting every row can be costly on a remote analytical server, so callers
@@ -370,7 +427,7 @@ def get_schema_table_stats(database_uri: str, *, include_row_counts: bool = Fals
 
     engine = None
     try:
-        engine = create_engine(database_uri)
+        engine = _open_engine(database_uri, connect_args)
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         stats: list[dict[str, int | str | None]] = []
