@@ -20,5 +20,5 @@ argon2-cffi>=23.1,<26
 alembic>=1.13,<2
 email-validator>=2.2,<3
 PyJWT>=2.8,<3
-chromadb>=0.5,<1
-pytest>=8.0,<9
+chromadb>=1.0.0,<2
+pytest>=9.0.3,<10
