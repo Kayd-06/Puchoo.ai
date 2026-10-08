@@ -80,6 +80,9 @@ class SlidingWindowLimiter:
             if exceeded:
                 for key in exceeded:
                     level = self._backoff_levels[key]
+                    # Start over once the key has stayed quiet for a full window after its last block.
+                    if now - self._blocked_until.get(key, now) > self.window_seconds:
+                        level = 0
                     delay = min(self.backoff_base_seconds * (2**level), self.backoff_max_seconds)
                     self._backoff_levels[key] = level + 1
                     self._blocked_until[key] = now + delay

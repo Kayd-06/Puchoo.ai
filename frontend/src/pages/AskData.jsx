@@ -318,7 +318,9 @@ export default function AskData() {
     }
     try {
       const audio = new FormData();
-      audio.append('file', blob, 'puchoo-question.webm');
+      // Safari/iOS records audio/mp4; name the file after what was actually recorded.
+      const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      audio.append('file', blob, `puchoo-question.${extension}`);
       const response = await fetchApi('/sarvam/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');

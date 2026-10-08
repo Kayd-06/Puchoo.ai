@@ -405,6 +405,16 @@ def remove_workspace_member(
     member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
     now = utcnow()
     _revoke_sessions_and_challenges(db, member.id, now)
+    # The removed member still knows the shared code for their role; retire it
+    # so they (or anyone they forwarded it to) cannot rejoin with the same code.
+    for invite in db.scalars(
+        select(InstituteInvite).where(
+            InstituteInvite.owner_user_id == member.workspace_owner_id,
+            InstituteInvite.role == member.workspace_role,
+            InstituteInvite.revoked_at.is_(None),
+        )
+    ).all():
+        invite.revoked_at = now
     member.workspace_type = "personal"
     member.workspace_name = None
     member.workspace_owner_id = None
@@ -773,14 +783,17 @@ def verify_login(
         db.rollback()
         _reject_login_challenge(response)
     clear_login_challenge_cookie(response)
-    first_name = user.full_name.strip().split(maxsplit=1)[0] or "there"
-    create_notification(
-        db,
-        user_id=user.id,
-        kind="session_started",
-        title=f"Welcome, {first_name}",
-        body="Your secure workspace is ready. Ask a question whenever you are ready.",
-    )
+    # Welcome only on the first verified sign-in, not on every login.
+    # _issue_session runs after this, so the check sees only earlier sessions.
+    if db.scalar(select(AuthSession.id).where(AuthSession.user_id == user.id).limit(1)) is None:
+        first_name = user.full_name.strip().split(maxsplit=1)[0] or "there"
+        create_notification(
+            db,
+            user_id=user.id,
+            kind="session_started",
+            title=f"Welcome, {first_name}",
+            body="Your secure workspace is ready. Ask a question whenever you are ready.",
+        )
     db.commit()
     _issue_session(db, user, response)
     return AuthResponse(user=_user_response(user))

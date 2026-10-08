@@ -70,8 +70,12 @@ def _validated_upload_kind(filename: str, contents: bytes) -> str:
     elif suffix == ".xls":
         valid = contents.startswith(OLE_HEADER)
     elif suffix == ".csv":
+        head = contents[:8192]
+        if len(contents) > len(head):
+            # Drop a multi-byte UTF-8 character that the 8 KiB cut may have split.
+            head = head[: next((len(head) - 1 - i for i in range(3) if head[-1 - i] >= 0xC0), len(head))]
         try:
-            sample = contents[:8192].decode("utf-8")
+            sample = head.decode("utf-8")
             valid = bool(sample.strip()) and "\x00" not in sample and not sample.lstrip().lower().startswith(("<html", "<!doctype", "<?xml"))
         except UnicodeDecodeError:
             valid = False
@@ -82,7 +86,10 @@ def _validated_upload_kind(filename: str, contents: bytes) -> str:
     return suffix
 
 class ServerWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    # str_strip_whitespace is intentionally omitted: it would silently strip
+    # leading/trailing spaces from `password`, causing DB connections to fail
+    # with a generic error. If `name` trimming is needed, use a field_validator.
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120, strict=True)
     engine: str = Field(strict=True)

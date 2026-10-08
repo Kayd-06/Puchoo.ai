@@ -43,11 +43,16 @@ async def _read_audio(file: UploadFile) -> bytes:
     if len(contents) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="The audio file is too large.")
     suffix = Path(file.filename or "").suffix.lower()
-    signatures = _AUDIO_SIGNATURES.get(suffix)
-    if signatures is None or not any(contents.startswith(signature) for signature in signatures):
+    if suffix in {".mp4", ".m4a"}:
+        # ISO-BMFF (Safari/iOS MediaRecorder output) carries "ftyp" at byte 4.
+        valid = len(contents) >= 8 and contents[4:8] == b"ftyp"
+    else:
+        signatures = _AUDIO_SIGNATURES.get(suffix)
+        valid = signatures is not None and any(contents.startswith(signature) for signature in signatures)
         # MP3 frame-sync is valid when no ID3 metadata is present.
-        if not (suffix == ".mp3" and len(contents) >= 2 and contents[0] == 0xFF and contents[1] & 0xE0 == 0xE0):
-            raise HTTPException(status_code=400, detail="The audio file content does not match its declared format.")
+        valid = valid or (suffix == ".mp3" and len(contents) >= 2 and contents[0] == 0xFF and contents[1] & 0xE0 == 0xE0)
+    if not valid:
+        raise HTTPException(status_code=400, detail="The audio file content does not match its declared format.")
     if suffix == ".wav" and contents[8:12] != b"WAVE":
         raise HTTPException(status_code=400, detail="The audio file content does not match its declared format.")
     return contents

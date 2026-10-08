@@ -54,11 +54,20 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     from backend import models  # noqa: F401
 
-    # Existing databases must run migrations: create_all() never adds a new
-    # column to an existing table, which previously broke invite creation.
     if inspect(engine).has_table("alembic_version"):
+        # Managed database: apply any pending migrations and return.
         command.upgrade(_alembic_config(), "head")
         return
+
+    # Tables without alembic_version come from the old create_all() startup.
+    # Stamping them at head would hide missing columns, so stop instead.
+    if inspect(engine).get_table_names():
+        raise RuntimeError(
+            "Database has tables but no alembic_version. "
+            "Stamp its current revision "
+            "(alembic stamp 20261006_0010 for a database created by main), "
+            "then run alembic upgrade head."
+        )
 
     # A fresh database can be created directly from current metadata, then
     # stamped so every later startup follows the migration path.

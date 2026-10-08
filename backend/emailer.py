@@ -124,7 +124,7 @@ def _deliver(message: MIMEMultipart) -> None:
 
 def _text(otp_code: str) -> str:
     return (
-        "Puchoo.si\n\n"
+        "Puchoo.ai\n\n"
         f"Your verification code is {otp_code}.\n\n"
         "Enter it to finish logging in. This code expires in 5 minutes.\n"
         "If you did not try to log in, you can ignore this email.\n"
@@ -139,7 +139,7 @@ def _html(otp_code: str) -> str:
           <tr><td align="center">
             <table width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;padding:32px;">
               <tr><td>
-                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.si</p>
+                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.ai</p>
                 <h1 style="margin:12px 0 0;color:#111827;font-size:22px;font-weight:600;">Your verification code</h1>
                 <p style="margin:24px 0;letter-spacing:0.3em;font-size:32px;color:#111827;">{otp_code}</p>
                 <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.5;">
