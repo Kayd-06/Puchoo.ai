@@ -67,7 +67,7 @@ function MainHero() {
     <div className="puchoo-reference-hero">
       <SignalField />
       <header className="puchoo-reference-nav">
-        <a href="/" className={`relative z-20 flex items-center gap-2 text-[15px] font-semibold tracking-[-.04em] text-white ${focusRing} rounded-full`}><Mark className="h-6 w-6" />Puchoo.si</a>
+        <a href="/" className={`relative z-20 flex items-center gap-2 text-[15px] font-semibold tracking-[-.04em] text-white ${focusRing} rounded-full`}><Mark className="h-8 w-8" />Puchoo.si</a>
         <span className="hidden text-xs font-medium tracking-[.01em] text-[#e1e8f5] sm:block">Data intelligence</span>
         <button type="button" className={`relative z-20 grid h-10 w-10 place-items-center rounded-full border border-white/10 text-white transition hover:bg-white/10 ${focusRing}`} onClick={() => setMenuOpen((value) => !value)} aria-label="Open navigation" aria-expanded={menuOpen}>{menuOpen ? <X size={18} /> : <Menu size={19} />}</button>
       </header>
@@ -128,7 +128,7 @@ export default function Landing() {
     <ProductDemo />
     <LanguageAndVoice />
     <section className="puchoo-closing-section"><SignalField /><div><span>05 / Start with one question</span><h2>Make your next decision<br />a little more certain.</h2><p>Connect a source, ask in plain language, and stay in control from the first question to the final answer.</p><a href="/signup" className={`puchoo-reference-cta ${focusRing}`}>Create your workspace <ArrowUpRight size={16} /></a></div></section>
-    <footer className="puchoo-reference-footer"><a href="/" className="flex items-center gap-2 font-semibold tracking-[-.04em]"><Mark className="h-6 w-6" />Puchoo.si</a><span>© {new Date().getFullYear()} Puchoo.si</span><div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login">Log in</a></div></footer>
+    <footer className="puchoo-reference-footer"><a href="/" className="flex items-center gap-2 font-semibold tracking-[-.04em]"><Mark className="h-8 w-8" />Puchoo.si</a><span>© {new Date().getFullYear()} Puchoo.si</span><div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/login">Log in</a></div></footer>
     {PrivacyNotice && <PrivacyNotice />}
   </div>;
 }

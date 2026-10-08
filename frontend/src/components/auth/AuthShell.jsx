@@ -15,7 +15,7 @@ export default function AuthShell({ title, subtitle, children, footer, dense = f
           to="/"
           className={`relative flex items-center gap-2 font-medium tracking-[-0.03em] ${focusRing} w-fit rounded-full`}
         >
-          <Mark className="h-6 w-6" />
+          <Mark className="h-8 w-8" />
           Puchoo.si
         </Link>
         <div className="relative mt-16 max-w-lg lg:mt-0">

@@ -35,7 +35,7 @@ export default function Dashboard() {
           to="/"
           className={`flex items-center gap-2 font-medium tracking-[-0.03em] ${focusRing} rounded-full`}
         >
-          <Mark className="h-6 w-6" />
+          <Mark className="h-8 w-8" />
           Puchoo.si
         </Link>
         <PillButton variant="dark" onClick={onLogout} disabled={pending}>

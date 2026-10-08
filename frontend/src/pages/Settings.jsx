@@ -1,4 +1,4 @@
-import { ShieldCheck, History as HistoryIcon, User } from 'lucide-react';
+import { Fingerprint, History as HistoryIcon, LockKeyhole, ShieldCheck, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangeEmailPanel from '../components/auth/ChangeEmailPanel';
@@ -10,15 +10,19 @@ export default function Settings() {
 
   if (user?.workspace_role === 'viewer') {
     return <section className="settings-viewer-state">
-      <span className="settings-eyebrow"><ShieldCheck size={16} /> Read-only member</span>
-      <h1>Settings are managed by your workspace.</h1>
-      <p>Viewer accounts can inspect approved query history, but cannot change workspace settings, data sources, or access roles.</p>
-      <button className="settings-action settings-action-primary" onClick={() => navigate('/history')}>Open history</button>
+      <div className="settings-ambient" aria-hidden="true"><span /><span /><span /></div>
+      <div className="settings-viewer-content">
+        <span className="settings-eyebrow"><ShieldCheck size={16} /> Read-only member</span>
+        <h1>Settings are managed by your workspace.</h1>
+        <p>Viewer accounts can inspect approved query history, but cannot change workspace settings, data sources, or access roles.</p>
+        <button className="settings-action settings-action-primary" onClick={() => navigate('/history')}>Open history</button>
+      </div>
     </section>;
   }
 
   return (
     <div className="settings-page">
+      <div className="settings-ambient" aria-hidden="true"><span /><span /><span /></div>
       <header className="settings-hero">
         <div className="settings-eyebrow">
         <ShieldCheck size={20} />
@@ -29,13 +33,17 @@ export default function Settings() {
             <h1>Settings</h1>
             <p>Control your profile, workspace access, and verified account settings.</p>
           </div>
-          <span className="settings-security-chip"><ShieldCheck size={15} /> Tenant isolated</span>
+          <div className="settings-trust-rail" aria-label="Security posture">
+            <span className="settings-security-chip"><ShieldCheck size={15} /> Tenant isolated</span>
+            <span className="settings-trust-detail"><LockKeyhole size={14} /> HttpOnly session</span>
+          </div>
         </div>
       </header>
 
       <div className="settings-flow">
         <WorkspaceInvitePanel />
         <section className="settings-section settings-profile" aria-labelledby="profile-title">
+          <div className="settings-card-label"><Fingerprint size={15} /><span>Identity vault</span><small>Verified record</small></div>
           <div className="settings-profile-topline">
             <div className="settings-avatar">
               {user?.full_name ? user.full_name.charAt(0).toUpperCase() : <User />}

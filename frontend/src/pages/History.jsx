@@ -151,9 +151,14 @@ export default function History() {
 
   return (
     <div className="history-page">
+      <div className="history-ambient" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <section className="history-hero">
-        <div>
-          <div className="history-eyebrow"><HistoryIcon size={16} /> Query activity</div>
+        <div className="history-hero-copy">
+          <div className="history-eyebrow"><span className="history-live-dot" /> Query activity <span>Workspace ledger</span></div>
           <h1>History</h1>
           <p>{activeWorkspace ? isViewer ? `Approved questions for ${activeWorkspace.name}. Your access is view-only.` : `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.` : 'Select a database to view its history.'}</p>
         </div>
@@ -163,7 +168,7 @@ export default function History() {
         </div>
       </section>
 
-      {error && <div className="card" role="alert" style={{ marginBottom: '1rem', color: 'var(--accent-red)', background: 'var(--accent-red-bg)' }}>{error}</div>}
+      {error && <div className="history-error" role="alert"><AlertTriangle size={17} />{error}</div>}
 
       <section className="history-toolbar" aria-label="Filter history">
         <label className="history-search">
@@ -199,8 +204,12 @@ export default function History() {
           const context = item.interpreted_request && item.interpreted_request !== item.question ? item.interpreted_request : null;
           return (
             <article key={item.id} className={`history-card history-card-${category}`} style={{ '--history-index': index }}>
+              <span className="history-card-orbit" aria-hidden="true" />
               <div className="history-card-main">
-                <div className="history-card-topline"><span>{formatTimestamp(item.executed_at || item.created_at)}</span><StatusBadge category={category} /></div>
+                <div className="history-card-topline">
+                  <span className="history-record"><span>Q-{String(index + 1).padStart(3, '0')}</span>{formatTimestamp(item.executed_at || item.created_at)}</span>
+                  <StatusBadge category={category} />
+                </div>
                 <h2>{item.question}</h2>
                 {context && <p className="history-context">Interpreted as: {context}</p>}
                 <div className="history-meta">
