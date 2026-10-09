@@ -10,6 +10,16 @@ from backend.main import create_app
 from backend.tests.conftest import csrf_headers, finish_signup, signup_payload
 
 
+def test_csv_validation_accepts_utf8_split_at_the_8kib_sniff_boundary():
+    """A valid CSV stays valid when the sniffer cuts through a UTF-8 character."""
+
+    prefix = b"column\n" + (b"x" * (8191 - len(b"column\n")))
+    contents = prefix + b"\xc3\xb1\n"
+
+    assert len(prefix) == 8191
+    assert workspace_router._validated_upload_kind("boundary.csv", contents) == ".csv"
+
+
 def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_path, monkeypatch, otp_codes):
     """A successful upload is queryable server-side but hides its local path."""
 
