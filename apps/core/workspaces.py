@@ -16,6 +16,7 @@ import pandas as pd
 from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
+from apps.core.guardrails import SchemaCatalog
 
 from apps.core.db_connection import (
     GENERIC_CONNECTION_ERROR,
@@ -396,6 +397,34 @@ def get_schema_snapshot(database_uri: str, *, connect_args: dict | None = None) 
     if not lines:
         raise ValueError("The selected database has no tables to query.")
     return "\n\n".join(lines)
+
+
+def get_schema_catalog(database_uri: str, *, connect_args: dict | None = None) -> SchemaCatalog:
+    """Return the tables and columns the guardrail allows for this data source.
+
+    Read fresh from the database (not the cached prompt text) so approval
+    re-validates against the schema as it is now.
+    """
+
+    engine = None
+    try:
+        engine = _open_engine(database_uri, connect_args)
+        inspector = inspect(engine)
+        default_schema = inspector.default_schema_name
+        tables: dict[str, list[str]] = {}
+        try:
+            multi = inspector.get_multi_columns()
+            for (_schema, table), columns in multi.items():
+                tables[str(table)] = [str(column["name"]) for column in columns]
+        except NotImplementedError:
+            for table in inspector.get_table_names():
+                tables[str(table)] = [str(column["name"]) for column in inspector.get_columns(table)]
+    except (SQLAlchemyError, ModuleNotFoundError, ImportError) as exc:
+        raise ValueError("Could not read the workspace database schema.") from exc
+    finally:
+        if engine is not None:
+            engine.dispose()
+    return SchemaCatalog.from_mapping(tables, qualifiers=[default_schema])
 
 
 def get_schema_metrics(database_uri: str, *, connect_args: dict | None = None) -> dict[str, int]:
