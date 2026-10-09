@@ -8,11 +8,11 @@ from time import perf_counter
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from apps.core.executor import QueryExecutionError, ReadOnlyExecutor
+from apps.core.executor import QueryExecutionError, QueryTimeoutError, ReadOnlyExecutor
 from apps.core.guardrails import SQLGuardrailError, SQLParseError
 from apps.core.llm_client import (
     AnthropicConfigurationError,
@@ -27,7 +27,7 @@ from apps.core.llm_client import (
     schema_guided_fallback_sql,
 )
 from apps.core.verification import get_verifier, verification_unavailable
-from apps.core.workspaces import get_schema_snapshot
+from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
 from apps.core.semantic_layer import (
     build_query_plan,
@@ -43,6 +43,16 @@ from apps.core.query_planning import (
     plan_complex_query,
     plan_constraint_feedback,
     select_plan_schema,
+)
+from apps.api.pending_queries import (
+    PENDING_ID_PATTERN,
+    SQL_HASH_PATTERN,
+    cancel_pending,
+    claim_pending,
+    create_pending,
+    finish_pending,
+    pending_context,
+    public_pending,
 )
 from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
@@ -179,8 +189,34 @@ def _localize_rows(rows: list[dict[str, Any]], language_code: str | None) -> lis
         for row in rows
     ]
 
+def _blocked_detail(exc: SQLGuardrailError) -> str:
+    return f"The query was blocked by the safety policy: {exc}"
+
+
+def _workspace_executor(workspace: Dict[str, Any], controls: Dict[str, Any]) -> ReadOnlyExecutor:
+    """Executor for one workspace, with the guardrail bound to its live schema."""
+
+    catalog = get_schema_catalog(workspace["database_uri"], connect_args=workspace.get("connect_args"))
+    return ReadOnlyExecutor(
+        workspace["database_uri"],
+        max_rows=controls["max_rows"],
+        dialect=workspace.get("dialect", "sqlite"),
+        timeout_seconds=controls["timeout_seconds"],
+        connect_args=workspace.get("connect_args"),
+        catalog=catalog,
+    )
+
+
 @router.post("/{workspace_id}/generate")
-def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, Any]:
+def generate_query(
+    workspace_id: str,
+    request: GenerateRequest,
+    workspace: Dict = Depends(require_workspace_editor),
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate and validate SQL, then store it for approval. Never runs it."""
+
     started = perf_counter()
     question = request.question.strip()
     if not question:
@@ -258,13 +294,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             selected_tables = intent_plan.tables
             public_plan = intent_plan.as_dict()
             structured_plan = None
-        executor = ReadOnlyExecutor(
-            workspace["database_uri"],
-            max_rows=controls["max_rows"],
-            dialect=workspace.get("dialect", "sqlite"),
-            timeout_seconds=controls["timeout_seconds"],
-            connect_args=workspace.get("connect_args"),
-        )
+        executor = _workspace_executor(workspace, controls)
         max_attempts = 1
         
         if isinstance(client, LocalMLXSQLClient):
@@ -354,7 +384,7 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
             "selected_tables": selected_tables,
             "assumptions": public_plan.get("assumptions", []),
             "interpreted_request": _translate_for_display(public_plan.get("normalized_question", planning_question), language_code),
-            "status": "proposed"
+            "status": "pending_approval",
         }
         trace = {
             "route": decision.route,
@@ -369,8 +399,16 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
         }
         proposal["pipeline_trace"] = trace
         _log_trace(trace)
-        session_manager.active_proposals[workspace_id] = proposal
-        return proposal
+        # Store the exact guarded SQL; it runs only after the user approves it.
+        pending = create_pending(
+            db,
+            user=user,
+            workspace_id=workspace_id,
+            sql=guarded.sql,
+            limit_clamped=guarded.limit_clamped,
+            context=proposal,
+        )
+        return {**proposal, **public_pending(pending)}
         
     except SQLGuardrailError as exc:
         logger.warning("query blocked by safety policy: %s", type(exc).__name__, exc_info=True)
@@ -382,75 +420,151 @@ def generate_query(workspace_id: str, request: GenerateRequest, workspace: Dict 
         }
         session_manager.query_history.setdefault(workspace_id, []).insert(0, blocked_record)
         session_manager.save(active_workspace_id=workspace_id)
-        raise HTTPException(status_code=403, detail="The query was blocked by the safety policy.") from None
+        raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
         
     except (AnthropicConfigurationError, LocalMLXConfigurationError, QueryExecutionError, QueryPlanError, SQLGenerationError, ValueError) as exc:
         logger.exception("query generation failed: %s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The query could not be generated.") from None
 
-class ExecuteRequest(BaseModel):
+class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    proposal_id: str = Field(pattern=r"^qry_[a-f0-9]{12}$", strict=True)
+    sql_hash: str = Field(pattern=SQL_HASH_PATTERN, strict=True)
 
-@router.post("/{workspace_id}/execute")
-def execute_query(
+
+PendingId = Path(pattern=PENDING_ID_PATTERN, max_length=40)
+
+
+@router.post("/{workspace_id}/pending/{pending_id}/cancel", status_code=204)
+def cancel_pending_query(
     workspace_id: str,
-    request: ExecuteRequest,
+    pending_id: str = PendingId,
+    workspace: Dict = Depends(require_workspace_editor),
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    cancel_pending(db, pending_id=pending_id, user=user, workspace_id=workspace_id)
+    return Response(status_code=204)
+
+
+def _repair_proposal(
+    *,
+    db: Session,
+    user: Any,
+    workspace_id: str,
+    workspace: Dict[str, Any],
+    executor: ReadOnlyExecutor,
+    pending: Any,
+    context: Dict[str, Any],
+    execution_error: QueryExecutionError,
+) -> Dict[str, Any] | None:
+    """Ask the model for a fix and store it as a NEW pending query.
+
+    The repaired SQL is never run here: the user must approve it again.
+    """
+
+    client = get_sql_client()
+    if not isinstance(client, LocalMLXSQLClient):
+        return None
+    schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
+        workspace["database_uri"], connect_args=workspace.get("connect_args")
+    )
+    selected_schema = _schema_for_tables(schema, context.get("selected_tables", []))
+    repair_question = (
+        "Original question:\n" + context.get("processing_question", context.get("question", ""))
+        + "\n\nStructured plan:\n"
+        + json.dumps(context.get("intent_plan", {}), ensure_ascii=False, separators=(",", ":"))
+    )
+    repaired_sql = client.generate_sql(
+        schema=selected_schema,
+        question=repair_question,
+        previous_sql=pending.sql,
+        feedback=[f"Exact database error: {execution_error.database_error}"],
+    )
+    # Guard and database-plan the replacement. It is only proposed, not run.
+    guarded_repair = executor.validate_query_plan(repaired_sql)
+    repaired_context = {
+        **context,
+        "sql": guarded_repair.sql,
+        "limit": guarded_repair.limit,
+        "model_attempts": int(context.get("model_attempts", 1)) + 1,
+        "status": "repair_pending_approval",
+    }
+    repair_trace = dict(context.get("pipeline_trace", {}))
+    repair_trace["retry_count"] = int(repair_trace.get("retry_count", 0)) + 1
+    repair_trace["sql"] = _redact_sql(guarded_repair.sql)
+    repair_trace["validation_outcome"] = "repair_proposed_after_runtime_error"
+    repaired_context["pipeline_trace"] = repair_trace
+    _log_trace(repair_trace)
+    new_pending = create_pending(
+        db,
+        user=user,
+        workspace_id=workspace_id,
+        sql=guarded_repair.sql,
+        limit_clamped=guarded_repair.limit_clamped,
+        context=repaired_context,
+        parent_id=pending.id,
+    )
+    return {**repaired_context, **public_pending(new_pending)}
+
+
+@router.post("/{workspace_id}/pending/{pending_id}/approve")
+def approve_pending_query(
+    workspace_id: str,
+    request: ApproveRequest,
+    pending_id: str = PendingId,
     workspace: Dict = Depends(require_workspace_editor),
     user=Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    proposal = session_manager.active_proposals.get(workspace_id)
-    
-    if not proposal or proposal["id"] != request.proposal_id:
-        raise HTTPException(status_code=400, detail="Invalid or expired proposal.")
+    """Run one approved query: same user and workspace, once, before expiry.
 
+    The stored SQL is re-validated by the guardrail (against the live schema
+    and current limits) and executed byte-for-byte. If the database rejects
+    it, a repaired query is proposed for a fresh approval instead of running.
+    """
+
+    pending = claim_pending(
+        db, pending_id=pending_id, user=user, workspace_id=workspace_id, expected_hash=request.sql_hash
+    )
+    proposal = pending_context(pending)
+    proposal.update({"sql": pending.sql, "workspace_id": workspace_id})
+    proposal.setdefault("id", f"qry_{uuid4().hex[:12]}")
+    proposal.setdefault("question", "")
     controls = session_manager.get_guardrails(workspace_id)
-    
+
     try:
-        executor = ReadOnlyExecutor(
-            workspace["database_uri"],
-            max_rows=controls["max_rows"],
-            dialect=workspace.get("dialect", "sqlite"),
-            timeout_seconds=controls["timeout_seconds"],
-            connect_args=workspace.get("connect_args"),
-        )
-        
+        executor = _workspace_executor(workspace, controls)
         try:
-            result = executor.execute(proposal["sql"])
+            result = executor.execute(pending.sql, exact=True, limit_clamped=pending.limit_clamped)
+        except QueryTimeoutError as timeout:
+            finish_pending(db, pending, "timeout")
+            raise HTTPException(
+                status_code=400,
+                detail=f"{timeout} Try a narrower question, for example a shorter date range.",
+            ) from None
         except QueryExecutionError as execution_error:
-            client = get_sql_client()
-            if not isinstance(client, LocalMLXSQLClient):
+            finish_pending(db, pending, "failed")
+            logger.info("approved query failed on the database; proposing a repair")
+            repaired = _repair_proposal(
+                db=db,
+                user=user,
+                workspace_id=workspace_id,
+                workspace=workspace,
+                executor=executor,
+                pending=pending,
+                context=proposal,
+                execution_error=execution_error,
+            )
+            if repaired is None:
                 raise
-            schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
-                workspace["database_uri"], connect_args=workspace.get("connect_args")
-            )
-            selected_schema = _schema_for_tables(schema, proposal.get("selected_tables", []))
-            repair_question = (
-                "Original question:\n" + proposal.get("processing_question", proposal["question"])
-                + "\n\nStructured plan:\n"
-                + json.dumps(proposal.get("intent_plan", {}), ensure_ascii=False, separators=(",", ":"))
-            )
-            repaired_sql = client.generate_sql(
-                schema=selected_schema,
-                question=repair_question,
-                previous_sql=proposal["sql"],
-                feedback=[f"Exact database error: {execution_error.database_error}"],
-            )
-            # Guard and database-plan the replacement before its single execution.
-            guarded_repair = executor.validate_query_plan(repaired_sql)
-            result = executor.execute(guarded_repair.sql)
-            proposal["sql"] = guarded_repair.sql
-            proposal["model_attempts"] = int(proposal.get("model_attempts", 1)) + 1
-            repair_trace = proposal.setdefault("pipeline_trace", {})
-            repair_trace["retry_count"] = int(
-                proposal.get("pipeline_trace", {}).get("retry_count", 0)
-            ) + 1
-            repair_trace["sql"] = _redact_sql(guarded_repair.sql)
-            repair_trace["validation_outcome"] = "accepted_after_runtime_repair"
-            _log_trace(repair_trace)
-        
+            return {
+                "status": "repair_pending_approval",
+                "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
+                "proposal": repaired,
+            }
+        finish_pending(db, pending, "executed")
+
         try:
             verification = get_verifier().verify(
                 question=proposal.get("processing_question", proposal["question"]),
@@ -467,6 +581,9 @@ def execute_query(
             **proposal,
             "status": "executed",
             "sql": result.sql,
+            "approved_pending_id": pending.id,
+            "truncated": result.truncated,
+            "row_cap": result.row_cap,
             "row_count": result.row_count,
             "rows": result.rows,
             "columns": result.columns,
@@ -475,8 +592,9 @@ def execute_query(
             "executed_at": utc_now(),
         }
         
+        for transient in ("pending_id", "sql_hash", "expires_at", "repair_of"):
+            record.pop(transient, None)
         session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
-        session_manager.active_proposals.pop(workspace_id, None)
         session_manager.save(active_workspace_id=workspace_id)
         create_notification(
             db,
@@ -548,6 +666,10 @@ def execute_query(
             }
         }
         
-    except (QueryExecutionError, ValueError) as exc:
+    except SQLGuardrailError as exc:
+        finish_pending(db, pending, "blocked")
+        logger.warning("approved query blocked on re-validation: %s", type(exc).__name__)
+        raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
+    except (QueryExecutionError, SQLGenerationError, LocalMLXConfigurationError, ValueError) as exc:
         logger.exception("query execution failed: %s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The query could not be executed.") from None

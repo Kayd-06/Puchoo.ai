@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -132,3 +132,29 @@ class Notification(Base):
     resource_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class PendingQuery(Base):
+    """Generated SQL that is waiting for the user's explicit approval.
+
+    The server never runs generated SQL on its own. ``sql`` is the exact,
+    guarded text shown to the user; approval runs it once, for the same user,
+    tenant and workspace, before ``expires_at``.
+    """
+
+    __tablename__ = "pending_queries"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    sql: Mapped[str] = mapped_column(Text, nullable=False)
+    sql_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    limit_clamped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Question, plan and other non-secret context needed to build the history record.
+    context_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    parent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
