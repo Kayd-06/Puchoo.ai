@@ -121,9 +121,18 @@ To replace the final call-to-action image, add a file at `frontend/public/cta-vi
 
 ## Safe execution and verification
 
-- A question is answered automatically only after its SQL passes the read-only guardrails and database query-plan validation.
-- The execution boundary parses SQL with SQLGlot, accepts one `SELECT` only, rejects data-changing CTEs and multiple statements, and clamps the outermost `LIMIT`.
+- **Nothing runs without your approval.** Asking a question generates SQL, validates it, and stores it as a pending query (about 10 minutes). The UI shows the exact SQL with **Run** and **Cancel**. Run sends `POST /api/query/{workspace}/pending/{id}/approve` with the SQL's SHA-256; it is CSRF-protected, works once, only for the user who asked (same tenant and workspace), and is rejected after expiry. The SQL is re-validated against the live schema and current limits, then run byte-for-byte.
+- If the database rejects an approved query, Puchoo.si may propose a corrected query. The correction is a new pending query and needs its own approval ("Run again"); it is never run automatically.
+- **Guardrail allowlist.** SQLGlot parses every query. Only one `SELECT` is allowed (CTEs and `UNION`/`INTERSECT`/`EXCEPT` of selects are fine). Only allowlisted functions (aggregates, math, string, date/time, `CASE`/`COALESCE`/`NULLIF`/`CAST`, window functions) may be called, per dialect; anything else, such as `pg_sleep`, `pg_read_file`, `dblink`, `lo_import`, `set_config`, `SLEEP`, `BENCHMARK`, `LOAD_FILE`, `load_extension` or `readfile`, is rejected. Only tables and columns of the active data source may be read; system schemas and catalog tables (`pg_catalog`, `information_schema`, `mysql`, `performance_schema`, `sys`, `sqlite_master`, `pg_*`) are always rejected, as are `SELECT INTO`/`INTO OUTFILE`, `FOR UPDATE`/`FOR SHARE`, session variables, bind parameters, executable comments (`/*! */`, optimizer hints), bare session keywords such as `session_user`, SQLite's `IN table_name` shorthand and invisible Unicode characters. Schema prefixes must name the source's own schema, using the database's own case rules (in PostgreSQL `"Public"` is not `public`). Plain comments are stripped from the SQL that runs.
+- **Database-level limits.** PostgreSQL queries run in a `READ ONLY` transaction with `SET LOCAL statement_timeout`; MySQL/MariaDB use a read-only session and transaction with `max_execution_time` (`max_statement_time` on MariaDB); SQLite sources are opened with `mode=ro` plus `PRAGMA query_only` and a timeout. Results are capped with `fetchmany` and flagged as `truncated` when the cap is reached.
+- **Use a read-only database user.** These controls are defence in depth, not a substitute for least privilege. Connect Postgres and MySQL sources with a dedicated user that can only `SELECT` the tables Puchoo.si should see (for example `GRANT SELECT ON ALL TABLES IN SCHEMA public TO puchoo_readonly;` on Postgres, `GRANT SELECT ON reporting.* TO 'puchoo_readonly'@'%';` on MySQL), with no superuser, `FILE`, `pg_read_server_files`, or `pg_execute_server_program` rights.
 - No credentials or source data are stored in the React UI. The FastAPI layer maintains strict session and tenant boundaries.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `QUERY_STATEMENT_TIMEOUT_SECONDS` | `15` | Server-wide ceiling for one query (1–300). Workspace settings can only lower it. |
+| `QUERY_MAX_ROWS` | `5000` | Server-wide ceiling for returned rows (1–100000). Workspace settings can only lower it. |
+| `PENDING_QUERY_TTL_SECONDS` | `600` | How long generated SQL can wait for approval (30–3600). |
 
 ## Configuration
 
