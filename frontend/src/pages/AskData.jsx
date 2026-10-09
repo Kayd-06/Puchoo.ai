@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, Play, ShieldCheck, Sparkles, Square, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
@@ -251,6 +251,9 @@ export default function AskData() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [clarification, setClarification] = useState(null);
+  // Generated SQL waiting for the user's explicit Run / Cancel decision.
+  const [pending, setPending] = useState(null);
+  const [running, setRunning] = useState(false);
   const [voiceState, setVoiceState] = useState('idle');
   const [voiceError, setVoiceError] = useState('');
   const recorderRef = useRef(null);
@@ -266,12 +269,27 @@ export default function AskData() {
       ? { className: 'badge badge-bad', label: 'Verification failed' }
       : { className: 'badge badge-warn', label: resultLabels.needs_review };
 
+  const reportError = async (err, fallback) => {
+    const message = err.message || fallback;
+    if (message.toLowerCase().includes('workspace not found')) {
+      await refreshWorkspaces();
+      setError('The previous workspace was no longer active. Your saved workspaces were refreshed; please try again.');
+    } else {
+      setError(message);
+    }
+  };
+
   const handleAsk = async () => {
     if (!question.trim() || !activeWorkspaceId) return;
+    if (pending) {
+      // A new question replaces the proposal on screen; release it on the server too.
+      fetchApi(`/query/${activeWorkspaceId}/pending/${pending.pending_id}/cancel`, { method: 'POST' }).catch(() => {});
+    }
     setLoading(true);
     setError('');
     setResult(null);
     setClarification(null);
+    setPending(null);
     try {
       const questionForQuery = continuation
         ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${question.trim()}`
@@ -284,24 +302,47 @@ export default function AskData() {
         setClarification(proposal);
         return;
       }
-      
-      // Auto-execute for now as requested by HLD Phase 1 pilot flow logic
-      const execResult = await fetchApi(`/query/${activeWorkspaceId}/execute`, {
-        method: 'POST',
-        body: JSON.stringify({ proposal_id: proposal.id })
-      });
-      
-      setResult(execResult);
+      // Nothing runs until the user reviews the SQL and presses Run.
+      setPending({ ...proposal, repairMessage: null });
     } catch (err) {
-      const message = err.message || 'Error executing query';
-      if (message.toLowerCase().includes('workspace not found')) {
-        await refreshWorkspaces();
-        setError('The previous workspace was no longer active. Your saved workspaces were refreshed; please try again.');
-      } else {
-        setError(message);
-      }
+      await reportError(err, 'Error generating query');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runPending = async () => {
+    if (!pending || !activeWorkspaceId || running) return;
+    setRunning(true);
+    setError('');
+    try {
+      const response = await fetchApi(`/query/${activeWorkspaceId}/pending/${pending.pending_id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ sql_hash: pending.sql_hash }),
+      });
+      if (response?.status === 'repair_pending_approval') {
+        // The corrected SQL is only proposed. It needs a fresh approval.
+        setPending({ ...response.proposal, repairMessage: response.message });
+        return;
+      }
+      setPending(null);
+      setResult(response);
+    } catch (err) {
+      setPending(null);
+      await reportError(err, 'Error executing query');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const cancelPending = async () => {
+    if (!pending || !activeWorkspaceId) return;
+    const pendingId = pending.pending_id;
+    setPending(null);
+    try {
+      await fetchApi(`/query/${activeWorkspaceId}/pending/${pendingId}/cancel`, { method: 'POST' });
+    } catch {
+      // The approval also expires on its own; nothing else to undo.
     }
   };
 
@@ -453,9 +494,9 @@ export default function AskData() {
                   </button>
                 </div>
                 <div className="ask-prompt-actions">
-                  {loading ? <span id="query-processing-status" className="ask-query-mode ask-query-processing"><i /> Generating answer</span> : <span className="ask-query-mode">Verified query <ChevronDown size={14} /></span>}
+                  {loading ? <span id="query-processing-status" className="ask-query-mode ask-query-processing"><i /> Generating query</span> : <span className="ask-query-mode">Verified query <ChevronDown size={14} /></span>}
                   {question && <button className="ask-clear-button" type="button" onClick={() => { setQuestion(''); setQuestionLanguage(null); }}>Clear</button>}
-                  <button className="ask-submit-button" type="button" onClick={handleAsk} disabled={loading || !question.trim()} aria-label="Run secure query">
+                  <button className="ask-submit-button" type="button" onClick={handleAsk} disabled={loading || running || !question.trim()} aria-label="Generate secure query">
                     {loading ? <LoaderCircle size={19} className="voice-spinner" /> : <ArrowUpRight size={20} />}
                   </button>
                 </div>
@@ -487,6 +528,34 @@ export default function AskData() {
             ))}
           </div>
         </div>
+      )}
+
+      {pending && (
+        <section className="card animate-fade-slide" aria-label="Review query before running" style={{ marginBottom: '2rem' }}>
+          <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <ShieldCheck size={18} /> {pending.repairMessage ? 'Corrected query ready for review' : 'Review the query before it runs'}
+          </h3>
+          {pending.repairMessage && <p role="status" style={{ color: 'var(--text-primary)', marginBottom: '0.75rem' }}>{pending.repairMessage}</p>}
+          {pending.interpreted_request && (
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Interpreted request: {pending.interpreted_request}</p>
+          )}
+          {pending.assumptions?.length > 0 && (
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Assumptions: {pending.assumptions.join('; ')}</p>
+          )}
+          <p style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Puchoo.si will run exactly this read-only SQL, once, only if you choose Run.</p>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: '1rem' }}>{pending.sql}</pre>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" className="btn btn-primary" onClick={runPending} disabled={running}>
+              {running ? <LoaderCircle size={16} className="voice-spinner" /> : <Play size={16} />} {pending.repairMessage ? 'Run again' : 'Run query'}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={cancelPending} disabled={running}><X size={16} /> Cancel</button>
+            {pending.expires_at && (
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                Approval expires at {new Date(pending.expires_at).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        </section>
       )}
 
       {error && (
@@ -560,7 +629,11 @@ export default function AskData() {
 
           <section className="result-table-card">
             <div className="result-table-heading">
-              <div><span className="result-overline">{resultLabels.detailed_results}</span><p>{result.record.row_count ?? 0} {resultLabels.rows_returned}</p></div>
+              <div>
+                <span className="result-overline">{resultLabels.detailed_results}</span>
+                <p>{result.record.row_count ?? 0} {resultLabels.rows_returned}</p>
+                {result.record.truncated && <p role="status">Showing the first {result.record.row_count} rows; the row limit was reached. Narrow the question to see the rest.</p>}
+              </div>
               <span className="result-table-status"><span></span>{resultLabels.read_only_query}</span>
             </div>
             <div className="result-table-scroll">
