@@ -405,12 +405,11 @@ def remove_workspace_member(
     member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
     now = utcnow()
     _revoke_sessions_and_challenges(db, member.id, now)
-    # The removed member still knows the shared code for their role; retire it
-    # so they (or anyone they forwarded it to) cannot rejoin with the same code.
+    # The removed member still knows the shared codes; retire all of them
+    # so they (or anyone they forwarded them to) cannot rejoin.
     for invite in db.scalars(
         select(InstituteInvite).where(
             InstituteInvite.owner_user_id == member.workspace_owner_id,
-            InstituteInvite.role == member.workspace_role,
             InstituteInvite.revoked_at.is_(None),
         )
     ).all():

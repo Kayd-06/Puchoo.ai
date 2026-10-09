@@ -68,6 +68,22 @@ class TabularWorkspaceTests(unittest.TestCase):
         self.assertIn("Table: orders", schema)
         self.assertIn("customer_id: customers.customer_id, orders.customer_id", schema)
 
+    def test_csv_sniffing_handles_utf8_multi_byte_boundaries(self) -> None:
+        # 15 bytes of data + 2 byte char = 17 bytes, chunk size is 16
+        # 'A' * 14 + ',' = 15 bytes. Next is 'ñ' which is 2 bytes (c3 b1).
+        # Chunk 1 will end at 'c3' (invalid utf8).
+        # The sniffer should decode with errors='replace' to avoid crashing.
+        content = b'A' * 14 + b',\xc3\xb1\nB,C\n'
+        workspace = create_tabular_workspace(
+            "Boundary Test",
+            "boundary.csv",
+            content,
+            storage_dir=Path(self.temp_dir.name),
+        )
+        self.assertEqual("spreadsheet", workspace.source_type)
+        schema = get_schema_snapshot(workspace.database_uri)
+        self.assertIn("Table: boundary", schema)
+
 
 class ServerWorkspaceTests(unittest.TestCase):
     @patch("apps.core.workspaces.checked_connection_host", return_value="8.8.8.8")

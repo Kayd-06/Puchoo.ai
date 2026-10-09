@@ -121,3 +121,59 @@ def test_member_cannot_manage_another_member(client, otp_codes):
             headers=csrf_headers(member_client),
         )
         assert response.status_code == 403
+
+def test_removing_member_revokes_all_workspace_invites(client, otp_codes):
+    """When a member is removed, all open invite codes for the workspace are retired."""
+    _owner_email, viewer_code = _create_owner_and_invite(client, otp_codes, role="viewer")
+
+    # Create an editor code too
+    editor_invite = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "editor"},
+        headers=csrf_headers(client),
+    )
+    assert editor_invite.status_code == 200
+    editor_code = editor_invite.json()["code"]
+
+    # Member joins using the viewer code
+    with TestClient(client.app) as member_client:
+        joined = member_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(
+                full_name="Northstar Member",
+                email="member@northstar.com",
+                invite_code=viewer_code,
+            ),
+            headers=csrf_headers(member_client),
+        )
+        assert joined.status_code == 202
+        finish_signup(member_client, "member@northstar.com", otp_codes)
+
+        db = database.SessionLocal()
+        try:
+            member_id = db.query(User.id).filter_by(email="member@northstar.com").scalar()
+        finally:
+            db.close()
+
+        # The owner removes the member
+        removed = client.delete(
+            f"/api/v1/auth/workspace/members/{member_id}",
+            headers=csrf_headers(client),
+        )
+        assert removed.status_code == 204
+
+    # Now verify both invites are revoked and cannot be used
+    with TestClient(client.app) as another_member_client:
+        viewer_join = another_member_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email="another1@northstar.com", invite_code=viewer_code),
+            headers=csrf_headers(another_member_client),
+        )
+        assert viewer_join.status_code == 400
+
+        editor_join = another_member_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email="another2@northstar.com", invite_code=editor_code),
+            headers=csrf_headers(another_member_client),
+        )
+        assert editor_join.status_code == 400

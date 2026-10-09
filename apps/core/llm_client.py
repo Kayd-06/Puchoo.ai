@@ -560,6 +560,26 @@ GROUP BY p.product_id, p.product_name
 ORDER BY total_quantity_sold DESC, p.product_id ASC
 LIMIT 1"""
 
+    attendance_threshold = re.search(
+        r"\boverall\s+attend(?:ance|ence)\b[\s\S]{0,40}?"
+        r"(?:greater\s+than|more\s+than|above|over|at\s+least)\s+"
+        r"(\d+(?:\.\d+)?)\s*(?:percent|precent|%)?\b",
+        q,
+    )
+    if re.search(r"\bstudents?\b", q) and attendance_threshold:
+        students = find_table({"student_id", "full_name"})
+        attendance = find_table({"student_id", "attendance_percentage"})
+        if students and attendance:
+            threshold = float(attendance_threshold.group(1))
+            comparison = ">=" if "at least" in attendance_threshold.group(0) else ">"
+            return f"""SELECT s.student_id, s.full_name,
+       ROUND(AVG(a.attendance_percentage), 2) AS overall_attendance
+FROM {attendance} AS a
+JOIN {students} AS s ON s.student_id = a.student_id
+GROUP BY s.student_id, s.full_name
+HAVING AVG(a.attendance_percentage) {comparison} {threshold:g}
+ORDER BY overall_attendance DESC, s.full_name ASC"""
+
     comprehensive_student_summary = (
         bool(re.search(r"\b(?:for\s+)?every\s+student|\ball\s+students\b", q))
         and "marks" in q

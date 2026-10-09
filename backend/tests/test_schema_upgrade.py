@@ -1,8 +1,20 @@
 """Database startup upgrades versioned schemas before serving requests."""
 
+import pytest
 from sqlalchemy import inspect, text
 
 from backend import database
+
+
+@pytest.fixture(autouse=True)
+def restore_database_configuration():
+    """Keep migration tests from leaking their temporary engine to other tests."""
+
+    original_url = database.engine.url.render_as_string(hide_password=False)
+    try:
+        yield
+    finally:
+        database.configure_database(original_url)
 
 
 def test_init_db_upgrades_stale_invite_schema_and_removes_recovery_codes(tmp_path):
@@ -24,3 +36,16 @@ def test_init_db_upgrades_stale_invite_schema_and_removes_recovery_codes(tmp_pat
     assert "recovery_codes" not in inspector.get_table_names()
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261008_0012"
+
+
+def test_init_db_refuses_to_adopt_unversioned_schema(tmp_path):
+    """If tables exist but alembic_version is missing, startup fails to prevent data loss."""
+    database.configure_database("sqlite:///" + (tmp_path / "unversioned.db").as_posix())
+
+    with database.engine.begin() as connection:
+        connection.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+
+    with pytest.raises(RuntimeError) as exc:
+        database.init_db()
+
+    assert "Database has tables but no alembic_version" in str(exc.value)

@@ -24,7 +24,7 @@ def _mailbox(value: str | None, label: str) -> str:
 
 def send_otp_email(to_email: str, otp_code: str) -> None:
     message = _message(to_email)
-    message["Subject"] = f"{otp_code} is your Puchoo.ai verification code"
+    message["Subject"] = f"{otp_code} is your Puchoo.si verification code"
     message.attach(MIMEText(_text(otp_code), "plain", "utf-8"))
     message.attach(MIMEText(_html(otp_code), "html", "utf-8"))
     _deliver(message)
@@ -34,10 +34,10 @@ def send_email_changed_notice(to_email: str) -> None:
     """Tell the previous address that the account email was changed."""
 
     message = _message(to_email)
-    message["Subject"] = "Your Puchoo.ai email address was changed"
+    message["Subject"] = "Your Puchoo.si email address was changed"
     text = (
-        "Puchoo.ai\n\n"
-        "The email address on your Puchoo.ai account was just changed.\n"
+        "Puchoo.si\n\n"
+        "The email address on your Puchoo.si account was just changed.\n"
         "If you made this change, you can ignore this email.\n"
         "If you did not, reset your password and contact support.\n"
     )
@@ -48,7 +48,7 @@ def send_email_changed_notice(to_email: str) -> None:
           <tr><td align="center">
             <table width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;padding:32px;">
               <tr><td>
-                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.ai</p>
+                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.si</p>
                 <h1 style="margin:12px 0 0;color:#111827;font-size:22px;font-weight:600;">Your email address was changed</h1>
                 <p style="margin:16px 0 0;color:#6b7280;font-size:14px;line-height:1.5;">
                   If you made this change, you can ignore this email. If you did not, reset your password.
@@ -124,7 +124,7 @@ def _deliver(message: MIMEMultipart) -> None:
 
 def _text(otp_code: str) -> str:
     return (
-        "Puchoo.ai\n\n"
+        "Puchoo.si\n\n"
         f"Your verification code is {otp_code}.\n\n"
         "Enter it to finish logging in. This code expires in 5 minutes.\n"
         "If you did not try to log in, you can ignore this email.\n"
@@ -139,7 +139,7 @@ def _html(otp_code: str) -> str:
           <tr><td align="center">
             <table width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;padding:32px;">
               <tr><td>
-                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.ai</p>
+                <p style="margin:0;color:#6b7280;font-size:13px;">Puchoo.si</p>
                 <h1 style="margin:12px 0 0;color:#111827;font-size:22px;font-weight:600;">Your verification code</h1>
                 <p style="margin:24px 0;letter-spacing:0.3em;font-size:32px;color:#111827;">{otp_code}</p>
                 <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.5;">
