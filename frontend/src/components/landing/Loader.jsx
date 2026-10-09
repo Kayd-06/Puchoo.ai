@@ -46,7 +46,7 @@ export default function Loader() {
     <motion.div
       className="fixed inset-3 z-[70] grid place-items-center overflow-hidden rounded-[28px] bg-[#070b10] text-white md:inset-4"
       role="dialog"
-      aria-label="Loading Puchoo.ai"
+      aria-label="Loading Puchoo.si"
       animate={leaving ? { opacity: 0, scale: 1.03 } : { opacity: 1, scale: 1 }}
       transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
       onAnimationComplete={() => {

@@ -18,7 +18,7 @@ if "opentelemetry.exporter.otlp.proto.grpc.trace_exporter" not in sys.modules:
 from backend.database import configure_database, init_db
 from backend.emailer import EmailDeliveryError
 from backend.main import create_app
-from backend.rate_limit import connection_limiter, limiter
+from backend.rate_limit import authenticated_limiter, connection_limiter, limiter, public_limiter
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +38,8 @@ def app(tmp_path):
     init_db()
     limiter.reset()
     connection_limiter.reset()
+    public_limiter.reset()
+    authenticated_limiter.reset()
     return create_app(include_product=False)
 
 

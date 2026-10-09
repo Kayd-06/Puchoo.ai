@@ -15,11 +15,11 @@ export default function AuthShell({ title, subtitle, children, footer, dense = f
           to="/"
           className={`relative flex items-center gap-2 font-medium tracking-[-0.03em] ${focusRing} w-fit rounded-full`}
         >
-          <Mark className="h-6 w-6" />
-          Puchoo.ai
+          <Mark className="h-8 w-8" />
+          Puchoo.si
         </Link>
         <div className="relative mt-16 max-w-lg lg:mt-0">
-          <p className="text-xs tracking-[.18em] text-[#aebcd6] uppercase">Puchoo account</p>
+          <p className="text-xs tracking-[.18em] text-[#aebcd6] uppercase">Puchoo.si account</p>
           <h1 className="mt-5 text-[clamp(36px,5vw,60px)] leading-[.94] font-medium tracking-[-0.055em]">
             Intelligence starts with a <span className="text-[#9dbaf5]">safe question.</span>
           </h1>

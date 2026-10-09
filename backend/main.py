@@ -1,6 +1,7 @@
 """FastAPI entrypoint for accounts and, when enabled, the analytics API."""
 
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -12,6 +13,8 @@ from backend.config import settings
 from backend.csrf import CSRFCookieMiddleware
 from backend.database import init_db
 from backend.routers.auth import router as auth_router
+
+logger = logging.getLogger(__name__)
 
 
 def _validation_detail(exc: RequestValidationError) -> str:
@@ -37,8 +40,8 @@ def create_app(*, include_product: bool = True) -> FastAPI:
         yield
 
     app = FastAPI(
-        title="Puchoo.ai API",
-        description="FastAPI is the only security boundary for Puchoo.ai.",
+        title="Puchoo.si API",
+        description="FastAPI is the only security boundary for Puchoo.si.",
         version="1.0.0",
         lifespan=lifespan,
     )
@@ -46,6 +49,11 @@ def create_app(*, include_product: bool = True) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_handler(_request, exc: RequestValidationError):
         return JSONResponse(status_code=422, content={"detail": _validation_detail(exc)})
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(_request, exc: Exception):
+        logger.exception("Unhandled API error: %s", type(exc).__name__, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "An unexpected error occurred."})
 
     app.add_middleware(
         CORSMiddleware,

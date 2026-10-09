@@ -51,12 +51,20 @@ def test_notifications_are_private_and_can_be_marked_read(app, otp_codes):
         listed = client.get("/api/notifications/")
         assert listed.status_code == 200
         payload = listed.json()
-        assert payload["unread_count"] == 1
-        assert [item["id"] for item in payload["items"]] == [own_id]
+        assert payload["unread_count"] == 2
+        assert payload["items"][0]["id"] == own_id
+        assert any(
+            item["kind"] == "session_started"
+            and item["title"] == "Welcome, Ada"
+            and "workspace is ready" in item["body"]
+            for item in payload["items"]
+        )
 
         forbidden = client.post(f"/api/notifications/{other_id}/read", headers=csrf_headers(client))
         assert forbidden.status_code == 404
 
         marked = client.post(f"/api/notifications/{own_id}/read", headers=csrf_headers(client))
         assert marked.status_code == 200
+        assert client.get("/api/notifications/").json()["unread_count"] == 1
+        assert client.post("/api/notifications/read-all", headers=csrf_headers(client)).status_code == 200
         assert client.get("/api/notifications/").json()["unread_count"] == 0

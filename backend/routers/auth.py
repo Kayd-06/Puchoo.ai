@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend import emailer
+from backend.config import settings
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
 from backend.models import (
@@ -19,11 +20,10 @@ from backend.models import (
     InstituteInvite,
     LoginChallenge,
     PasswordResetCode,
-    RecoveryCode,
     User,
 )
 from backend.notifications import create_notification
-from backend.rate_limit import limiter
+from backend.rate_limit import authenticated_limiter, limiter, public_limiter
 from backend.schemas import (
     AuthResponse,
     EmailChangeRequest,
@@ -34,12 +34,12 @@ from backend.schemas import (
     WorkspaceInviteRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
-    RecoveryCodesRequest,
-    RecoveryCodesResponse,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
     VerifyLoginRequest,
+    WorkspaceMemberResponse,
+    WorkspaceMemberRoleRequest,
 )
 from backend.security import (
     GENERIC_SIGNUP_ERROR,
@@ -80,28 +80,49 @@ LOGIN_EXPIRED = "Login session expired, please sign in again"
 EMAIL_FAILED = "We could not send the verification email. Try again in a moment."
 RESEND_COOLDOWN_ERROR = "Please wait before requesting another code."
 RESEND_LIMIT_ERROR = "Too many codes were sent. Check your email for the latest code or sign in again."
-RECOVERY_CODE_COUNT = 10
-RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+INVITE_TTL = timedelta(days=7)
 
 
 def _user_response(user: User) -> UserResponse:
     return UserResponse.model_validate(user)
 
 
+def _invite_expired(invite: InstituteInvite, now: datetime) -> bool:
+    expiry = invite.expires_at or (as_utc(invite.created_at) + INVITE_TTL)
+    return as_utc(expiry) <= now
+
+
+def _workspace_member_response(user: User, tenant_id: str) -> WorkspaceMemberResponse:
+    return WorkspaceMemberResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        role="owner" if user.id == tenant_id else user.workspace_role,
+    )
+
+
+def _managed_workspace_member(db: Session, tenant_id: str, member_id: str) -> User:
+    member = db.get(User, member_id)
+    if member is None or member.id == tenant_id or member.workspace_owner_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Workspace member not found")
+    return member
+
+
 def _rate_limit(action: str, request: Request, email: str) -> None:
-    allowed = limiter.allow(
+    allowed, retry_after = limiter.allow_with_backoff(
         [
             f"{action}:ip:{client_ip(request)}",
-            f"{action}:email:{email}",
+            f"{action}:account:{email}",
         ]
     )
     if not allowed:
-        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": "900"})
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": str(retry_after)})
 
 
 def _rate_limit_ip(action: str, request: Request) -> None:
-    if not limiter.allow([f"{action}:ip:{client_ip(request)}"]):
-        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": "900"})
+    allowed, retry_after = limiter.allow_with_backoff([f"{action}:ip:{client_ip(request)}"])
+    if not allowed:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_ERROR, headers={"Retry-After": str(retry_after)})
 
 
 def _issue_session(db: Session, user: User, response: Response) -> None:
@@ -153,11 +174,15 @@ def current_user(
     response: Response,
     db: Session = Depends(get_db),
 ) -> User:
-    from backend.config import settings
-
     record = _active_session(db, request.cookies.get(settings.session_cookie_name))
     if record is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    if not authenticated_limiter.allow([f"user:{record.user_id}"]):
+        raise HTTPException(
+            status_code=429,
+            detail=RATE_LIMIT_ERROR,
+            headers={"Retry-After": str(settings.authenticated_rate_window_seconds)},
+        )
     # Keep a signed session stable during normal use. Per-request rotation is
     # unsafe in a browser: parallel calls (including an SSE connection) can
     # return Set-Cookie headers out of order and strand the client with a token
@@ -176,9 +201,15 @@ def current_user(
 
 
 @router.get("/csrf", status_code=204)
-def issue_csrf() -> Response:
+def issue_csrf(request: Request) -> Response:
     """The CSRF cookie middleware attaches the double-submit cookie."""
 
+    if not public_limiter.allow([f"csrf:ip:{client_ip(request)}"]):
+        raise HTTPException(
+            status_code=429,
+            detail=RATE_LIMIT_ERROR,
+            headers={"Retry-After": str(settings.public_rate_window_seconds)},
+        )
     return Response(status_code=204)
 
 
@@ -195,7 +226,7 @@ def signup(
     invite = None
     if body.invite_code:
         invite = db.scalar(select(InstituteInvite).where(InstituteInvite.code_hash == hash_token(body.invite_code), InstituteInvite.revoked_at.is_(None)))
-        if invite is None:
+        if invite is None or _invite_expired(invite, utcnow()):
             raise HTTPException(status_code=400, detail="That workspace invite code is invalid.")
         owner = db.get(User, invite.owner_user_id)
         if owner is None:
@@ -294,6 +325,7 @@ def _create_workspace_invite(
         code_hash=hash_token(code),
         workspace_type=user.workspace_type,
         role=role,
+        expires_at=now + INVITE_TTL,
     ))
     db.commit()
     return InstituteInviteResponse(
@@ -318,6 +350,78 @@ def create_workspace_invite(
 def create_institute_invite(request: Request, response: Response, db: Session = Depends(get_db)) -> InstituteInviteResponse:
     """Compatibility route for existing institute settings screens."""
     return _create_workspace_invite(WorkspaceInviteRequest(role="viewer"), request, response, db)
+
+
+@router.get("/workspace/members", response_model=list[WorkspaceMemberResponse])
+def list_workspace_members(
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[WorkspaceMemberResponse]:
+    from apps.api.security import tenant_owner_id
+
+    tenant_id = tenant_owner_id(user)
+    if user.workspace_type == "personal":
+        return [_workspace_member_response(user, tenant_id)]
+    members = db.scalars(
+        select(User).where((User.id == tenant_id) | (User.workspace_owner_id == tenant_id)).order_by(User.created_at)
+    ).all()
+    return [_workspace_member_response(member, tenant_id) for member in members]
+
+
+@router.patch("/workspace/members/{member_id}", response_model=WorkspaceMemberResponse)
+def update_workspace_member_role(
+    member_id: str,
+    body: WorkspaceMemberRoleRequest,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WorkspaceMemberResponse:
+    from apps.api.security import can_administer_workspace, tenant_owner_id
+
+    enforce_csrf(request)
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
+    tenant_id = tenant_owner_id(user)
+    member = _managed_workspace_member(db, tenant_id, member_id)
+    member.workspace_role = body.role
+    db.commit()
+    return _workspace_member_response(member, tenant_id)
+
+
+@router.delete("/workspace/members/{member_id}", status_code=204)
+def remove_workspace_member(
+    member_id: str,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    from apps.api.security import can_administer_workspace, tenant_owner_id
+
+    enforce_csrf(request)
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
+    member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
+    now = utcnow()
+    _revoke_sessions_and_challenges(db, member.id, now)
+    # The removed member still knows the shared codes; retire all of them
+    # so they (or anyone they forwarded them to) cannot rejoin.
+    for invite in db.scalars(
+        select(InstituteInvite).where(
+            InstituteInvite.owner_user_id == member.workspace_owner_id,
+            InstituteInvite.revoked_at.is_(None),
+        )
+    ).all():
+        invite.revoked_at = now
+    member.workspace_type = "personal"
+    member.workspace_name = None
+    member.workspace_owner_id = None
+    member.workspace_role = "owner"
+    member.institute_name = None
+    member.institute_owner_id = None
+    db.commit()
+    return Response(status_code=204)
 
 
 def _new_otp() -> str:
@@ -449,21 +553,6 @@ def _revoke_sessions_and_challenges(db: Session, user_id: str, now: datetime) ->
             challenge.locked_at = now
 
 
-def _has_recovery_codes(db: Session, user: User) -> bool:
-    return db.scalar(
-        select(RecoveryCode.id).where(
-            RecoveryCode.user_id == user.id,
-            RecoveryCode.consumed_at.is_(None),
-        ).limit(1)
-    ) is not None
-
-
-def _new_recovery_code() -> str:
-    left = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
-    right = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(4))
-    return f"PCH-{left}-{right}"
-
-
 @router.post("/login", response_model=OtpChallengeResponse, response_model_exclude_none=True)
 def login(
     body: LoginRequest,
@@ -483,9 +572,11 @@ def login(
     try:
         emailer.send_otp_email(user.email, raw_code)
     except EmailDeliveryError:
-        # Keep the password-proven challenge so a recovery code can finish
-        # login when mail is down. The response stays the same either way.
+        record.consumed_at = utcnow()
+        db.commit()
+        clear_login_challenge_cookie(response)
         logger.warning("login verification email could not be sent")
+        raise HTTPException(status_code=503, detail=EMAIL_FAILED) from None
     set_login_challenge_cookie(response, record.id)
     return OtpChallengeResponse(email=user.email)
 
@@ -681,18 +772,7 @@ def verify_login(
         _reject_login_challenge(response)
     _rate_limit("verify", request, user.email)
     now = utcnow()
-    recovery_code = None
-    if body.code.startswith("PCH-"):
-        recovery_code = db.scalar(
-            select(RecoveryCode).where(
-                RecoveryCode.user_id == user.id,
-                RecoveryCode.code_hash == hash_token(body.code),
-                RecoveryCode.consumed_at.is_(None),
-            )
-        )
-        code_is_valid = recovery_code is not None
-    else:
-        code_is_valid = otp_matches(body.code, record.code_hash)
+    code_is_valid = otp_matches(body.code, record.code_hash)
     if not code_is_valid:
         locked = _register_failed_attempt(db, record.id)
         if locked:
@@ -701,49 +781,21 @@ def verify_login(
     if not _consume_challenge(db, record.id, now):
         db.rollback()
         _reject_login_challenge(response)
-    if recovery_code is not None:
-        recovery_code.consumed_at = now
     clear_login_challenge_cookie(response)
+    # Welcome only on the first verified sign-in, not on every login.
+    # _issue_session runs after this, so the check sees only earlier sessions.
+    if db.scalar(select(AuthSession.id).where(AuthSession.user_id == user.id).limit(1)) is None:
+        first_name = user.full_name.strip().split(maxsplit=1)[0] or "there"
+        create_notification(
+            db,
+            user_id=user.id,
+            kind="session_started",
+            title=f"Welcome, {first_name}",
+            body="Your secure workspace is ready. Ask a question whenever you are ready.",
+        )
+    db.commit()
     _issue_session(db, user, response)
     return AuthResponse(user=_user_response(user))
-
-
-@router.get("/recovery-codes/status")
-def recovery_codes_status(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return {"available": _has_recovery_codes(db, user)}
-
-
-@router.post("/recovery-codes", response_model=RecoveryCodesResponse)
-def create_recovery_codes(
-    body: RecoveryCodesRequest,
-    request: Request,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> RecoveryCodesResponse:
-    """Replace recovery OTPs after re-authentication and reveal them once."""
-
-    enforce_csrf(request)
-    _rate_limit("recovery-codes", request, user.email)
-    if not verify_password(body.current_password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Current password is incorrect.")
-
-    now = utcnow()
-    for row in db.scalars(
-        select(RecoveryCode).where(
-            RecoveryCode.user_id == user.id,
-            RecoveryCode.consumed_at.is_(None),
-        )
-    ).all():
-        row.consumed_at = now
-
-    codes: list[str] = []
-    while len(codes) < RECOVERY_CODE_COUNT:
-        code = _new_recovery_code()
-        if code not in codes:
-            codes.append(code)
-            db.add(RecoveryCode(user_id=user.id, code_hash=hash_token(code)))
-    db.commit()
-    return RecoveryCodesResponse(codes=codes)
 
 
 @router.post("/logout")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -209,6 +210,42 @@ class LLMClientTests(unittest.TestCase):
             "FROM attendance GROUP BY student_id) SELECT * FROM totals WHERE attendance_average > 75",
         )
         self.assertEqual([], feedback)
+
+    def test_overall_attendance_threshold_has_executable_schema_guided_fallback(self) -> None:
+        schema = """Table: _02_students_students
+Columns: student_id (INTEGER), full_name (TEXT)
+
+Table: _06_attendance_attendance
+Columns: attendance_id (INTEGER), student_id (INTEGER), attendance_date (TEXT), attendance_percentage (REAL)"""
+        question = "Give me the list of students having overall attendance greater than 70 percent"
+
+        sql = schema_guided_fallback_sql(schema, question)
+
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        connection = sqlite3.connect(":memory:")
+        connection.executescript(
+            """
+            CREATE TABLE _02_students_students (student_id INTEGER, full_name TEXT);
+            CREATE TABLE _06_attendance_attendance (
+                attendance_id INTEGER,
+                student_id INTEGER,
+                attendance_date TEXT,
+                attendance_percentage REAL
+            );
+            INSERT INTO _02_students_students VALUES (1, 'Asha'), (2, 'Rohan');
+            INSERT INTO _06_attendance_attendance VALUES
+                (1, 1, '2026-01-01', 80),
+                (2, 1, '2026-01-02', 70),
+                (3, 2, '2026-01-01', 69),
+                (4, 2, '2026-01-02', 70);
+            """
+        )
+        rows = connection.execute(sql).fetchall()
+        connection.close()
+
+        self.assertEqual([(1, "Asha", 75.0)], rows)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
 
     def test_average_cte_alias_can_be_compared_on_right_side(self) -> None:
         feedback = local_semantic_feedback(

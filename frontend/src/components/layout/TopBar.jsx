@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCheck, ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
@@ -24,6 +24,8 @@ export default function TopBar() {
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const notificationRef = useRef(null);
+  const accountRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -53,6 +55,25 @@ export default function TopBar() {
     return () => {
       active = false;
       stream.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    function closeMenus(event) {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) setOpen(false);
+      if (accountRef.current && !accountRef.current.contains(event.target)) setAccountOpen(false);
+    }
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        setAccountOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', closeMenus);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenus);
+      document.removeEventListener('keydown', closeOnEscape);
     };
   }, []);
 
@@ -94,28 +115,28 @@ export default function TopBar() {
       </div>
 
       <div className="app-topbar-actions">
-        <div style={{ position: 'relative' }}>
-          <button type="button" aria-label="Notifications" aria-expanded={open} className="btn btn-secondary" style={{ position: 'relative', padding: '0.55rem' }} onClick={() => setOpen((value) => !value)}>
+        <div ref={notificationRef} className="topbar-menu-anchor">
+          <button type="button" aria-label="Notifications" aria-expanded={open} className={`topbar-icon-button${open ? ' is-active' : ''}`} onClick={() => { setOpen((value) => !value); setAccountOpen(false); }}>
             <Bell size={17} />
-            {unreadCount > 0 && <span aria-label={`${unreadCount} unread notifications`} style={{ position: 'absolute', top: '-.35rem', right: '-.35rem', minWidth: '1.2rem', height: '1.2rem', padding: '0 .25rem', borderRadius: '999px', display: 'grid', placeItems: 'center', background: 'var(--accent-red)', color: '#fff', border: '2px solid var(--bg-surface)', fontSize: '.65rem', fontWeight: 700 }}>{unreadCount > 9 ? '9+' : unreadCount}</span>}
+            {unreadCount > 0 && <span className="topbar-notification-count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
-          {open && <section aria-label="Notifications" className="card" style={{ position: 'absolute', top: 'calc(100% + .6rem)', right: 0, width: 'min(360px, calc(100vw - 2rem))', padding: '0', overflow: 'hidden', zIndex: 20, boxShadow: '0 18px 45px rgba(15, 23, 42, .16)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1rem .8rem', borderBottom: '1px solid var(--border-color)' }}><strong>Notifications</strong>{unreadCount > 0 && <button type="button" className="btn btn-secondary" onClick={markAllRead} style={{ padding: '.35rem .55rem', fontSize: '.75rem' }}><CheckCheck size={14} /> Mark all read</button>}</div>
-            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
-              {notifications.length === 0 ? <p style={{ padding: '1.25rem 1rem', color: 'var(--text-muted)', fontSize: '.875rem' }}>No notifications yet. Real activity will appear here.</p> : notifications.map((notification) => <button key={notification.id} type="button" onClick={() => markRead(notification)} style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderBottom: '1px solid var(--border-color)', padding: '.9rem 1rem', background: notification.read_at ? 'var(--bg-surface)' : '#f0f7ff', color: 'var(--text-primary)', cursor: notification.read_at ? 'default' : 'pointer' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: '.75rem', alignItems: 'baseline' }}><strong style={{ fontSize: '.86rem' }}>{notification.title}</strong><span style={{ flex: '0 0 auto', color: 'var(--text-muted)', fontSize: '.72rem' }}>{timeLabel(notification.created_at)}</span></div>{notification.body && <p style={{ margin: '.25rem 0 0', color: 'var(--text-muted)', fontSize: '.8rem', lineHeight: 1.4 }}>{notification.body}</p>}</button>)}</div>
+          {open && <section aria-label="Notifications" className="topbar-popover topbar-notification-panel">
+            <header className="topbar-popover-header"><div><span>Activity</span><strong>Notifications</strong></div>{unreadCount > 0 && <button type="button" className="topbar-text-button" onClick={markAllRead}><CheckCheck size={14} /> Mark all read</button>}</header>
+            <div className="topbar-notification-list">
+              {notifications.length === 0 ? <p className="topbar-empty-state">Your important workspace activity will appear here.</p> : notifications.map((notification) => <button key={notification.id} type="button" onClick={() => markRead(notification)} className={`topbar-notification-item${notification.read_at ? '' : ' is-unread'}`}><div><strong>{notification.title}</strong><span>{timeLabel(notification.created_at)}</span></div>{notification.body && <p>{notification.body}</p>}</button>)}</div>
           </section>}
         </div>
-        <div style={{ position: 'relative' }}>
-          <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}>
-            <span style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
-            <ChevronDown size={16} color="var(--text-muted)" />
+        <div ref={accountRef} className="topbar-menu-anchor">
+          <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => { setAccountOpen((value) => !value); setOpen(false); }} className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}>
+            <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+            <ChevronDown size={16} />
           </button>
-          {accountOpen && <section aria-label="Account menu" className="card" style={{ position: 'absolute', top: 'calc(100% + .6rem)', right: 0, width: 'min(260px, calc(100vw - 2rem))', padding: '.75rem', zIndex: 20, boxShadow: '0 18px 45px rgba(15, 23, 42, .16)' }}>
-            <div style={{ padding: '.25rem .35rem .75rem', borderBottom: '1px solid var(--border-color)' }}>
-              <strong style={{ display: 'block', fontSize: '.9rem' }}>{user?.full_name || 'Your account'}</strong>
-              <span style={{ display: 'block', marginTop: '.2rem', color: 'var(--text-muted)', fontSize: '.78rem', overflowWrap: 'anywhere' }}>{user?.email}</span>
+          {accountOpen && <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
+            <div className="topbar-account-summary">
+              <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+              <div><strong>{user?.full_name || 'Your account'}</strong><span>{user?.email}</span></div>
             </div>
-            <button type="button" className="btn btn-secondary" onClick={onLogout} disabled={loggingOut} style={{ width: '100%', justifyContent: 'flex-start', marginTop: '.75rem', color: 'var(--accent-red)' }}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
+            <button type="button" className="topbar-logout-button" onClick={onLogout} disabled={loggingOut}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
           </section>}
         </div>
       </div>

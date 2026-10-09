@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
@@ -13,7 +13,7 @@ const DEFAULT_RESULT_LABELS = {
   no_rows: 'No rows returned.',
   view_sql: 'View generated SQL',
   read_only_query: 'Read-only query',
-  interpretation: 'How Puchoo interpreted this request',
+  interpretation: 'How Puchoo.si interpreted this request',
   view_details: 'View details',
   verified_match: 'Verified match',
   needs_review: 'Needs review',
@@ -225,6 +225,20 @@ function QueryUniverse() {
   return <canvas ref={canvasRef} className="ask-universe" aria-hidden="true" />;
 }
 
+function consumeWelcome(routeWelcome) {
+  try {
+    const saved = window.sessionStorage.getItem('puchoo:welcome');
+    window.sessionStorage.removeItem('puchoo:welcome');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (typeof parsed?.title === 'string' && typeof parsed?.message === 'string') return parsed;
+    }
+  } catch {
+    // A welcome banner is optional if browser storage is unavailable.
+  }
+  return routeWelcome || null;
+}
+
 export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
@@ -232,6 +246,7 @@ export default function AskData() {
   const [question, setQuestion] = useState('');
   const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
   const [questionLanguage, setQuestionLanguage] = useState(() => location.state?.continuation?.languageCode || null);
+  const [welcome, setWelcome] = useState(() => consumeWelcome(location.state?.welcome));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -303,7 +318,9 @@ export default function AskData() {
     }
     try {
       const audio = new FormData();
-      audio.append('file', blob, 'puchoo-question.webm');
+      // Safari/iOS records audio/mp4; name the file after what was actually recorded.
+      const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      audio.append('file', blob, `puchoo-question.${extension}`);
       const response = await fetchApi('/sarvam/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
@@ -379,12 +396,27 @@ export default function AskData() {
     return () => window.clearTimeout(timer);
   }, [result]);
 
+  useEffect(() => {
+    if (!welcome) return undefined;
+    const timer = window.setTimeout(() => setWelcome(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [welcome]);
+
+  const welcomeNotice = welcome ? (
+    <section className="ask-welcome animate-fade-slide" role="status">
+      <div className="ask-welcome-icon"><Sparkles size={16} /></div>
+      <div><strong>{welcome.title}</strong><p>{welcome.message}</p></div>
+      <button type="button" onClick={() => setWelcome(null)} aria-label="Dismiss welcome message"><X size={16} /></button>
+    </section>
+  ) : null;
+
   if (user?.workspace_role === 'viewer') {
-    return <section className="ask-viewer-state"><div className="ask-viewer-icon"><ShieldCheck size={22} /></div><span>Viewer access</span><h1>Explore approved answers.</h1><p>Your role can review shared query history, while prompts, data sources, and workspace settings remain protected.</p><Link className="ask-primary-action" to="/history">Open history <ArrowUpRight size={17} /></Link></section>;
+    return <div className="ask-page">{welcomeNotice}<section className="ask-viewer-state"><div className="ask-viewer-icon"><ShieldCheck size={22} /></div><span>Viewer access</span><h1>Explore approved answers.</h1><p>Your role can review shared query history, while prompts, data sources, and workspace settings remain protected.</p><Link className="ask-primary-action" to="/history">Open history <ArrowUpRight size={17} /></Link></section></div>;
   }
 
   return (
     <div className="ask-page">
+      {welcomeNotice}
       <section className="ask-stage">
         <QueryUniverse />
         <div className="ask-stage-content">
@@ -431,7 +463,7 @@ export default function AskData() {
             </div>
           )}
 
-          <div className="ask-stage-footer"><span>Puchoo intelligence · {activeWorkspace?.name || 'Private workspace'}</span></div>
+          <div className="ask-stage-footer"><span>Puchoo.si intelligence · {activeWorkspace?.name || 'Private workspace'}</span></div>
         </div>
       </section>
 
@@ -520,7 +552,7 @@ export default function AskData() {
                 <span className="query-details-hint">{resultLabels.read_only_query} <ChevronDown size={16} /></span>
               </summary>
               <div className="query-details-body">
-                <p>This is the read-only SQL Puchoo ran to produce the answer.</p>
+                <p>This is the read-only SQL Puchoo.si ran to produce the answer.</p>
                 <pre>{result.record.sql}</pre>
               </div>
             </details>

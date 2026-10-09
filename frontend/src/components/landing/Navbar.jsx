@@ -44,8 +44,8 @@ export default function Navbar() {
           to="/"
           className={`flex items-center gap-2 font-medium tracking-[-0.03em] ${focusRing} rounded-full`}
         >
-          <Mark className="h-6 w-6" />
-          Puchoo.ai
+          <Mark className="h-8 w-8" />
+          Puchoo.si
         </Link>
         <p className="hidden text-sm text-[#D1D5DB] md:block">Multilingual Text-to-SQL</p>
         <div className="hidden items-center gap-6 md:flex">

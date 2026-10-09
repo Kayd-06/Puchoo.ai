@@ -34,6 +34,16 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _positive_int(name: str, default: int) -> int:
+    """Read a bounded positive integer without making a bad deploy config fatal."""
+
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 DEFAULT_SESSION_SECRET = "dev-secret-key-do-not-use-in-prod"
 DEFAULT_OTP_SECRET = "dev-otp-secret-do-not-use-in-prod"
 # Values that ship with the repo. Production must replace both secrets.
@@ -92,8 +102,21 @@ class Settings:
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from: str | None = None
+    smtp_from_name: str = "Puchoo.si no-reply"
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
+    upload_max_bytes: int = 25 * 1024 * 1024
+    upload_max_files: int = 10
+    auth_rate_limit: int = 5
+    auth_rate_window_seconds: int = 15 * 60
+    auth_backoff_base_seconds: int = 60
+    auth_backoff_max_seconds: int = 15 * 60
+    public_rate_limit: int = 120
+    public_rate_window_seconds: int = 60
+    authenticated_rate_limit: int = 300
+    authenticated_rate_window_seconds: int = 60
+    connection_rate_limit: int = 5
+    connection_rate_window_seconds: int = 15 * 60
 
 
 def load_settings() -> Settings:
@@ -121,8 +144,21 @@ def load_settings() -> Settings:
         smtp_username=os.getenv("SMTP_USERNAME"),
         smtp_password=os.getenv("SMTP_PASSWORD"),
         smtp_from=os.getenv("SMTP_FROM"),
+        smtp_from_name=os.getenv("SMTP_FROM_NAME", "Puchoo.si no-reply").strip() or "Puchoo.si no-reply",
         smtp_use_tls=_as_bool(os.getenv("SMTP_USE_TLS"), default=True),
         smtp_use_ssl=_as_bool(os.getenv("SMTP_USE_SSL"), default=False),
+        upload_max_bytes=_positive_int("UPLOAD_MAX_BYTES", 25 * 1024 * 1024),
+        upload_max_files=_positive_int("UPLOAD_MAX_FILES", 10),
+        auth_rate_limit=_positive_int("AUTH_RATE_LIMIT", 5),
+        auth_rate_window_seconds=_positive_int("AUTH_RATE_WINDOW_SECONDS", 15 * 60),
+        auth_backoff_base_seconds=_positive_int("AUTH_BACKOFF_BASE_SECONDS", 60),
+        auth_backoff_max_seconds=_positive_int("AUTH_BACKOFF_MAX_SECONDS", 15 * 60),
+        public_rate_limit=_positive_int("PUBLIC_RATE_LIMIT", 120),
+        public_rate_window_seconds=_positive_int("PUBLIC_RATE_WINDOW_SECONDS", 60),
+        authenticated_rate_limit=_positive_int("AUTHENTICATED_RATE_LIMIT", 300),
+        authenticated_rate_window_seconds=_positive_int("AUTHENTICATED_RATE_WINDOW_SECONDS", 60),
+        connection_rate_limit=_positive_int("CONNECTION_RATE_LIMIT", 5),
+        connection_rate_window_seconds=_positive_int("CONNECTION_RATE_WINDOW_SECONDS", 15 * 60),
     )
 
 

@@ -37,7 +37,7 @@ function RoutedApplication() {
   return (
     <AuthProvider key={loadSession ? 'private' : 'public'} loadSession={loadSession}>
         <a className="puchoo-skip-link" href="#main-content">Skip to main content</a>
-        <Suspense fallback={<main className="puchoo-route-loading" aria-label="Loading Puchoo.ai" />}>
+        <Suspense fallback={<main className="puchoo-route-loading" aria-label="Loading Puchoo.si" />}>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route

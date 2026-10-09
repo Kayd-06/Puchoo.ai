@@ -68,7 +68,6 @@ class TabularWorkspaceTests(unittest.TestCase):
         self.assertIn("Table: orders", schema)
         self.assertIn("customer_id: customers.customer_id, orders.customer_id", schema)
 
-
 class ServerWorkspaceTests(unittest.TestCase):
     @patch("apps.core.workspaces.checked_connection_host", return_value="8.8.8.8")
     @patch("apps.core.workspaces.get_schema_snapshot", return_value="Table: events\nColumns: id (INTEGER)")

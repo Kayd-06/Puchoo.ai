@@ -99,9 +99,6 @@ export function createInstituteInvite() { return api('/api/v1/auth/institute/inv
 export function createWorkspaceInvite(role = 'editor') { return api('/api/v1/auth/workspace/invite', { method: 'POST', body: { role } }); }
 export function requestEmailChange(payload) { return api('/api/v1/auth/email/change', { method: 'POST', body: payload }); }
 export function verifyEmailChange(payload) { return api('/api/v1/auth/email/change/verify', { method: 'POST', body: payload }); }
-export function recoveryCodesStatus() { return api('/api/v1/auth/recovery-codes/status'); }
-export function createRecoveryCodes(payload) { return api('/api/v1/auth/recovery-codes', { method: 'POST', body: payload }); }
-
 export function logout() {
   return api('/api/v1/auth/logout', { method: 'POST' });
 }

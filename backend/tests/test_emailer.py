@@ -3,6 +3,7 @@
 from email import message_from_string
 
 import pytest
+from email.utils import parseaddr
 
 from backend import emailer
 from backend.emailer import EmailDeliveryError
@@ -70,8 +71,27 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
 
     assert delivered["from"] == "sender@example.test"
     assert delivered["to"] == ["person@example.test"]
-    assert "From: Puchoo.ai no-reply <sender@example.test>" in delivered["message"]
-    assert "To: person@example.test" in delivered["message"]
+    message = message_from_string(delivered["message"])
+    assert parseaddr(message["From"]) == ("Puchoo.si no-reply", "sender@example.test")
+    assert message["To"] == "person@example.test"
+    assert message["Subject"] == "123456 is your Puchoo.si verification code"
     body = _decoded_message(delivered["message"])
+    assert "Puchoo.si" in body
+    assert "Puchoo.ai" not in body
     assert "expires in 5 minutes" in body
     assert "10 minutes" not in body
+
+
+def test_email_change_notice_uses_consistent_puchoo_si_branding(monkeypatch):
+    """The account-security notice must not reintroduce the retired brand."""
+
+    delivered = []
+    monkeypatch.setattr(emailer, "_deliver", lambda message: delivered.append(message.as_string()))
+
+    emailer.send_email_changed_notice("person@example.test")
+
+    message = message_from_string(delivered[0])
+    body = _decoded_message(delivered[0])
+    assert message["Subject"] == "Your Puchoo.si email address was changed"
+    assert "Puchoo.si" in body
+    assert "Puchoo.ai" not in body

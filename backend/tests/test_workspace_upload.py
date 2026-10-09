@@ -1,11 +1,23 @@
 """End-to-end upload checks, including credential-redaction guarantees."""
 
 from fastapi.testclient import TestClient
+from uuid import uuid4
 
 from apps.api.session import session_manager
+from apps.api.routers import workspaces as workspace_router
 from apps.core import workspaces as workspace_core
 from backend.main import create_app
 from backend.tests.conftest import csrf_headers, finish_signup, signup_payload
+
+
+def test_csv_validation_accepts_utf8_split_at_the_8kib_sniff_boundary():
+    """A valid CSV stays valid when the sniffer cuts through a UTF-8 character."""
+
+    prefix = b"column\n" + (b"x" * (8191 - len(b"column\n")))
+    contents = prefix + b"\xc3\xb1\n"
+
+    assert len(prefix) == 8191
+    assert workspace_router._validated_upload_kind("boundary.csv", contents) == ".csv"
 
 
 def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_path, monkeypatch, otp_codes):
@@ -15,7 +27,7 @@ def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_p
     monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
 
     with TestClient(create_app(include_product=True)) as client:
-        email = "owner@uploadtest.com"
+        email = f"owner-{uuid4().hex}@uploadtest.com"
         assert client.post(
             "/api/v1/auth/signup",
             json=signup_payload(email=email),
@@ -54,3 +66,35 @@ def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_p
     session_manager.query_history.pop(workspace["id"], None)
     session_manager.active_proposals.pop(workspace["id"], None)
     session_manager.schema_snapshots.pop(f"schema_{workspace['id']}", None)
+
+
+def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes):
+    """The content signature and a configured byte limit are enforced before parsing."""
+
+    monkeypatch.setattr(workspace_router, "MAX_UPLOAD_BYTES", 32)
+    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+
+    with TestClient(create_app(include_product=True)) as client:
+        email = f"owner-{uuid4().hex}@uploadlimit.com"
+        assert client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email=email),
+            headers=csrf_headers(client),
+        ).status_code == 202
+        finish_signup(client, email, otp_codes)
+
+        forged = client.post(
+            "/api/workspaces/upload",
+            files={"file": ("report.csv", b"<html>not a spreadsheet</html>", "text/csv")},
+            headers=csrf_headers(client),
+        )
+        assert forged.status_code == 400
+        assert forged.json()["detail"] == "The uploaded file content does not match its declared format."
+
+        oversized = client.post(
+            "/api/workspaces/upload",
+            files={"file": ("report.csv", b"column\n" + (b"x" * 40), "text/csv")},
+            headers=csrf_headers(client),
+        )
+        assert oversized.status_code == 413
+        assert oversized.json()["detail"] == "The uploaded file is too large."

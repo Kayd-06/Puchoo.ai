@@ -1,6 +1,9 @@
 """Persistent approved-conversation memory must never cross tenant boundaries."""
 
-from apps.core.chat_memory import ApprovedConversationMemory
+import pytest
+
+from apps.core import chat_memory
+from apps.core.chat_memory import ApprovedConversationMemory, ChatMemoryError
 
 
 def _record(record_id: str, question: str) -> dict:
@@ -41,6 +44,37 @@ def test_approved_memory_is_scoped_to_tenant_and_workspace(tmp_path):
     assert memory.search_approved_conversations(
         tenant_id="tenant-a", workspace_id="workspace-a", query="attendance"
     ) == []
+
+
+def test_missing_chroma_directory_is_recreated(tmp_path):
+    """Fresh machines and deleted local Chroma files recover without a crash."""
+
+    storage = tmp_path / "missing" / "chroma"
+    assert not storage.exists()
+
+    memory = ApprovedConversationMemory(storage)
+    memory.save_approved_conversation(
+        tenant_id="tenant-a", workspace_id="workspace-a", actor_user_id="user-a",
+        record=_record("recreated-store", "Show attendance this month"),
+    )
+
+    assert storage.is_dir()
+    assert memory.search_approved_conversations(
+        tenant_id="tenant-a", workspace_id="workspace-a", query="attendance"
+    )[0]["id"] == "recreated-store"
+
+
+def test_unavailable_chroma_initialization_is_a_safe_memory_error(monkeypatch):
+    """Corrupt storage must not escape as an app-crashing implementation error."""
+
+    def unavailable_memory():
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(chat_memory, "_memory", None)
+    monkeypatch.setattr(chat_memory, "ApprovedConversationMemory", unavailable_memory)
+
+    with pytest.raises(ChatMemoryError, match="initialize approved conversation memory"):
+        chat_memory.get_chat_memory()
 
 
 def test_deleting_one_conversation_keeps_other_scoped_records(tmp_path):

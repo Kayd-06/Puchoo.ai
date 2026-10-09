@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend import database
 from backend.config import ensure_production_secrets
+from backend.emailer import EmailDeliveryError
 from backend.models import AuthSession, LoginChallenge
 from backend.rate_limit import limiter
 from backend.security import hash_otp, hash_token, utcnow
@@ -274,6 +275,26 @@ def test_login_responses_match_for_real_and_unknown_emails(client: TestClient, o
     assert known_resend.json() == unknown_resend.json() == {"detail": LOGIN_EXPIRED}
 
 
+def test_login_fails_closed_when_otp_email_cannot_be_delivered(client: TestClient, otp_codes, monkeypatch):
+    _signup(client)
+    finish_signup(client, "ada@college.edu", otp_codes)
+    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
+
+    def fail_delivery(_to_email: str, _otp_code: str) -> None:
+        raise EmailDeliveryError("delivery failed")
+
+    monkeypatch.setattr("backend.emailer.send_otp_email", fail_delivery)
+    response = _login(client)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "We could not send the verification email. Try again in a moment."
+    assert client.cookies.get("puchoo_login_challenge") in {None, ""}
+    db = database.SessionLocal()
+    open_challenges = db.query(LoginChallenge).filter(LoginChallenge.consumed_at.is_(None)).count()
+    db.close()
+    assert open_challenges == 0
+
+
 def test_password_reset_revokes_sessions_and_challenges(client: TestClient, otp_codes):
     _signup(client)
     finish_signup(client, "ada@college.edu", otp_codes)
@@ -316,31 +337,6 @@ def test_password_reset_revokes_sessions_and_challenges(client: TestClient, otp_
 
     assert _login(client, password="language10").status_code == 401
     assert _login(client, password="newlanguage10").status_code == 200
-
-
-def test_recovery_code_requires_the_password_step(client: TestClient, otp_codes):
-    _signup(client)
-    finish_signup(client, "ada@college.edu", otp_codes)
-    generated = client.post(
-        "/api/v1/auth/recovery-codes",
-        json={"current_password": "language10"},
-        headers=csrf_headers(client),
-    )
-    assert generated.status_code == 200
-    recovery = generated.json()["codes"][0]
-    assert client.post("/api/v1/auth/logout", headers=csrf_headers(client)).status_code == 200
-
-    skipped = _verify(client, recovery)
-    assert skipped.status_code == 400
-    assert skipped.json()["detail"] == LOGIN_EXPIRED
-    assert client.get("/api/v1/auth/me").status_code == 401
-
-    challenged = _login(client)
-    assert challenged.status_code == 200
-    assert "recovery_available" not in challenged.json()
-    verified = _verify(client, recovery)
-    assert verified.status_code == 200
-    assert client.get("/api/v1/auth/me").status_code == 200
 
 
 def test_email_change_revokes_sessions_and_notifies_the_old_address(client: TestClient, otp_codes):

@@ -79,7 +79,7 @@ export default function Signup() {
 
   return (
     <>
-      <title>Get started · Puchoo.ai</title>
+      <title>Get started · Puchoo.si</title>
       <AuthShell
         title="Create your workspace"
         subtitle="Choose how your data should be owned and who can safely work with it."
@@ -139,7 +139,7 @@ export default function Signup() {
             onChange={(event) => update('confirm_password', event.target.value)}
           />
           <fieldset className="auth-form-wide">
-            <legend className="mb-2 text-sm font-medium text-[#111827]">How will you use Puchoo?</legend>
+            <legend className="mb-2 text-sm font-medium text-[#111827]">How will you use Puchoo.si?</legend>
             <div className="grid gap-2 sm:grid-cols-3">
               {[
                 ['personal', 'Personal', 'Only you can access your private workspace.'],

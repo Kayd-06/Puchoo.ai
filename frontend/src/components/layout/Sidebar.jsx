@@ -19,8 +19,8 @@ export default function Sidebar() {
   return (
     <aside className="app-sidebar" aria-label="Workspace navigation">
       <div className="app-sidebar-brand">
-        <div className="app-brand-mark" aria-hidden="true"><span>⌁</span></div>
-        <div><strong>Puchoo</strong><span>Data intelligence</span></div>
+        <img src="/puchoo-logo-192.png" className="app-brand-mark puchoo-brand-logo" alt="" aria-hidden="true" draggable="false" />
+        <div><strong>Puchoo.si</strong><span>Secure intelligence</span></div>
       </div>
 
       <div className="app-sidebar-section-label">Workspace</div>

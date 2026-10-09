@@ -80,16 +80,33 @@ export default function Login() {
 
   async function onVerify(event) {
     event.preventDefault();
-    const normalizedCode = code.trim().toUpperCase();
-    if (!/^\d{6}$/.test(normalizedCode) && !/^PCH-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalizedCode)) {
-      setErrors({ code: 'Enter a 6-digit email code or PCH-XXXX-XXXX recovery code.' });
+    const normalizedCode = code.trim();
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setErrors({ code: 'Enter the 6-digit email code.' });
       return;
     }
     setPending(true);
     setToast('');
     try {
-      await verifyLogin({ email: email.trim().toLowerCase(), code: normalizedCode });
-      navigate('/ask', { replace: true });
+      const authenticatedUser = await verifyLogin({ email: email.trim().toLowerCase(), code: normalizedCode });
+      const firstName = authenticatedUser.full_name?.trim().split(/\s+/, 1)[0] || 'there';
+      const welcome = {
+        title: `Welcome, ${firstName}`,
+        message: 'Your secure workspace is ready for your next question.',
+      };
+      // Router state can be replaced by an auth refresh while navigation is in
+      // flight. Keep this short-lived handoff in the tab as a reliable backup.
+      try {
+        window.sessionStorage.setItem('puchoo:welcome', JSON.stringify(welcome));
+      } catch {
+        // Router state below remains enough where storage is unavailable.
+      }
+      navigate('/ask', {
+        replace: true,
+        state: {
+          welcome,
+        },
+      });
     } catch (error) {
       if (error.message === LOGIN_EXPIRED) {
         returnToLogin(error.message);
@@ -123,17 +140,17 @@ export default function Login() {
 
   return (
     <>
-      <title>Log in · Puchoo.ai</title>
+      <title>Log in · Puchoo.si</title>
       <AuthShell
         title={step === 'code' ? 'Check your email' : 'Log in'}
         subtitle={
           step === 'code'
-            ? `Enter the 6-digit code sent to ${email.trim().toLowerCase()}, or a saved recovery code.`
+            ? `Enter the 6-digit code sent to ${email.trim().toLowerCase()}.`
             : 'A verification code is emailed after your password is accepted.'
         }
         footer={
           <>
-            New to Puchoo.ai?{' '}
+            New to Puchoo.si?{' '}
             <Link
               to="/signup"
               className={`text-[#111827] underline-offset-4 hover:underline ${focusRing} rounded-full`}
@@ -149,11 +166,11 @@ export default function Login() {
               <input
                 id="code"
                 name="code"
-                inputMode="text"
+                inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={13}
+                maxLength={6}
                 value={code}
-                onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 13))}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 aria-invalid={Boolean(errors.code)}
                 aria-describedby={errors.code ? 'code-error' : undefined}
                 className={`${inputClass(Boolean(errors.code))} tracking-[0.4em]`}
@@ -161,9 +178,6 @@ export default function Login() {
             </Field>
             <p className="text-sm text-[#3f5474]" role="timer" aria-live="polite">
               This code expires in {formatClock(challengeLeft)}.
-            </p>
-            <p className="rounded-xl border border-[#9dbaf5]/50 bg-white/55 px-3 py-2 text-xs leading-relaxed text-[#3f5474]">
-              Email delayed? Use a saved <strong>PCH-XXXX-XXXX</strong> recovery code. Each code works once, and only after your password is accepted.
             </p>
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Checking code…' : 'Verify and continue'}
