@@ -8,7 +8,7 @@ openpyxl>=3.1,<4
 xlrd>=2.0,<3
 
 # Text-to-SQL, verification, and Indian-language voice/output
-anthropic>=0.40,<1
+anthropic>=1.11.0,<2
 sarvamai>=0.1.28,<0.2
 SQLAlchemy>=2.0,<3
 psycopg[binary]>=3.2,<4
