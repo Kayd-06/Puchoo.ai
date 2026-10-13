@@ -19,8 +19,17 @@ export default function Sidebar() {
   return (
     <aside className="app-sidebar" aria-label="Workspace navigation">
       <div className="app-sidebar-brand">
-        <img src="/puchoo-logo-192.png" className="app-brand-mark puchoo-brand-logo" alt="" aria-hidden="true" draggable="false" />
-        <div><strong>Puchoo.si</strong><span>Secure intelligence</span></div>
+        <img
+          src="/puchoo-logo-192.png"
+          className="app-brand-mark puchoo-brand-logo"
+          alt=""
+          aria-hidden="true"
+          draggable="false"
+        />
+        <div>
+          <strong>Puchoo.si</strong>
+          <span>Secure intelligence</span>
+        </div>
       </div>
 
       <div className="app-sidebar-section-label">Workspace</div>
@@ -28,9 +37,16 @@ export default function Sidebar() {
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => `app-sidebar-link${isActive ? ' is-active' : ''}`}>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => `app-sidebar-link${isActive ? ' is-active' : ''}`}
+            >
               <Icon size={18} strokeWidth={1.8} />
-              <span><b>{item.label}</b><small>{item.hint}</small></span>
+              <span>
+                <b>{item.label}</b>
+                <small>{item.hint}</small>
+              </span>
             </NavLink>
           );
         })}
@@ -40,12 +56,29 @@ export default function Sidebar() {
         <div className="app-sidebar-section-label">Active data source</div>
         {workspaces.length ? (
           <label className="workspace-picker">
-            <select value={activeWorkspaceId || ''} onChange={(event) => setActiveWorkspaceId(event.target.value || null)} aria-label="Select active data source">
-              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+            <select
+              value={activeWorkspaceId || ''}
+              onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
+              aria-label="Select active data source"
+            >
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </option>
+              ))}
             </select>
           </label>
-        ) : <NavLink to="/connect" className="workspace-empty"><Plus size={15} /> Connect data</NavLink>}
-        <div className="workspace-access-note"><ShieldCheck size={14} /><span>{activeWorkspace ? `${isViewer ? 'Viewer' : 'Read-only'} access` : 'No source selected'}</span></div>
+        ) : (
+          <NavLink to="/connect" className="workspace-empty">
+            <Plus size={15} /> Connect data
+          </NavLink>
+        )}
+        <div className="workspace-access-note">
+          <ShieldCheck size={14} />
+          <span>
+            {activeWorkspace ? `${isViewer ? 'Viewer' : 'Read-only'} access` : 'No source selected'}
+          </span>
+        </div>
       </div>
     </aside>
   );

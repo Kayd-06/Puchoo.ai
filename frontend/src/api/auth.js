@@ -67,11 +67,12 @@ export async function api(path, { method = 'GET', body } = {}) {
     if (response.status === 401) {
       window.dispatchEvent(new Event('puchoo:unauthorized'));
     }
-    const fallback = response.status === 502
-      ? 'The sign-in service is unavailable. Start the backend and try again.'
-      : response.status >= 500
-        ? 'The sign-in service is temporarily unavailable. Please try again.'
-        : 'Something went wrong.';
+    const fallback =
+      response.status === 502
+        ? 'The sign-in service is unavailable. Start the backend and try again.'
+        : response.status >= 500
+          ? 'The sign-in service is temporarily unavailable. Please try again.'
+          : 'Something went wrong.';
     throw new ApiError(messageFrom(data, fallback), response.status);
   }
   return data;
@@ -93,12 +94,24 @@ export function signup(payload) {
   return api('/api/v1/auth/signup', { method: 'POST', body: payload });
 }
 
-export function forgotPassword(payload) { return api('/api/v1/auth/password/forgot', { method: 'POST', body: payload }); }
-export function resetPassword(payload) { return api('/api/v1/auth/password/reset', { method: 'POST', body: payload }); }
-export function createInstituteInvite() { return api('/api/v1/auth/institute/invite', { method: 'POST' }); }
-export function createWorkspaceInvite(role = 'editor') { return api('/api/v1/auth/workspace/invite', { method: 'POST', body: { role } }); }
-export function requestEmailChange(payload) { return api('/api/v1/auth/email/change', { method: 'POST', body: payload }); }
-export function verifyEmailChange(payload) { return api('/api/v1/auth/email/change/verify', { method: 'POST', body: payload }); }
+export function forgotPassword(payload) {
+  return api('/api/v1/auth/password/forgot', { method: 'POST', body: payload });
+}
+export function resetPassword(payload) {
+  return api('/api/v1/auth/password/reset', { method: 'POST', body: payload });
+}
+export function createInstituteInvite() {
+  return api('/api/v1/auth/institute/invite', { method: 'POST' });
+}
+export function createWorkspaceInvite(role = 'editor') {
+  return api('/api/v1/auth/workspace/invite', { method: 'POST', body: { role } });
+}
+export function requestEmailChange(payload) {
+  return api('/api/v1/auth/email/change', { method: 'POST', body: payload });
+}
+export function verifyEmailChange(payload) {
+  return api('/api/v1/auth/email/change/verify', { method: 'POST', body: payload });
+}
 export function logout() {
   return api('/api/v1/auth/logout', { method: 'POST' });
 }

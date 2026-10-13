@@ -9,23 +9,43 @@ export default function Settings() {
   const navigate = useNavigate();
 
   if (user?.workspace_role === 'viewer') {
-    return <section className="settings-viewer-state">
-      <div className="settings-ambient" aria-hidden="true"><span /><span /><span /></div>
-      <div className="settings-viewer-content">
-        <span className="settings-eyebrow"><ShieldCheck size={16} /> Read-only member</span>
-        <h1>Settings are managed by your workspace.</h1>
-        <p>Viewer accounts can inspect approved query history, but cannot change workspace settings, data sources, or access roles.</p>
-        <button className="settings-action settings-action-primary" onClick={() => navigate('/history')}>Open history</button>
-      </div>
-    </section>;
+    return (
+      <section className="settings-viewer-state">
+        <div className="settings-ambient" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="settings-viewer-content">
+          <span className="settings-eyebrow">
+            <ShieldCheck size={16} /> Read-only member
+          </span>
+          <h1>Settings are managed by your workspace.</h1>
+          <p>
+            Viewer accounts can inspect approved query history, but cannot change workspace
+            settings, data sources, or access roles.
+          </p>
+          <button
+            className="settings-action settings-action-primary"
+            onClick={() => navigate('/history')}
+          >
+            Open history
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (
     <div className="settings-page">
-      <div className="settings-ambient" aria-hidden="true"><span /><span /><span /></div>
+      <div className="settings-ambient" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <header className="settings-hero">
         <div className="settings-eyebrow">
-        <ShieldCheck size={20} />
+          <ShieldCheck size={20} />
           <span>System preferences</span>
         </div>
         <div className="settings-hero-copy">
@@ -34,8 +54,12 @@ export default function Settings() {
             <p>Control your profile, workspace access, and verified account settings.</p>
           </div>
           <div className="settings-trust-rail" aria-label="Security posture">
-            <span className="settings-security-chip"><ShieldCheck size={15} /> Tenant isolated</span>
-            <span className="settings-trust-detail"><LockKeyhole size={14} /> HttpOnly session</span>
+            <span className="settings-security-chip">
+              <ShieldCheck size={15} /> Tenant isolated
+            </span>
+            <span className="settings-trust-detail">
+              <LockKeyhole size={14} /> HttpOnly session
+            </span>
           </div>
         </div>
       </header>
@@ -43,7 +67,11 @@ export default function Settings() {
       <div className="settings-flow">
         <WorkspaceInvitePanel />
         <section className="settings-section settings-profile" aria-labelledby="profile-title">
-          <div className="settings-card-label"><Fingerprint size={15} /><span>Identity vault</span><small>Verified record</small></div>
+          <div className="settings-card-label">
+            <Fingerprint size={15} />
+            <span>Identity vault</span>
+            <small>Verified record</small>
+          </div>
           <div className="settings-profile-topline">
             <div className="settings-avatar">
               {user?.full_name ? user.full_name.charAt(0).toUpperCase() : <User />}
@@ -52,19 +80,58 @@ export default function Settings() {
               <div className="settings-profile-titleline">
                 <h2 id="profile-title">{user?.full_name || 'User'}</h2>
                 <span className="settings-workspace-badge">
-                  {user?.workspace_type === 'institution' ? `Institution ${user?.workspace_role || 'member'}` : user?.workspace_type === 'business' ? `Business ${user?.workspace_role || 'member'}` : 'Personal workspace'}
+                  {user?.workspace_type === 'institution'
+                    ? `Institution ${user?.workspace_role || 'member'}`
+                    : user?.workspace_type === 'business'
+                      ? `Business ${user?.workspace_role || 'member'}`
+                      : 'Personal workspace'}
                 </span>
               </div>
-              <p>{user?.workspace_name || user?.institute_name || 'Puchoo.si workspace'} <span>•</span> {user?.email || 'email@example.com'}</p>
+              <p>
+                {user?.workspace_name || user?.institute_name || 'Puchoo.si workspace'}{' '}
+                <span>•</span> {user?.email || 'email@example.com'}
+              </p>
             </div>
-            <span className="settings-verified"><ShieldCheck size={14} /> Email verified</span>
+            <span className="settings-verified">
+              <ShieldCheck size={14} /> Email verified
+            </span>
           </div>
 
           <div className="settings-profile-grid">
-            <label>Full name<input type="text" className="input" value={user?.full_name || ''} readOnly /></label>
-            <label>Email address<input type="email" className="input" value={user?.email || ''} readOnly /></label>
-            <label>Department / workspace<input type="text" className="input" value={user?.workspace_name || user?.institute_name || (user?.workspace_type === 'institution' ? 'Institution' : user?.workspace_type === 'business' ? 'Business' : 'Personal')} readOnly /></label>
-            <label>Timezone<input type="text" className="input" value={Intl.DateTimeFormat().resolvedOptions().timeZone} readOnly /></label>
+            <label>
+              Full name
+              <input type="text" className="input" value={user?.full_name || ''} readOnly />
+            </label>
+            <label>
+              Email address
+              <input type="email" className="input" value={user?.email || ''} readOnly />
+            </label>
+            <label>
+              Department / workspace
+              <input
+                type="text"
+                className="input"
+                value={
+                  user?.workspace_name ||
+                  user?.institute_name ||
+                  (user?.workspace_type === 'institution'
+                    ? 'Institution'
+                    : user?.workspace_type === 'business'
+                      ? 'Business'
+                      : 'Personal')
+                }
+                readOnly
+              />
+            </label>
+            <label>
+              Timezone
+              <input
+                type="text"
+                className="input"
+                value={Intl.DateTimeFormat().resolvedOptions().timeZone}
+                readOnly
+              />
+            </label>
           </div>
           <div className="settings-section-footer">
             <p>Identity information comes from your verified Puchoo.si profile.</p>
@@ -72,14 +139,21 @@ export default function Settings() {
           </div>
         </section>
 
-        <section className="settings-section settings-history" aria-labelledby="session-history-title">
-          <div className="settings-history-icon"><HistoryIcon size={19} /></div>
+        <section
+          className="settings-section settings-history"
+          aria-labelledby="session-history-title"
+        >
+          <div className="settings-history-icon">
+            <HistoryIcon size={19} />
+          </div>
           <div>
             <span className="settings-section-kicker">Workspace records</span>
             <h2 id="session-history-title">Session &amp; history</h2>
             <p>Review queries, inspect generated SQL, and manage the active workspace record.</p>
           </div>
-          <button className="settings-action" onClick={() => navigate('/history')}>Manage history <span aria-hidden="true">↗</span></button>
+          <button className="settings-action" onClick={() => navigate('/history')}>
+            Manage history <span aria-hidden="true">↗</span>
+          </button>
         </section>
       </div>
     </div>

@@ -22,7 +22,9 @@ export default function Login() {
   const [email, setEmail] = useState(() => location.state?.email || '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [step, setStep] = useState(() => (location.state?.verificationPending ? 'code' : 'password'));
+  const [step, setStep] = useState(() =>
+    location.state?.verificationPending ? 'code' : 'password',
+  );
   const [errors, setErrors] = useState({});
   const [toast, setToast] = useState('');
   const [pending, setPending] = useState(false);
@@ -35,13 +37,16 @@ export default function Login() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const returnToLogin = useCallback((message) => {
-    setStep('password');
-    setCode('');
-    setErrors({});
-    setToast(message);
-    navigate('/login', { replace: true, state: null });
-  }, [navigate]);
+  const returnToLogin = useCallback(
+    (message) => {
+      setStep('password');
+      setCode('');
+      setErrors({});
+      setToast(message);
+      navigate('/login', { replace: true, state: null });
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     if (step !== 'code') return undefined;
@@ -88,7 +93,10 @@ export default function Login() {
     setPending(true);
     setToast('');
     try {
-      const authenticatedUser = await verifyLogin({ email: email.trim().toLowerCase(), code: normalizedCode });
+      const authenticatedUser = await verifyLogin({
+        email: email.trim().toLowerCase(),
+        code: normalizedCode,
+      });
       const firstName = authenticatedUser.full_name?.trim().split(/\s+/, 1)[0] || 'there';
       const welcome = {
         title: `Welcome, ${firstName}`,
@@ -229,7 +237,12 @@ export default function Login() {
               onChange={(event) => setPassword(event.target.value)}
             />
             <div className="-mt-2 text-right">
-              <Link to="/forgot-password" className={`text-sm text-[#334d81] underline-offset-4 hover:underline ${focusRing} rounded-full`}>Forgot password?</Link>
+              <Link
+                to="/forgot-password"
+                className={`text-sm text-[#334d81] underline-offset-4 hover:underline ${focusRing} rounded-full`}
+              >
+                Forgot password?
+              </Link>
             </div>
             <PillButton type="submit" variant="dark" disabled={pending}>
               {pending ? 'Logging in…' : 'Log in'}
