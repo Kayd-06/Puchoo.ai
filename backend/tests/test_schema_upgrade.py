@@ -34,8 +34,9 @@ def test_init_db_upgrades_stale_invite_schema_and_removes_recovery_codes(tmp_pat
     invite_columns = {column["name"] for column in inspector.get_columns("institute_invites")}
     assert "expires_at" in invite_columns
     assert "recovery_codes" not in inspector.get_table_names()
+    assert "pending_queries" in inspector.get_table_names()
     with database.engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261008_0012"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261009_0013"
 
 
 def test_init_db_refuses_to_adopt_unversioned_schema(tmp_path):

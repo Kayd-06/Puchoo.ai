@@ -5,20 +5,67 @@ first parses and clamps it with :mod:`guardrails`, then executes the guarded
 statement through a short-lived SQLAlchemy connection.  It intentionally does
 not support arbitrary connection strings in the UI layer; a workspace owns the
 database URI that is supplied here.
+
+The guardrail is the first line of defence. The database session is the second:
+
+* PostgreSQL runs every query in a ``READ ONLY`` transaction with
+  ``SET LOCAL statement_timeout``.
+* MySQL/MariaDB uses a read-only session and transaction plus
+  ``max_execution_time`` (``max_statement_time`` on MariaDB).
+* SQLite source files are opened with ``mode=ro`` and ``PRAGMA query_only``,
+  and a progress handler interrupts long queries.
+
+Results are capped with ``fetchmany`` and the response says when rows were cut.
+A dedicated read-only database user is still recommended (see README).
 """
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import NullPool
 
 from apps.core.db_connection import materialize_connect_args
-from apps.core.guardrails import GuardedSQL, SQLGuardrailError, SQLGuardrails
+from apps.core.guardrails import GuardedSQL, SchemaCatalog, SQLGuardrailError, SQLGuardrails
+
+DEFAULT_STATEMENT_TIMEOUT_SECONDS = 15
+DEFAULT_MAX_RESULT_ROWS = 5_000
+# Send the guarded SQL to the driver verbatim. ``text()`` would treat ``:name``
+# inside string literals as bind parameters and rewrite them, and driver
+# paramstyles would treat ``%`` as a placeholder; either would make the SQL
+# that runs differ from the SQL the user approved.
+_VERBATIM = {"no_parameters": True}
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
+
+
+def statement_timeout_seconds() -> int:
+    """Server-wide ceiling for one query (``QUERY_STATEMENT_TIMEOUT_SECONDS``)."""
+
+    return _env_int("QUERY_STATEMENT_TIMEOUT_SECONDS", DEFAULT_STATEMENT_TIMEOUT_SECONDS, minimum=1, maximum=300)
+
+
+def max_result_rows() -> int:
+    """Server-wide ceiling for returned rows (``QUERY_MAX_ROWS``)."""
+
+    return _env_int("QUERY_MAX_ROWS", DEFAULT_MAX_RESULT_ROWS, minimum=1, maximum=100_000)
 
 
 class QueryExecutionError(RuntimeError):
@@ -27,6 +74,10 @@ class QueryExecutionError(RuntimeError):
     def __init__(self, message: str, *, database_error: str | None = None) -> None:
         super().__init__(message)
         self.database_error = database_error or message
+
+
+class QueryTimeoutError(QueryExecutionError):
+    """Raised when a query is stopped by the statement timeout."""
 
 
 @dataclass(frozen=True)
@@ -39,6 +90,44 @@ class QueryResult:
     rows: list[dict[str, Any]]
     row_count: int
     elapsed_ms: int
+    truncated: bool = False
+    row_cap: int = 0
+
+
+_TIMEOUT_MARKERS = (
+    "canceling statement due to statement timeout",  # PostgreSQL
+    "maximum statement execution time exceeded",  # MySQL 3024
+    "max_statement_time exceeded",  # MariaDB 1969
+    "query execution was interrupted",  # MySQL/MariaDB
+    "interrupted",  # SQLite progress handler
+)
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    message = str(getattr(exc, "orig", None) or exc).lower()
+    return any(marker in message for marker in _TIMEOUT_MARKERS)
+
+
+def sqlite_source_path(database_uri: str) -> Path | None:
+    """Return the file path of a file-backed SQLite URI, else ``None``."""
+
+    if not database_uri.startswith("sqlite"):
+        return None
+    database = make_url(database_uri).database
+    if not database or database == ":memory:" or database.startswith("file:"):
+        return None
+    return Path(database).expanduser().resolve()
+
+
+def readonly_sqlite_engine(path: Path, *, timeout_seconds: int) -> Engine:
+    """Open a SQLite file with ``mode=ro`` so the driver cannot write to it."""
+
+    uri = path.as_uri() + "?mode=ro"
+
+    def connect() -> sqlite3.Connection:
+        return sqlite3.connect(uri, uri=True, timeout=timeout_seconds, check_same_thread=False)
+
+    return create_engine("sqlite://", creator=connect, poolclass=NullPool)
 
 
 class ReadOnlyExecutor:
@@ -52,47 +141,92 @@ class ReadOnlyExecutor:
         dialect: str | None = "sqlite",
         timeout_seconds: int = 30,
         connect_args: dict[str, Any] | None = None,
+        catalog: SchemaCatalog | None = None,
     ) -> None:
         if not isinstance(database_uri, str) or not database_uri.strip():
             raise ValueError("database_uri must be a non-empty string")
         if isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a positive integer")
+        if isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows <= 0:
+            raise ValueError("max_rows must be a positive integer")
         self.database_uri = database_uri
-        self.timeout_seconds = timeout_seconds
-        self.guardrails = SQLGuardrails(max_limit=max_rows, dialect=dialect)
+        # Workspace settings may lower, but never raise, the server ceilings.
+        self.timeout_seconds = min(timeout_seconds, statement_timeout_seconds())
+        self.row_cap = min(max_rows, max_result_rows())
+        self.guardrails = SQLGuardrails(max_limit=self.row_cap, dialect=dialect, catalog=catalog)
         driver_args = materialize_connect_args(connect_args)
+        sqlite_path = sqlite_source_path(database_uri)
+        if sqlite_path is not None:
+            self.engine: Engine = readonly_sqlite_engine(sqlite_path, timeout_seconds=self.timeout_seconds)
+            return
         if database_uri.startswith("sqlite"):
-            driver_args.setdefault("timeout", timeout_seconds)
+            driver_args.setdefault("timeout", self.timeout_seconds)
         elif database_uri.startswith("postgresql"):
-            driver_args.setdefault("connect_timeout", timeout_seconds)
+            driver_args.setdefault("connect_timeout", self.timeout_seconds)
         elif database_uri.startswith("mysql"):
             driver_args["local_infile"] = False
-            driver_args.setdefault("connect_timeout", timeout_seconds)
-            driver_args.setdefault("read_timeout", timeout_seconds)
-            driver_args.setdefault("write_timeout", timeout_seconds)
-        self.engine: Engine = create_engine(database_uri, connect_args=driver_args)
+            driver_args.setdefault("connect_timeout", self.timeout_seconds)
+            # Socket backstop slightly above the server-side limit.
+            driver_args.setdefault("read_timeout", self.timeout_seconds + 5)
+            driver_args.setdefault("write_timeout", self.timeout_seconds + 5)
+        self.engine = create_engine(database_uri, connect_args=driver_args)
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_uri.startswith("sqlite")
 
     def prepare(self, proposed_sql: str) -> GuardedSQL:
-        """Parse, reject writes/multiple statements, and apply an outer LIMIT."""
+        """Parse, reject unsafe SQL, and apply an outer LIMIT."""
 
         return self.guardrails.validate_and_clamp(proposed_sql)
+
+    def _begin_read_only(self, connection: Any, started: float) -> None:
+        """Make this connection's transaction read-only and time-limited."""
+
+        timeout_ms = int(self.timeout_seconds * 1_000)
+        if self.is_sqlite:
+            connection.exec_driver_sql("PRAGMA query_only = ON")
+            raw_connection = connection.connection.driver_connection
+            deadline = started + self.timeout_seconds
+            # SQLite calls this regularly while evaluating virtual-machine
+            # instructions; a non-zero return safely interrupts the query.
+            raw_connection.set_progress_handler(lambda: int(perf_counter() >= deadline), 1_000)
+        elif self.database_uri.startswith("postgresql"):
+            # Must be the first statement of the (implicit) transaction.
+            connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+            # The guardrail renders string literals for standard SQL quoting.
+            # Pin it so a server with backslash escapes cannot reinterpret them.
+            connection.exec_driver_sql("SET LOCAL standard_conforming_strings = on")
+            # Integers only; SET cannot take bind parameters on psycopg 3.
+            connection.exec_driver_sql(f"SET LOCAL statement_timeout = {timeout_ms}")
+            connection.exec_driver_sql(f"SET LOCAL lock_timeout = {timeout_ms}")
+            connection.exec_driver_sql(f"SET LOCAL idle_in_transaction_session_timeout = {timeout_ms}")
+        elif self.database_uri.startswith("mysql"):
+            # The connection is disposed after every query, so these session
+            # settings cannot leak to other workspaces.
+            connection.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
+            try:
+                connection.exec_driver_sql(f"SET SESSION max_execution_time = {timeout_ms}")
+            except SQLAlchemyError:
+                # MariaDB names it max_statement_time and counts seconds.
+                connection.exec_driver_sql(f"SET SESSION max_statement_time = {int(self.timeout_seconds)}")
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
 
     def validate_query_plan(self, proposed_sql: str) -> GuardedSQL:
         """Validate a guarded query against the connected database without running it.
 
         This catches unknown tables, columns, and aggregate misuse before the
-        proposal reaches the execution step. It is a compile/plan check only;
+        proposal reaches the approval step. It is a compile/plan check only;
         :meth:`execute` validates the SQL again immediately before execution.
         """
 
         guarded = self.prepare(proposed_sql)
+        started = perf_counter()
         try:
             with self.engine.connect() as connection:
-                if self.database_uri.startswith("sqlite"):
-                    connection.exec_driver_sql("PRAGMA query_only = ON")
-                    connection.exec_driver_sql(f"EXPLAIN QUERY PLAN {guarded.sql}")
-                else:
-                    connection.execute(text(f"EXPLAIN {guarded.sql}"))
+                self._begin_read_only(connection, started)
+                prefix = "EXPLAIN QUERY PLAN " if self.is_sqlite else "EXPLAIN "
+                connection.exec_driver_sql(prefix + guarded.sql, execution_options=_VERBATIM).close()
         except SQLAlchemyError as exc:
             raise QueryExecutionError(
                 "The read-only query failed database planning.", database_error=str(exc)
@@ -101,46 +235,39 @@ class ReadOnlyExecutor:
             self.engine.dispose()
         return guarded
 
-    def execute(self, proposed_sql: str) -> QueryResult:
-        """Validate and run a query after the caller's safety workflow."""
+    def execute(self, proposed_sql: str, *, exact: bool = False, limit_clamped: bool | None = None) -> QueryResult:
+        """Validate and run a query.
 
-        guarded = self.prepare(proposed_sql)
+        With ``exact=True`` the SQL must already be in its guarded form (the
+        approved text); it is re-validated and run byte-for-byte, never
+        rewritten. ``limit_clamped`` records whether the guardrail added the
+        outer LIMIT when the query was proposed.
+        """
+
+        guarded = self.guardrails.validate_exact(proposed_sql) if exact else self.prepare(proposed_sql)
+        clamped = guarded.limit_clamped if limit_clamped is None else limit_clamped
         started = perf_counter()
         try:
             with self.engine.connect() as connection:
-                # SQLite's query_only is a second, database-level safety belt.
-                # SQLGlot remains the primary cross-dialect read-only boundary.
-                if self.database_uri.startswith("sqlite"):
-                    connection.exec_driver_sql("PRAGMA query_only = ON")
-                    raw_connection = connection.connection.driver_connection
-                    deadline = started + self.timeout_seconds
-                    # SQLite calls this regularly while evaluating virtual-machine
-                    # instructions; a non-zero return safely interrupts the query.
-                    raw_connection.set_progress_handler(
-                        lambda: int(perf_counter() >= deadline), 1_000
-                    )
-                elif self.database_uri.startswith("postgresql"):
-                    # A short-lived transaction is explicitly marked read-only,
-                    # even when the connected database role is misconfigured.
-                    connection.exec_driver_sql("SET TRANSACTION READ ONLY")
-                    connection.execute(
-                        text("SET LOCAL statement_timeout = :timeout_ms"),
-                        {"timeout_ms": self.timeout_seconds * 1_000},
-                    )
-                elif self.database_uri.startswith("mysql"):
-                    # The connection is disposed after every query, so this
-                    # session-level setting cannot leak to other workspaces.
-                    connection.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
-                result = connection.execute(text(guarded.sql))
+                self._begin_read_only(connection, started)
+                result = connection.exec_driver_sql(guarded.sql, execution_options=_VERBATIM)
                 columns = list(result.keys())
-                rows = [dict(row) for row in result.mappings().all()]
+                fetched = result.mappings().fetchmany(self.row_cap + 1)
+                result.close()
+                # No transaction is committed: the connection rolls back on close.
         except SQLAlchemyError as exc:
+            if _is_timeout(exc):
+                raise QueryTimeoutError(
+                    f"The query took longer than {self.timeout_seconds} seconds and was stopped.",
+                    database_error=str(exc),
+                ) from exc
             raise QueryExecutionError(
                 "The read-only query could not be executed.", database_error=str(exc)
             ) from exc
         finally:
-            # No transaction is committed: this executor is deliberately read-only.
             self.engine.dispose()
+        rows = [dict(row) for row in fetched[: self.row_cap]]
+        truncated = len(fetched) > self.row_cap or (clamped and len(rows) >= guarded.limit)
         elapsed_ms = max(0, round((perf_counter() - started) * 1000))
         return QueryResult(
             sql=guarded.sql,
@@ -149,7 +276,17 @@ class ReadOnlyExecutor:
             rows=rows,
             row_count=len(rows),
             elapsed_ms=elapsed_ms,
+            truncated=truncated,
+            row_cap=self.row_cap,
         )
 
 
-__all__ = ["QueryExecutionError", "QueryResult", "ReadOnlyExecutor", "SQLGuardrailError"]
+__all__ = [
+    "QueryExecutionError",
+    "QueryResult",
+    "QueryTimeoutError",
+    "ReadOnlyExecutor",
+    "SQLGuardrailError",
+    "max_result_rows",
+    "statement_timeout_seconds",
+]

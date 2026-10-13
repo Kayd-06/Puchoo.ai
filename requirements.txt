@@ -1,23 +1,23 @@
 # FastAPI backend
 fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
+uvicorn[standard]>=0.54.0,<1
 python-multipart>=0.0.9,<0.1
 itsdangerous>=2.1,<3
 pandas>=2.0,<3
-openpyxl>=3.1,<4
+openpyxl>=3.1.5,<4
 xlrd>=2.0,<3
 
 # Text-to-SQL, verification, and Indian-language voice/output
-anthropic>=0.40,<1
+anthropic>=1.11.0,<2
 sarvamai>=0.1.28,<0.2
 SQLAlchemy>=2.0,<3
-psycopg[binary]>=3.2,<4
+psycopg[binary]>=3.3.6,<4
 PyMySQL>=1.2.0,<2
 certifi>=2024.0
 sqlglot>=25.10.0,<26
 python-dotenv>=1.0.0,<2
 argon2-cffi>=23.1,<26
-alembic>=1.13,<2
+alembic>=1.20.0,<2
 email-validator>=2.2,<3
 PyJWT>=2.8,<3
 chromadb>=1.0.0,<2
