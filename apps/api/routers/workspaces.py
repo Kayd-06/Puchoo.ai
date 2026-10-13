@@ -29,6 +29,7 @@ from apps.core.workspaces import (
     get_schema_snapshot,
     get_schema_table_stats,
 )
+from apps.core.upload_limits import UploadLimitError
 from apps.api.session import session_manager
 from apps.api.security import (
     require_connection_admin,
@@ -215,6 +216,9 @@ async def upload_file(
         create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data source added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
         db.commit()
         return _public_workspace(ws_dict)
+    except UploadLimitError as exc:
+        logger.info("upload rejected by resource limit status=%s", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
     except ValueError as exc:
         logger.info("upload rejected type=%s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The uploaded file could not be processed.") from None
@@ -250,6 +254,9 @@ async def upload_multiple_files(
         create_notification(db, user_id=user.id, kind="workspace_uploaded", title="Data sources added", body=f"{workspace.name} is ready for read-only questions.", resource_id=workspace.id)
         db.commit()
         return _public_workspace(ws_dict)
+    except UploadLimitError as exc:
+        logger.info("multiple upload rejected by resource limit status=%s", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
     except ValueError as exc:
         logger.info("multiple upload rejected type=%s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The uploaded files could not be processed.") from None
