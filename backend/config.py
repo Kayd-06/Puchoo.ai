@@ -82,6 +82,18 @@ def ensure_production_secrets(environment: str, session_secret: str | None, otp_
         )
 
 
+def ensure_production_cookie_security(environment: str, cookie_secure: bool) -> None:
+    """Stop a production deploy that would send session cookies over plain HTTP."""
+
+    if environment.strip().lower() != "production":
+        return
+    if cookie_secure is not True:
+        raise RuntimeError(
+            "Refusing to start: COOKIE_SECURE must be true when ENVIRONMENT=production, "
+            "so session and CSRF cookies are only sent over HTTPS."
+        )
+
+
 @dataclass
 class Settings:
     database_url: str
@@ -164,4 +176,5 @@ def load_settings() -> Settings:
 
 settings = load_settings()
 ensure_production_secrets(settings.environment, settings.session_secret, settings.otp_secret)
+ensure_production_cookie_security(settings.environment, settings.cookie_secure)
 validate_db_ssl_mode()
