@@ -129,6 +129,7 @@ class Settings:
     authenticated_rate_window_seconds: int = 60
     connection_rate_limit: int = 5
     connection_rate_window_seconds: int = 15 * 60
+    notification_streams_per_user: int = 3
 
 
 def load_settings() -> Settings:
@@ -171,6 +172,7 @@ def load_settings() -> Settings:
         authenticated_rate_window_seconds=_positive_int("AUTHENTICATED_RATE_WINDOW_SECONDS", 60),
         connection_rate_limit=_positive_int("CONNECTION_RATE_LIMIT", 5),
         connection_rate_window_seconds=_positive_int("CONNECTION_RATE_WINDOW_SECONDS", 15 * 60),
+        notification_streams_per_user=_positive_int("NOTIFICATION_STREAMS_PER_USER", 3),
     )
 
 
