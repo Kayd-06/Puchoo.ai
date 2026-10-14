@@ -50,10 +50,11 @@ class SessionManager:
         self.query_history.pop(workspace_id, None)
         self.schema_snapshots.pop(f"schema_{workspace_id}", None)
         self.active_proposals.pop(workspace_id, None)
+        self._delete_from_database(workspace_id)
         self.save()
 
     def save(self, active_workspace_id: str | None = None) -> None:
-        """Persist local workspaces without writing server credentials to disk."""
+        """Persist workspace state without writing server credentials to disk."""
 
         save_local_state(
             workspaces=self.workspaces,
@@ -62,6 +63,77 @@ class SessionManager:
             query_history=self.query_history,
             profile=self.profile,
         )
+        self._save_to_database()
+
+    def hydrate_from_database(self) -> None:
+        """Import legacy JSON once, then make relational state authoritative."""
+
+        from sqlalchemy import select
+
+        from backend import database
+        from backend.models import WorkspaceRecord
+        from backend.workspace_repository import WorkspaceRepository, import_legacy_local_state
+
+        # Capture compatible in-memory/local-state workspaces before the
+        # relational records become authoritative.
+        self._save_to_database()
+        with database.SessionLocal() as db:
+            import_legacy_local_state(db)
+            db.commit()
+            repository = WorkspaceRepository(db)
+            persisted = db.scalars(select(WorkspaceRecord)).all()
+            runtime = self.workspaces
+            self.workspaces = {}
+            for record in persisted:
+                workspace = repository._as_dict(record)
+                existing = runtime.get(record.id, {})
+                if existing:
+                    workspace.update(existing)
+                if record.source_type == "server" and existing.get("database_uri"):
+                    workspace["availability"] = "available"
+                self.workspaces[record.id] = workspace
+                self.workspace_guardrails[record.id] = {
+                    **self.DEFAULT_GUARDRAILS,
+                    **repository.get_guardrails(record.id),
+                }
+                self.query_history[record.id] = repository.get_history(record.id)
+
+    def _save_to_database(self) -> None:
+        from backend import database
+        from backend.models import Tenant, User, WorkspaceRecord
+        from backend.workspace_repository import WorkspaceRepository
+
+        with database.SessionLocal() as db:
+            repository = WorkspaceRepository(db)
+            for workspace in self.workspaces.values():
+                tenant_id = workspace.get("owner_user_id")
+                if not tenant_id:
+                    continue
+                if db.get(Tenant, tenant_id) is None:
+                    owner = db.get(User, tenant_id)
+                    if owner is None:
+                        continue
+                    repository.ensure_tenant(
+                        tenant_id,
+                        owner.id,
+                        name=owner.workspace_name or owner.institute_name or "Workspace",
+                        workspace_type=owner.workspace_type,
+                    )
+                repository.save_workspace(workspace, tenant_id)
+                repository.save_guardrails(workspace["id"], self.get_guardrails(workspace["id"]))
+                repository.save_history(workspace["id"], self.query_history.get(workspace["id"], []))
+            db.commit()
+
+    @staticmethod
+    def _delete_from_database(workspace_id: str) -> None:
+        from backend import database
+        from backend.models import WorkspaceRecord
+
+        with database.SessionLocal() as db:
+            record = db.get(WorkspaceRecord, workspace_id)
+            if record is not None:
+                db.delete(record)
+                db.commit()
 
     def get_guardrails(self, workspace_id: str) -> Dict[str, Any]:
         """Return a complete guardrail configuration, including for legacy state."""

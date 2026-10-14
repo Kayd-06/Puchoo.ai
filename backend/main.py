@@ -37,6 +37,10 @@ def create_app(*, include_product: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         init_db()
+        if include_product:
+            from apps.api.session import session_manager
+
+            session_manager.hydrate_from_database()
         yield
 
     app = FastAPI(

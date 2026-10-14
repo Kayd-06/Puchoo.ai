@@ -45,15 +45,21 @@ def save_local_state(
 ) -> None:
     """Persist only local source metadata and user-approved query history.
 
-    A database-server URI embeds a password, so server sources are purposely
-    excluded. Users reconnect those sources after a browser refresh.
+    Server sources retain only non-secret identity metadata and are marked
+    unavailable. Users reconnect credentials after a process restart.
     """
 
-    local_workspaces = {
-        workspace_id: workspace
-        for workspace_id, workspace in workspaces.items()
-        if workspace.get("source_type", "file") != "server"
-    }
+    local_workspaces = {}
+    for workspace_id, workspace in workspaces.items():
+        if workspace.get("source_type", "file") == "server":
+            local_workspaces[workspace_id] = {
+                key: workspace[key]
+                for key in ("id", "name", "owner_user_id", "source_type", "dialect")
+                if key in workspace
+            }
+            local_workspaces[workspace_id]["availability"] = "unavailable"
+        else:
+            local_workspaces[workspace_id] = workspace
     local_ids = set(local_workspaces)
     state = {
         "workspaces": local_workspaces,

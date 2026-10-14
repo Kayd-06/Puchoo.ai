@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -33,9 +33,61 @@ class User(Base):
     workspace_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     workspace_owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     workspace_role: Mapped[str] = mapped_column(String(20), nullable=False, default="owner")
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     sessions: Mapped[list["AuthSession"]] = relationship(back_populates="user")
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    workspace_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (UniqueConstraint("tenant_id", "user_id", name="uq_tenant_membership"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class WorkspaceRecord(Base):
+    __tablename__ = "workspace_records"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, default="file")
+    source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    availability: Mapped[str] = mapped_column(String(30), nullable=False, default="available")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class WorkspaceGuardrail(Base):
+    __tablename__ = "workspace_guardrails"
+
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspace_records.id", ondelete="CASCADE"), primary_key=True)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+class WorkspaceHistoryRecord(Base):
+    __tablename__ = "workspace_history_records"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspace_records.id", ondelete="CASCADE"), index=True, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class AuthSession(Base):
