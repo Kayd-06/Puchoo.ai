@@ -155,6 +155,19 @@ def test_profile_image_rejects_unsafe_links(client: TestClient, otp_codes):
     assert response.status_code == 422
 
 
+def test_profile_image_rejects_oversized_payload(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    response = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "data:image/png;base64," + ("a" * 1_500_000)},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
 def test_profile_image_can_be_removed(client: TestClient, otp_codes):
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
     finish_signup(client, "ada@college.edu", otp_codes)

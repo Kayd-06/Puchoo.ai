@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { can } from '../../auth/capabilities';
 import Sidebar from '../../components/layout/Sidebar';
+import TopBar from '../../components/layout/TopBar';
 import ConnectData from '../ConnectData';
 import Settings from '../Settings';
 
@@ -23,6 +24,9 @@ vi.mock('../../components/workspace/WorkspaceInvitePanel', () => ({
 }));
 vi.mock('../../components/auth/ChangeEmailPanel', () => ({
   default: () => <div>Change email</div>,
+}));
+vi.mock('../../api/client', () => ({
+  fetchApi: vi.fn().mockResolvedValue({ items: [], unread_count: 0 }),
 }));
 
 const capabilityMap = {
@@ -85,5 +89,19 @@ describe('role-aware product surfaces', () => {
     expect(can(null, 'view_history')).toBe(false);
     expect(can({ capabilities: {} }, 'view_history')).toBe(false);
     expect(can(user, 'does_not_exist')).toBe(false);
+  });
+
+  it.each(['owner', 'admin', 'editor', 'viewer'])('%s can manage a profile image', (role) => {
+    setRole(role);
+    renderRoute(<Settings />);
+    expect(screen.getByText('Upload image')).toBeInTheDocument();
+    expect(screen.getByText('Use image link')).toBeInTheDocument();
+  });
+
+  it('uses the account image in the top bar', () => {
+    setRole('editor');
+    user.image_url = 'https://images.example.com/ada.png';
+    const { container } = renderRoute(<TopBar />);
+    expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('src', user.image_url);
   });
 });
