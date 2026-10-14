@@ -4,6 +4,7 @@ import { ArrowUpRight, Check, FileSpreadsheet, Server, ShieldCheck, Upload, X } 
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
+import { can } from '../auth/capabilities';
 
 const ACCEPTED_FILES = '.csv,.xlsx,.xls,.db,.sqlite,.sqlite3';
 
@@ -30,8 +31,8 @@ export default function ConnectData() {
   const [connecting, setConnecting] = useState(false);
   const [serverError, setServerError] = useState('');
 
-  if (user?.workspace_role === 'viewer') {
-    return <section className="connect-viewer-state"><ShieldCheck size={24} /><span>Viewer access</span><h1>Data sources are protected.</h1><p>Only workspace editors and admins can add or connect data sources. You can still inspect approved query history.</p><Link to="/history">View query history <ArrowUpRight size={16} /></Link></section>;
+  if (!can(user, 'manage_data_sources')) {
+    return <section className="connect-viewer-state"><ShieldCheck size={24} /><span>{user?.role || 'Member'} access</span><h1>Data sources are protected.</h1><p>Your role does not allow data source changes. Workspace owners and admins can upload or connect sources.</p><Link to="/history">View query history <ArrowUpRight size={16} /></Link></section>;
   }
 
   const selectFiles = (files) => {

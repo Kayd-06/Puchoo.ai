@@ -2,19 +2,20 @@ import { NavLink } from 'react-router-dom';
 import { Database, History, MessageSquare, Plus, Settings, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
+import { can } from '../../auth/capabilities';
 
 const NAV_ITEMS = [
-  { to: '/ask', icon: MessageSquare, label: 'Ask data', hint: 'New query' },
-  { to: '/connect', icon: Database, label: 'Data sources', hint: 'Connect' },
-  { to: '/history', icon: History, label: 'History', hint: 'Review' },
-  { to: '/settings', icon: Settings, label: 'Settings', hint: 'Workspace' },
+  { to: '/ask', icon: MessageSquare, label: 'Ask data', hint: 'New query', capability: 'query_workspace' },
+  { to: '/connect', icon: Database, label: 'Data sources', hint: 'Connect', capability: 'manage_data_sources' },
+  { to: '/history', icon: History, label: 'History', hint: 'Review', capability: 'view_history' },
+  { to: '/settings', icon: Settings, label: 'Settings', hint: 'Account', capability: 'manage_account' },
 ];
 
 export default function Sidebar() {
   const { workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useAppContext();
   const { user } = useAuth();
-  const isViewer = user?.workspace_role === 'viewer';
-  const navItems = NAV_ITEMS.filter((item) => !isViewer || item.to === '/history');
+  const navItems = NAV_ITEMS.filter((item) => can(user, item.capability));
+  const role = user?.role || user?.workspace_role || 'viewer';
 
   return (
     <aside className="app-sidebar" aria-label="Workspace navigation">
@@ -44,8 +45,8 @@ export default function Sidebar() {
               {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </select>
           </label>
-        ) : <NavLink to="/connect" className="workspace-empty"><Plus size={15} /> Connect data</NavLink>}
-        <div className="workspace-access-note"><ShieldCheck size={14} /><span>{activeWorkspace ? `${isViewer ? 'Viewer' : 'Read-only'} access` : 'No source selected'}</span></div>
+        ) : can(user, 'manage_data_sources') ? <NavLink to="/connect" className="workspace-empty"><Plus size={15} /> Connect data</NavLink> : <span className="workspace-empty">No shared data yet</span>}
+        <div className="workspace-access-note"><ShieldCheck size={14} /><span>{activeWorkspace ? `${role} access` : 'No source selected'}</span></div>
       </div>
     </aside>
   );

@@ -107,6 +107,14 @@ export default function TopBar() {
     }
   }
 
+  const avatar = (className = 'topbar-avatar') => (
+    <span className={`${className}${user?.image_url ? ' has-image' : ''}`}>
+      {user?.image_url
+        ? <img src={user.image_url} alt="" />
+        : (user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U')}
+    </span>
+  );
+
   return (
     <header className="app-topbar">
       <div className="app-topbar-status">
@@ -128,12 +136,12 @@ export default function TopBar() {
         </div>
         <div ref={accountRef} className="topbar-menu-anchor">
           <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => { setAccountOpen((value) => !value); setOpen(false); }} className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}>
-            <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+            {avatar()}
             <ChevronDown size={16} />
           </button>
           {accountOpen && <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
             <div className="topbar-account-summary">
-              <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+              {avatar()}
               <div><strong>{user?.full_name || 'Your account'}</strong><span>{user?.email}</span></div>
             </div>
             <button type="button" className="topbar-logout-button" onClick={onLogout} disabled={loggingOut}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
