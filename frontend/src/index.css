@@ -2072,3 +2072,4 @@ body {
   .settings-photo-actions { flex-wrap: wrap; }
   .settings-photo-remove { width: 100%; margin: 0 0 4px; }
 }
+.otp-field{display:grid;gap:8px}.otp-field>label{color:#475569;font-size:.86rem;font-weight:600}.otp-cells{position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}.otp-cells>span{display:grid;height:54px;place-items:center;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#0f172a;font-size:1.35rem;font-weight:700}.otp-cells:focus-within>span{border-color:#475569;box-shadow:0 0 0 2px rgba(71,85,105,.12)}.otp-cells.has-error>span{border-color:#dc2626}.otp-cells>input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:text}.otp-cells>input:disabled{cursor:not-allowed}.otp-cells:has(input:disabled){opacity:.58}.otp-error{color:#b91c1c;font-size:.8rem}

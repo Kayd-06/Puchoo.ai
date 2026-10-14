@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthShell, { Field, inputClass } from '../components/auth/AuthShell';
 import PasswordField from '../components/auth/PasswordField';
+import OtpInput from '../components/auth/OtpInput';
 import { PillButton, focusRing } from '../components/landing/ui';
 import { useAuth } from '../context/AuthContext';
 
@@ -162,20 +163,7 @@ export default function Login() {
       >
         {step === 'code' ? (
           <form className="space-y-5" onSubmit={onVerify} noValidate>
-            <Field id="code" label="Verification code" error={errors.code}>
-              <input
-                id="code"
-                name="code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                value={code}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                aria-invalid={Boolean(errors.code)}
-                aria-describedby={errors.code ? 'code-error' : undefined}
-                className={`${inputClass(Boolean(errors.code))} tracking-[0.4em]`}
-              />
-            </Field>
+            <OtpInput id="code" value={code} onChange={setCode} error={errors.code} disabled={pending} autoFocus />
             <p className="text-sm text-[#3f5474]" role="timer" aria-live="polite">
               This code expires in {formatClock(challengeLeft)}.
             </p>
