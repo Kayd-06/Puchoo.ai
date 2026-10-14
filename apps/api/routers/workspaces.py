@@ -31,6 +31,7 @@ from apps.core.workspaces import (
 )
 from apps.api.session import session_manager
 from apps.api.security import (
+    require_capability,
     require_connection_admin,
     require_data_manager,
     require_workspace_admin,
@@ -142,7 +143,7 @@ def _public_workspace(workspace: Dict[str, Any]) -> Dict[str, Any]:
     return {field: workspace[field] for field in PUBLIC_WORKSPACE_FIELDS if field in workspace}
 
 @router.get("/")
-def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
+def list_workspaces(user=Depends(require_capability("view_workspaces"))) -> List[Dict[str, Any]]:
     owner_id = _owner_id(user)
     return [
         _public_workspace(workspace)

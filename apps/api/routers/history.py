@@ -4,14 +4,18 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from apps.api.session import session_manager
-from apps.api.security import get_workspace_guard, require_workspace_admin, tenant_owner_id
+from apps.api.security import get_workspace_guard, require_capability, require_workspace_admin, tenant_owner_id
 from apps.core.chat_memory import ChatMemoryError, get_chat_memory
 from backend.routers.auth import current_user
 
 router = APIRouter(prefix="/history", tags=["history"])
 
 @router.get("/{workspace_id}")
-def get_history(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> List[Dict[str, Any]]:
+def get_history(
+    workspace_id: str,
+    workspace: Dict = Depends(get_workspace_guard),
+    user=Depends(require_capability("view_history")),
+) -> List[Dict[str, Any]]:
     return session_manager.query_history.get(workspace_id, [])
 
 @router.delete("/{workspace_id}")
@@ -71,7 +75,7 @@ def search_approved_memory(
     q: str = Query(min_length=1, max_length=500),
     limit: int = Query(default=5, ge=1, le=10),
     workspace: Dict = Depends(get_workspace_guard),
-    user=Depends(current_user),
+    user=Depends(require_capability("view_history")),
 ) -> Dict[str, Any]:
     """Semantic recall of approved conversations, strictly within this tenant/workspace."""
 

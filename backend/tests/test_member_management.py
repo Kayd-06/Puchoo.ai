@@ -5,7 +5,7 @@ from datetime import timedelta
 from fastapi.testclient import TestClient
 
 from backend import database
-from backend.models import InstituteInvite, User
+from backend.models import InstituteInvite, TenantMembership, User
 from backend.security import utcnow
 from backend.tests.conftest import csrf_headers, finish_signup, signup_payload
 
@@ -78,6 +78,12 @@ def test_owner_can_change_member_role_and_removed_member_loses_session(client, o
         finally:
             db.close()
         assert member_id
+        db = database.SessionLocal()
+        try:
+            membership = db.query(TenantMembership).filter_by(user_id=member_id).one()
+            assert membership.role == "editor"
+        finally:
+            db.close()
 
         changed = client.patch(
             f"/api/v1/auth/workspace/members/{member_id}",
@@ -86,6 +92,11 @@ def test_owner_can_change_member_role_and_removed_member_loses_session(client, o
         )
         assert changed.status_code == 200
         assert changed.json()["role"] == "viewer"
+        db = database.SessionLocal()
+        try:
+            assert db.query(TenantMembership).filter_by(user_id=member_id).one().role == "viewer"
+        finally:
+            db.close()
         assert member_client.get("/api/v1/auth/me").status_code == 200
 
         removed = client.delete(

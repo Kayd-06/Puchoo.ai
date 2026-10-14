@@ -45,7 +45,7 @@ class GuardrailsRequest(BaseModel):
     confirm_complex_queries: bool = Field(strict=True)
 
 @router.get("/guardrails/{workspace_id}")
-def get_guardrails(workspace_id: str, workspace: Dict = Depends(get_workspace_guard)) -> Dict[str, Any]:
+def get_guardrails(workspace_id: str, workspace: Dict = Depends(require_workspace_admin)) -> Dict[str, Any]:
     return session_manager.get_guardrails(workspace_id)
 
 @router.put("/guardrails/{workspace_id}")

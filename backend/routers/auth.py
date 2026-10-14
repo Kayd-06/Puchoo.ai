@@ -21,6 +21,8 @@ from backend.models import (
     InstituteInvite,
     LoginChallenge,
     PasswordResetCode,
+    Tenant,
+    TenantMembership,
     User,
 )
 from backend.notifications import create_notification
@@ -271,6 +273,22 @@ def signup(
     db.add(user)
     try:
         db.flush()
+        tenant_id = owner.id if owner else user.id
+        tenant = db.get(Tenant, tenant_id)
+        if tenant is None:
+            tenant = Tenant(
+                id=tenant_id,
+                owner_user_id=tenant_id,
+                name=((owner.workspace_name or owner.institute_name or "Workspace") if owner else (body.workspace_name or "Personal workspace")),
+                workspace_type=user.workspace_type,
+            )
+            db.add(tenant)
+            db.flush()
+        db.add(TenantMembership(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            role=invite.role if invite else "owner",
+        ))
         if invite is not None and owner is not None:
             workspace_name = owner.workspace_name or owner.institute_name or "the shared workspace"
             create_notification(
@@ -401,6 +419,9 @@ def update_workspace_member_role(
     tenant_id = tenant_owner_id(user)
     member = _managed_workspace_member(db, tenant_id, member_id)
     member.workspace_role = body.role
+    membership = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    if membership is not None:
+        membership.role = body.role
     db.commit()
     return _workspace_member_response(member, tenant_id)
 
@@ -436,6 +457,18 @@ def remove_workspace_member(
     member.workspace_role = "owner"
     member.institute_name = None
     member.institute_owner_id = None
+    membership = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    if membership is not None:
+        db.delete(membership)
+    db.flush()
+    db.add(Tenant(
+        id=member.id,
+        owner_user_id=member.id,
+        name="Personal workspace",
+        workspace_type="personal",
+    ))
+    db.flush()
+    db.add(TenantMembership(tenant_id=member.id, user_id=member.id, role="owner"))
     db.commit()
     return Response(status_code=204)
 

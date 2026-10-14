@@ -101,7 +101,7 @@ def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
 
 def require_workspace_editor(
     workspace: dict = Depends(get_workspace_guard),
-    user=Depends(require_data_manager),
+    user=Depends(require_capability("query_workspace")),
 ):
     return workspace
 

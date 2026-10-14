@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
-from apps.api.security import require_data_manager
+from apps.api.security import require_capability
 from backend.config import settings
 
 router = APIRouter(prefix="/sarvam", tags=["sarvam"])
@@ -58,7 +58,7 @@ async def _read_audio(file: UploadFile) -> bytes:
     return contents
 
 @router.post("/transcribe")
-async def transcribe(file: UploadFile = File(...), user=Depends(require_data_manager)) -> Dict[str, str | None]:
+async def transcribe(file: UploadFile = File(...), user=Depends(require_capability("query_workspace"))) -> Dict[str, str | None]:
     contents = await _read_audio(file)
     try:
         client = SarvamClient()
@@ -77,7 +77,7 @@ async def transcribe(file: UploadFile = File(...), user=Depends(require_data_man
         raise HTTPException(status_code=502, detail="Transcription is temporarily unavailable.") from None
 
 @router.post("/translate")
-def translate(request: TranslationRequest, user=Depends(require_data_manager)) -> Dict[str, str]:
+def translate(request: TranslationRequest, user=Depends(require_capability("query_workspace"))) -> Dict[str, str]:
     try:
         client = SarvamClient()
         translated = client.translate(

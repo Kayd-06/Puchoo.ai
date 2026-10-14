@@ -68,6 +68,38 @@ def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_p
     session_manager.schema_snapshots.pop(f"schema_{workspace['id']}", None)
 
 
+def test_editor_cannot_upload_data_sources(client, otp_codes):
+    owner_email = "upload-owner@example.com"
+    assert client.post(
+        "/api/v1/auth/signup",
+        json=signup_payload(email=owner_email, workspace_type="business", workspace_name="Acme"),
+        headers=csrf_headers(client),
+    ).status_code == 202
+    finish_signup(client, owner_email, otp_codes)
+    invite = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "editor"},
+        headers=csrf_headers(client),
+    ).json()["code"]
+
+    with TestClient(create_app(include_product=True)) as editor:
+        email = "upload-editor@example.com"
+        assert editor.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email=email, invite_code=invite),
+            headers=csrf_headers(editor),
+        ).status_code == 202
+        finish_signup(editor, email, otp_codes)
+
+        denied = editor.post(
+            "/api/workspaces/upload",
+            files={"file": ("report.csv", b"month,total\nJan,4\n", "text/csv")},
+            headers=csrf_headers(editor),
+        )
+
+        assert denied.status_code == 403
+
+
 def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes):
     """The content signature and a configured byte limit are enforced before parsing."""
 
