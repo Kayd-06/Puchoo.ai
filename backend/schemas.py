@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from backend.authorization import AccountCapabilities, EffectiveRole
 from backend.security import password_is_valid
 
 
@@ -204,6 +205,32 @@ class UserResponse(BaseModel):
     workspace_name: str | None = None
     workspace_owner_id: str | None = None
     workspace_role: str = "owner"
+    image_url: str | None = None
+    role: EffectiveRole
+    tenant_id: str
+    capabilities: AccountCapabilities
+
+
+class ProfileImageRequest(RequestModel):
+    image_url: str | None = Field(default=None, max_length=1_500_000)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if value.startswith("https://"):
+            return value
+        allowed_data_prefixes = (
+            "data:image/png;base64,",
+            "data:image/jpeg;base64,",
+            "data:image/webp;base64,",
+            "data:image/gif;base64,",
+        )
+        if value.startswith(allowed_data_prefixes):
+            return value
+        raise ValueError("Use an HTTPS image link or upload a PNG, JPEG, WebP, or GIF image.")
 
 
 class InstituteInviteResponse(BaseModel):

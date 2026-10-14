@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend import emailer
+from backend.authorization import capabilities_for, effective_role, tenant_id_for
 from backend.config import settings
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
@@ -34,6 +35,7 @@ from backend.schemas import (
     WorkspaceInviteRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
+    ProfileImageRequest,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
@@ -84,7 +86,21 @@ INVITE_TTL = timedelta(days=7)
 
 
 def _user_response(user: User) -> UserResponse:
-    return UserResponse.model_validate(user)
+    return UserResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        workspace_type=user.workspace_type,
+        institute_name=user.institute_name,
+        institute_owner_id=user.institute_owner_id,
+        workspace_name=user.workspace_name,
+        workspace_owner_id=user.workspace_owner_id,
+        workspace_role=user.workspace_role,
+        image_url=user.image_url,
+        role=effective_role(user),
+        tenant_id=tenant_id_for(user),
+        capabilities=capabilities_for(user),
+    )
 
 
 def _invite_expired(invite: InstituteInvite, now: datetime) -> bool:
@@ -814,4 +830,18 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
+    return _user_response(user)
+
+
+@router.put("/profile-image", response_model=UserResponse)
+def update_profile_image(
+    body: ProfileImageRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    enforce_csrf(request)
+    user.image_url = body.image_url
+    db.commit()
+    db.refresh(user)
     return _user_response(user)

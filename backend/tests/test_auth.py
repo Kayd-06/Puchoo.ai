@@ -104,6 +104,78 @@ def test_login_success_and_me(client: TestClient, otp_codes):
     assert me.json()["workspace_type"] == "personal"
 
 
+def test_me_returns_canonical_effective_role_tenant_and_capabilities(client: TestClient, otp_codes):
+    client.post(
+        "/api/v1/auth/signup",
+        json=signup_payload(email="role-contract@college.edu"),
+        headers=csrf_headers(client),
+    )
+    finish_signup(client, "role-contract@college.edu", otp_codes)
+
+    payload = client.get("/api/v1/auth/me").json()
+
+    assert payload["role"] == "owner"
+    assert payload["tenant_id"] == payload["id"]
+    assert payload["capabilities"] == {
+        "view_workspaces": True,
+        "view_history": True,
+        "query_workspace": True,
+        "manage_data_sources": True,
+        "administer_workspace": True,
+        "manage_account": True,
+    }
+
+
+def test_profile_image_update_persists_across_session_refresh(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    image_url = "https://images.example.com/ada.png"
+    updated = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": image_url},
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["image_url"] == image_url
+    assert client.get("/api/v1/auth/me").json()["image_url"] == image_url
+
+
+def test_profile_image_rejects_unsafe_links(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    response = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "javascript:alert(1)"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+def test_profile_image_can_be_removed(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    headers = csrf_headers(client)
+    client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "data:image/png;base64,aGVsbG8="},
+        headers=headers,
+    )
+
+    removed = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": None},
+        headers=csrf_headers(client),
+    )
+
+    assert removed.status_code == 200
+    assert removed.json()["image_url"] is None
+    assert client.get("/api/v1/auth/me").json()["image_url"] is None
+
+
 def test_refresh_checks_keep_a_stable_valid_session(client: TestClient, otp_codes):
     """Parallel page-load calls must not rotate a browser session out of sync."""
     client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
