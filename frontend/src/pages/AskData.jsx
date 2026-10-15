@@ -90,23 +90,6 @@ function QueryUniverse() {
       context.globalCompositeOperation = 'lighter';
       const pointer = pointerRef.current;
 
-      if (pointer.active) {
-        const pointerGlow = context.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 150);
-        pointerGlow.addColorStop(0, 'rgba(119, 200, 255, .075)');
-        pointerGlow.addColorStop(.42, 'rgba(78, 151, 219, .028)');
-        pointerGlow.addColorStop(1, 'rgba(31, 92, 147, 0)');
-        context.fillStyle = pointerGlow;
-        context.fillRect(pointer.x - 150, pointer.y - 150, 300, 300);
-
-        for (let ring = 0; ring < 3; ring += 1) {
-          const pulse = (time * .00017 + ring / 3) % 1;
-          context.beginPath();
-          context.arc(pointer.x, pointer.y, 18 + pulse * 76, 0, Math.PI * 2);
-          context.strokeStyle = `rgba(155, 220, 255, ${(1 - pulse) * .11})`;
-          context.lineWidth = .65;
-          context.stroke();
-        }
-      }
       // Slow, transparent orbital paths give the field depth without becoming
       // a bright static panel behind the composer.
       context.save();

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Check, Fingerprint, History as HistoryIcon, ImageUp, Link2, LockKeyhole, ShieldCheck, Trash2, User, X } from 'lucide-react';
+import { Camera, Check, History as HistoryIcon, ImageUp, Link2, ShieldCheck, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangeEmailPanel from '../components/auth/ChangeEmailPanel';
@@ -74,7 +74,6 @@ export default function Settings() {
 
   return (
     <div className="settings-page">
-      <div className="settings-ambient" aria-hidden="true"><span /><span /><span /></div>
       <header className="settings-hero">
         <div className="settings-eyebrow">
         <ShieldCheck size={20} />
@@ -85,17 +84,13 @@ export default function Settings() {
             <h1>Settings</h1>
             <p>Control your profile, workspace access, and verified account settings.</p>
           </div>
-          <div className="settings-trust-rail" aria-label="Security posture">
-            <span className="settings-security-chip"><ShieldCheck size={15} /> Tenant isolated</span>
-            <span className="settings-trust-detail"><LockKeyhole size={14} /> HttpOnly session</span>
-          </div>
         </div>
       </header>
 
       <div className="settings-flow">
         {can(user, 'administer_workspace') && <WorkspaceInvitePanel />}
         <section className="settings-section settings-profile" aria-labelledby="profile-title">
-          <div className="settings-card-label"><Fingerprint size={15} /><span>Identity vault</span><small>Verified record</small></div>
+          <div className="settings-card-label"><User size={15} /><span>Account profile</span><small>{user?.role || 'member'}</small></div>
           <div className="settings-profile-topline">
             <button type="button" className={`settings-avatar settings-avatar-button${user?.image_url ? ' has-image' : ''}`} onClick={() => openPhotoEditor()} aria-label="Change profile image">
               {user?.image_url

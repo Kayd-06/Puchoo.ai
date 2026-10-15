@@ -57,7 +57,7 @@ describe('role-aware product surfaces', () => {
     expect(screen.getByText('Data sources')).toBeInTheDocument();
     renderRoute(<Settings />);
     expect(screen.getByText('Invite management')).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(role, 'i'))).toBeInTheDocument();
+    expect(screen.getByText(`Business · ${role}`)).toBeInTheDocument();
   });
 
   it('editor can ask and review but cannot see or open uploads', () => {
@@ -82,7 +82,7 @@ describe('role-aware product surfaces', () => {
     expect(screen.getByText('Upload image')).toBeInTheDocument();
     expect(screen.getByText('Use image link')).toBeInTheDocument();
     expect(screen.queryByText('Invite management')).not.toBeInTheDocument();
-    expect(screen.getByText(/viewer/i)).toBeInTheDocument();
+    expect(screen.getByText('Business · viewer')).toBeInTheDocument();
   });
 
   it('capabilities deny missing and unknown permissions', () => {

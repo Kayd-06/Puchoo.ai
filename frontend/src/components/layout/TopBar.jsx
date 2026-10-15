@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
+import { Bell, CheckCheck, ChevronDown, LogOut } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../api/client';
@@ -118,8 +118,7 @@ export default function TopBar() {
   return (
     <header className="app-topbar">
       <div className="app-topbar-status">
-        <ShieldCheck size={20} />
-        <span>{activeWorkspace ? `${activeWorkspace.name} · Guardrails active` : 'Guardrails active'}</span>
+        <span>{activeWorkspace ? activeWorkspace.name : 'No data source selected'}</span>
       </div>
 
       <div className="app-topbar-actions">

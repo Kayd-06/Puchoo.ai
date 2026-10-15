@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Check, FileSpreadsheet, Server, ShieldCheck, Upload, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
@@ -23,8 +23,6 @@ export default function ConnectData() {
   const [uploadError, setUploadError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [createdWorkspace, setCreatedWorkspace] = useState(null);
-  const [hoveredLetter, setHoveredLetter] = useState(null);
-  const wordRef = useRef(null);
   const [serverForm, setServerForm] = useState({
     name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true,
   });
@@ -96,35 +94,13 @@ export default function ConnectData() {
     }
   };
 
-  const handleStagePointerMove = (event) => {
-    const word = wordRef.current;
-    if (!word) return;
-    const bounds = word.getBoundingClientRect();
-    const closeToWord = event.clientY >= bounds.top - 34 && event.clientY <= bounds.bottom + 34;
-    let nextLetter = null;
-    if (closeToWord) {
-      Array.from(word.children).some((letter, index) => {
-        const letterBounds = letter.getBoundingClientRect();
-        const horizontalPadding = Math.min(38, letterBounds.width * .16);
-        const insideLetter = event.clientX >= letterBounds.left - horizontalPadding
-          && event.clientX <= letterBounds.right + horizontalPadding;
-        if (insideLetter) {
-          nextLetter = index;
-          return true;
-        }
-        return false;
-      });
-    }
-    setHoveredLetter((current) => current === nextLetter ? current : nextLetter);
-  };
-
   const displayWord = uploading ? 'SYNC' : selectedFiles.length ? 'READY' : activeTab === 'server' ? 'LINK' : 'DATA';
 
   return (
     <div className="connect-page">
-      <section className="connect-stage" onPointerMove={handleStagePointerMove} onPointerLeave={() => setHoveredLetter(null)}>
-        <div ref={wordRef} className="connect-word" aria-hidden="true">{displayWord.split('').map((letter, index) => <span key={`${displayWord}-${index}`} className={hoveredLetter === index ? 'is-illuminated' : ''}>{letter}</span>)}</div>
-        <header className="connect-stage-header"><span>Secure ingestion</span><span><i /> Read-only by design</span></header>
+      <section className="connect-stage">
+        <div className="connect-word" aria-hidden="true">{displayWord}</div>
+        <header className="connect-stage-header"><span>Data sources</span><span>Owner and admin access</span></header>
         <div className="connect-stage-content">
           <div className="connect-tablist" role="tablist" aria-label="Data source type">
             <button type="button" role="tab" aria-selected={activeTab === 'upload'} className={activeTab === 'upload' ? 'is-active' : ''} onClick={() => setActiveTab('upload')}><Upload size={15} /> Upload files</button>
@@ -165,7 +141,7 @@ export default function ConnectData() {
             </form>
           )}
         </div>
-        <footer className="connect-stage-footer"><span>CSV · XLSX · SQLITE</span><span>Source data is never altered</span><span>Encrypted in transit</span></footer>
+        <footer className="connect-stage-footer"><span>CSV · XLSX · SQLITE</span><span>Source data is never altered</span></footer>
       </section>
     </div>
   );

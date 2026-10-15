@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Check, Copy, KeyRound, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { Check, Copy, KeyRound, RefreshCw, Users } from 'lucide-react';
 import { createWorkspaceInvite } from '../../api/auth';
 import { useAuth } from '../../context/AuthContext';
 
 const roleCopy = {
   admin: 'Can administer this shared workspace and manage data. The workspace owner controls role-code rotation.',
-  editor: 'Can connect and work with data, but cannot delete workspaces, data, or shared history.',
+  editor: 'Can query existing data and review history, but cannot add, connect, delete, or configure sources.',
   viewer: 'Can inspect workspace history and approved queries only. No uploads, queries, or settings changes.',
 };
 
@@ -57,7 +57,6 @@ export default function WorkspaceInvitePanel() {
           <h2 id="workspace-invites">Invite people to {workspaceLabel}</h2>
           <p>Each person uses their own email, password, and OTP. This code only grants the selected role inside this isolated workspace.</p>
         </div>
-        <span className="settings-security-chip"><ShieldCheck size={14} /> Tenant isolated</span>
       </div>
 
       <div role="tablist" aria-label="Invite role" className="workspace-role-tabs">
