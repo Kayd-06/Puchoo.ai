@@ -451,6 +451,6 @@ def test_migration_creates_pending_queries_table(tmp_path):
         with database.engine.connect() as connection:
             tables = {row[0] for row in connection.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'"))}
             assert "pending_queries" in tables
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261009_0013"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261015_0015"
     finally:
         database.configure_database(original_url)

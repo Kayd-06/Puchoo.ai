@@ -49,17 +49,14 @@ def save_local_state(
     unavailable. Users reconnect credentials after a process restart.
     """
 
-    local_workspaces = {}
-    for workspace_id, workspace in workspaces.items():
-        if workspace.get("source_type", "file") == "server":
-            local_workspaces[workspace_id] = {
-                key: workspace[key]
-                for key in ("id", "name", "owner_user_id", "source_type", "dialect")
-                if key in workspace
-            }
-            local_workspaces[workspace_id]["availability"] = "unavailable"
-        else:
-            local_workspaces[workspace_id] = workspace
+    # Server sources are represented durably by the tenant repository. Keep the
+    # legacy desktop JSON strictly file-only so connection metadata and history
+    # cannot leak into a second persistence store.
+    local_workspaces = {
+        workspace_id: workspace
+        for workspace_id, workspace in workspaces.items()
+        if workspace.get("source_type", "file") != "server"
+    }
     local_ids = set(local_workspaces)
     state = {
         "workspaces": local_workspaces,
