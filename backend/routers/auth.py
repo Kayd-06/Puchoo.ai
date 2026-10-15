@@ -391,11 +391,13 @@ def list_workspace_members(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[WorkspaceMemberResponse]:
-    from apps.api.security import tenant_owner_id
+    from apps.api.security import can_administer_workspace, tenant_owner_id
 
     tenant_id = tenant_owner_id(user)
     if user.workspace_type == "personal":
         return [_workspace_member_response(user, tenant_id)]
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can view members.")
     members = db.scalars(
         select(User).where((User.id == tenant_id) | (User.workspace_owner_id == tenant_id)).order_by(User.created_at)
     ).all()

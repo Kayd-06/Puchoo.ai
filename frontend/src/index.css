@@ -1915,6 +1915,17 @@ body {
 .workspace-invite-heading h2,
 .workspace-invite-heading p { overflow-wrap: anywhere; }
 .workspace-invite-heading > div { min-width: 0; }
+.workspace-members { margin-top: 22px; border-top: 1px solid #323232; padding-top: 18px; }
+.workspace-members-heading,.workspace-member { display: flex; align-items: center; gap: 12px; }
+.workspace-members-heading { justify-content: space-between; margin-bottom: 8px; color: #f2f3f5; }
+.workspace-members-heading span,.workspace-member div span { color: #818b96; font-size: .76rem; }
+.workspace-member { min-height: 58px; border-top: 1px solid #292929; }
+.workspace-member div { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.workspace-member div strong,.workspace-member div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-member select { border: 1px solid #444; border-radius: 10px; background: #141414; padding: 7px 9px; color: #e8e9eb; text-transform: capitalize; }
+.workspace-member-owner { border: 1px solid rgba(137,188,255,.27); border-radius: 999px; padding: 5px 8px; color: #94c8ff; font-size: .72rem; font-weight: 700; }
+.workspace-member-remove { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(255,120,128,.25); border-radius: 10px; background: rgba(255,90,100,.06); color: #ff9da3; cursor: pointer; }
+.workspace-member-remove:hover { border-color: rgba(255,120,128,.55); background: rgba(255,90,100,.12); }
 
 @media (max-width: 760px) {
   .topbar-notification-panel { right: -58px; }

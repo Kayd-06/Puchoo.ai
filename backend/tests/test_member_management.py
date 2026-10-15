@@ -132,6 +132,7 @@ def test_member_cannot_manage_another_member(client, otp_codes):
             headers=csrf_headers(member_client),
         )
         assert response.status_code == 403
+        assert member_client.get("/api/v1/auth/workspace/members").status_code == 403
 
 def test_removing_member_revokes_all_workspace_invites(client, otp_codes):
     """When a member is removed, all open invite codes for the workspace are retired."""
