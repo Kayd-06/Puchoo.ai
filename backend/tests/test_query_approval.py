@@ -584,3 +584,53 @@ def test_migration_creates_pending_queries_table(tmp_path):
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261016_0016"
     finally:
         database.configure_database(original_url)
+
+
+@pytest.mark.parametrize(
+    ("question", "monthly"),
+    [("Show expenses category wise", False), ("Show monthly expenses by category", True)],
+)
+def test_expense_template_passes_guardrail_and_still_needs_approval(env, monkeypatch, tmp_path, question, monthly):
+    """The deterministic expense template is not a bypass: it is guardrailed,
+    proposed as pending, and only runs after explicit approval."""
+
+    from apps.core.llm_client import schema_guided_fallback_sql
+
+    source = tmp_path / "expenses.db"
+    connection = sqlite3.connect(source)
+    connection.execute("CREATE TABLE expenses (id INTEGER PRIMARY KEY, expense_date TEXT, expense_category TEXT, amount INTEGER)")
+    connection.executemany(
+        "INSERT INTO expenses (expense_date, expense_category, amount) VALUES (?, ?, ?)",
+        [("2026-01-05", "travel", 100), ("2026-01-20", "food", 40), ("2026-02-02", "travel", 60)],
+    )
+    connection.commit()
+    connection.close()
+    session_manager.workspaces[WORKSPACE_ID]["database_uri"] = f"sqlite:///{source}"
+    session_manager.schema_snapshots.pop(f"schema_{WORKSPACE_ID}", None)
+    monkeypatch.setattr(query_router, "schema_guided_fallback_sql", schema_guided_fallback_sql)
+    # The template is used on the local-model path; treat the fake client as that path.
+    monkeypatch.setattr(query_router, "LocalMLXSQLClient", type(env.fake))
+    guard_calls: list[str] = []
+    original_validate = executor_module.ReadOnlyExecutor.validate_query_plan
+
+    def spy_validate(self, sql, *args, **kwargs):
+        guard_calls.append(sql)
+        return original_validate(self, sql, *args, **kwargs)
+
+    monkeypatch.setattr(executor_module.ReadOnlyExecutor, "validate_query_plan", spy_validate)
+
+    response = env.generate(question=question)
+    assert response.status_code == 200, response.text
+    pending = response.json()
+    assert pending["status"] == "pending_approval", pending
+    assert "expense_category" in pending["sql"] and "SUM(" in pending["sql"].upper()
+    assert ("STRFTIME" in pending["sql"].upper()) is monthly
+    assert guard_calls, "template SQL must go through the guardrail"
+    assert env.executions == []
+
+    approved = env.approve(pending)
+    assert approved.status_code == 200, approved.text
+    assert len(env.executions) == 1
+    record = approved.json()["record"]
+    assert record["row_count"] == (3 if monthly else 2)
+    assert "expense_category" in record["columns"]
