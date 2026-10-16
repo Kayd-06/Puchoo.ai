@@ -24,13 +24,13 @@ from apps.core.workspaces import (
     create_sqlite_workspace,
     create_tabular_workspace,
     create_tabular_collection_workspace,
-    create_uploaded_sqlite_workspace,
     get_schema_metrics,
     get_schema_snapshot,
     get_schema_table_stats,
 )
 from apps.api.session import session_manager
 from apps.api.security import (
+    require_capability,
     require_connection_admin,
     require_data_manager,
     require_workspace_admin,
@@ -44,7 +44,6 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 PUBLIC_WORKSPACE_FIELDS = ("id", "name", "dialect", "source_type")
 MAX_UPLOAD_BYTES = settings.upload_max_bytes
 MAX_UPLOAD_FILES = settings.upload_max_files
-SQLITE_HEADER = b"SQLite format 3\x00"
 OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
@@ -60,12 +59,10 @@ async def _read_upload(file: UploadFile) -> bytes:
 
 
 def _validated_upload_kind(filename: str, contents: bytes) -> str:
-    """Verify the bytes agree with the accepted tabular/database format."""
+    """Verify the bytes agree with an accepted CSV or Excel format."""
 
     suffix = Path(filename).suffix.lower()
-    if suffix in {".db", ".sqlite", ".sqlite3"}:
-        valid = contents.startswith(SQLITE_HEADER)
-    elif suffix == ".xlsx":
+    if suffix == ".xlsx":
         valid = contents.startswith(b"PK\x03\x04")
     elif suffix == ".xls":
         valid = contents.startswith(OLE_HEADER)
@@ -142,7 +139,7 @@ def _public_workspace(workspace: Dict[str, Any]) -> Dict[str, Any]:
     return {field: workspace[field] for field in PUBLIC_WORKSPACE_FIELDS if field in workspace}
 
 @router.get("/")
-def list_workspaces(user=Depends(current_user)) -> List[Dict[str, Any]]:
+def list_workspaces(user=Depends(require_capability("view_workspaces"))) -> List[Dict[str, Any]]:
     owner_id = _owner_id(user)
     return [
         _public_workspace(workspace)
@@ -204,10 +201,7 @@ async def upload_file(
     ws_name = name.strip() or filename.rsplit(".", 1)[0]
     
     try:
-        if suffix in {".db", ".sqlite", ".sqlite3"}:
-            workspace = create_uploaded_sqlite_workspace(ws_name, filename, contents)
-        else:
-            workspace = create_tabular_workspace(ws_name, filename, contents)
+        workspace = create_tabular_workspace(ws_name, filename, contents)
             
         ws_dict = workspace.as_dict()
         ws_dict["owner_user_id"] = _owner_id(user)
@@ -235,11 +229,6 @@ async def upload_multiple_files(
         filename = file.filename or "uploaded_file"
         contents = await _read_upload(file)
         suffix = _validated_upload_kind(filename, contents)
-        if suffix not in {".csv", ".xlsx", ".xls"}:
-            raise HTTPException(
-                status_code=400,
-                detail="Multiple upload supports CSV and Excel files only. Upload SQLite databases individually.",
-            )
         payloads.append((filename, contents))
     workspace_name = name.strip() or f"{len(payloads)}-file workspace"
     try:

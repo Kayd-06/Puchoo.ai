@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Check, FileSpreadsheet, Server, ShieldCheck, Upload, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
+import { can } from '../auth/capabilities';
 
-const ACCEPTED_FILES = '.csv,.xlsx,.xls,.db,.sqlite,.sqlite3';
+const ACCEPTED_FILES = '.csv,.xlsx,.xls';
 
 function fileLabel(file) {
   const size = file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
@@ -22,16 +23,14 @@ export default function ConnectData() {
   const [uploadError, setUploadError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [createdWorkspace, setCreatedWorkspace] = useState(null);
-  const [hoveredLetter, setHoveredLetter] = useState(null);
-  const wordRef = useRef(null);
   const [serverForm, setServerForm] = useState({
     name: '', engine: 'postgresql', host: '', port: '5432', database: '', username: '', password: '', ssl_required: true,
   });
   const [connecting, setConnecting] = useState(false);
   const [serverError, setServerError] = useState('');
 
-  if (user?.workspace_role === 'viewer') {
-    return <section className="connect-viewer-state"><ShieldCheck size={24} /><span>Viewer access</span><h1>Data sources are protected.</h1><p>Only workspace editors and admins can add or connect data sources. You can still inspect approved query history.</p><Link to="/history">View query history <ArrowUpRight size={16} /></Link></section>;
+  if (!can(user, 'manage_data_sources')) {
+    return <section className="connect-viewer-state"><ShieldCheck size={24} /><span>{user?.role || 'Member'} access</span><h1>Data sources are protected.</h1><p>Your role does not allow data source changes. Workspace owners and admins can upload or connect sources.</p><Link to="/history">View query history <ArrowUpRight size={16} /></Link></section>;
   }
 
   const selectFiles = (files) => {
@@ -95,35 +94,15 @@ export default function ConnectData() {
     }
   };
 
-  const handleStagePointerMove = (event) => {
-    const word = wordRef.current;
-    if (!word) return;
-    const bounds = word.getBoundingClientRect();
-    const closeToWord = event.clientY >= bounds.top - 34 && event.clientY <= bounds.bottom + 34;
-    let nextLetter = null;
-    if (closeToWord) {
-      Array.from(word.children).some((letter, index) => {
-        const letterBounds = letter.getBoundingClientRect();
-        const horizontalPadding = Math.min(38, letterBounds.width * .16);
-        const insideLetter = event.clientX >= letterBounds.left - horizontalPadding
-          && event.clientX <= letterBounds.right + horizontalPadding;
-        if (insideLetter) {
-          nextLetter = index;
-          return true;
-        }
-        return false;
-      });
-    }
-    setHoveredLetter((current) => current === nextLetter ? current : nextLetter);
-  };
-
   const displayWord = uploading ? 'SYNC' : selectedFiles.length ? 'READY' : activeTab === 'server' ? 'LINK' : 'DATA';
 
   return (
     <div className="connect-page">
-      <section className="connect-stage" onPointerMove={handleStagePointerMove} onPointerLeave={() => setHoveredLetter(null)}>
-        <div ref={wordRef} className="connect-word" aria-hidden="true">{displayWord.split('').map((letter, index) => <span key={`${displayWord}-${index}`} className={hoveredLetter === index ? 'is-illuminated' : ''}>{letter}</span>)}</div>
-        <header className="connect-stage-header"><span>Secure ingestion</span><span><i /> Read-only by design</span></header>
+      <section className="connect-stage">
+        <svg className="connect-word" viewBox="0 0 1200 260" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+          <text x="600" y="198" textAnchor="middle" pointerEvents="stroke">{displayWord}</text>
+        </svg>
+        <header className="connect-stage-header"><span>Data sources</span><span>Owner and admin access</span></header>
         <div className="connect-stage-content">
           <div className="connect-tablist" role="tablist" aria-label="Data source type">
             <button type="button" role="tab" aria-selected={activeTab === 'upload'} className={activeTab === 'upload' ? 'is-active' : ''} onClick={() => setActiveTab('upload')}><Upload size={15} /> Upload files</button>
@@ -135,7 +114,7 @@ export default function ConnectData() {
           ) : activeTab === 'upload' ? (
             <div className="connect-upload-flow">
               <h1>Bring your data<br />into focus.</h1>
-              <p>Upload CSV, Excel, or SQLite files. Puchoo.si builds one private, queryable workspace without mutating the source.</p>
+              <p>Upload CSV or Excel files, up to 20 at once. Puchoo.si builds one private, queryable workspace without mutating the source.</p>
               <input id="fileUpload" type="file" multiple accept={ACCEPTED_FILES} onChange={(event) => selectFiles(event.target.files)} hidden />
               <label htmlFor="fileUpload" className={`connect-dropzone${isDragging ? ' is-dragging' : ''}${uploading ? ' is-uploading' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); selectFiles(event.dataTransfer.files); }}>
                 <div className="connect-dropzone-mark"><Upload size={23} /></div>
@@ -164,7 +143,7 @@ export default function ConnectData() {
             </form>
           )}
         </div>
-        <footer className="connect-stage-footer"><span>CSV · XLSX · SQLITE</span><span>Source data is never altered</span><span>Encrypted in transit</span></footer>
+        <footer className="connect-stage-footer"><span>CSV · XLS · XLSX</span><span>Source data is never altered</span></footer>
       </section>
     </div>
   );

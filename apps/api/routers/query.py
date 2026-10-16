@@ -27,6 +27,7 @@ from apps.core.llm_client import (
     schema_guided_fallback_sql,
 )
 from apps.core.verification import get_verifier, verification_unavailable
+from apps.core.question_scope import classify_question_scope
 from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
 from apps.core.semantic_layer import (
@@ -236,12 +237,19 @@ def generate_query(
         schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
             workspace["database_uri"], connect_args=workspace.get("connect_args")
         )
+        scope = classify_question_scope(schema, planning_question)
+        if scope.blocking:
+            raise HTTPException(status_code=400, detail="I can only answer questions using data available in this workspace.")
+        # Keyword misses (synonyms, translated wording) are advisory only: the
+        # guardrail and the user's approval still gate every query.
+        scope_warning = scope.warning
         autonomous = _autonomous_mode()
         clarification = None if autonomous else question_clarification(schema, planning_question)
         if clarification:
             return {
                 "status": "clarification_required",
                 "question": question,
+                **({"scope_warning": scope_warning} if scope_warning else {}),
                 **clarification,
             }
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
@@ -361,7 +369,7 @@ def generate_query(
                         _redact_sql(generated_sql),
                     )
                     raise SQLGenerationError(
-                        "Puchoo could not produce a safe, executable query for this request."
+                        "Puchoo.si could not produce a safe, executable query for this request."
                     )
         else:
             attempt = 1
@@ -386,6 +394,8 @@ def generate_query(
             "interpreted_request": _translate_for_display(public_plan.get("normalized_question", planning_question), language_code),
             "status": "pending_approval",
         }
+        if scope_warning:
+            proposal["scope_warning"] = scope_warning
         trace = {
             "route": decision.route,
             "complexity_reasons": decision.reasons,
@@ -563,20 +573,30 @@ def approve_pending_query(
                 "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
                 "proposal": repaired,
             }
-        finish_pending(db, pending, "executed")
-
+        # The SQL has already run, so the pending approval must be closed even
+        # if verification fails unexpectedly; otherwise it could be replayed.
         try:
-            verification = get_verifier().verify(
-                question=proposal.get("processing_question", proposal["question"]),
-                sql=result.sql,
-                columns=result.columns,
-                rows=result.rows,
-                row_count=result.row_count,
-            )
-            verification_dict = verification.as_dict()
-        except RuntimeError as exc:
-            verification_dict = verification_unavailable(str(exc)).as_dict()
-            
+            try:
+                verification = get_verifier().verify(
+                    question=proposal.get("processing_question", proposal["question"]),
+                    sql=result.sql,
+                    columns=result.columns,
+                    rows=result.rows,
+                    row_count=result.row_count,
+                )
+                verification_dict = verification.as_dict()
+            except RuntimeError as exc:
+                verification_dict = verification_unavailable(str(exc)).as_dict()
+
+            if verification_dict.get("status") == "VERIFICATION_MISMATCH":
+                # Non-blocking by design: the verifier is an independent trust
+                # signal. The guardrail and the user's approval already gate
+                # execution, so a mismatch is returned with the result and the
+                # UI shows a "Verification failed" badge instead of hiding data.
+                logger.warning("query verification mismatch workspace=%s pending=%s", workspace_id, pending.id)
+        finally:
+            finish_pending(db, pending, "executed")
+
         record = {
             **proposal,
             "status": "executed",

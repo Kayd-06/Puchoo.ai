@@ -11,7 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend import emailer
+from backend.authorization import capabilities_for, effective_role, tenant_id_for
 from backend.config import settings
+from backend.workspace_repository import WorkspaceRepository
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
 from backend.models import (
@@ -20,6 +22,8 @@ from backend.models import (
     InstituteInvite,
     LoginChallenge,
     PasswordResetCode,
+    Tenant,
+    TenantMembership,
     User,
 )
 from backend.notifications import create_notification
@@ -34,6 +38,8 @@ from backend.schemas import (
     WorkspaceInviteRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
+    ProfileImageRequest,
+    is_stored_profile_image,
     ResendOtpRequest,
     SignupRequest,
     UserResponse,
@@ -84,7 +90,21 @@ INVITE_TTL = timedelta(days=7)
 
 
 def _user_response(user: User) -> UserResponse:
-    return UserResponse.model_validate(user)
+    return UserResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        workspace_type=user.workspace_type,
+        institute_name=user.institute_name,
+        institute_owner_id=user.institute_owner_id,
+        workspace_name=user.workspace_name,
+        workspace_owner_id=user.workspace_owner_id,
+        workspace_role=user.workspace_role,
+        image_url=user.image_url if is_stored_profile_image(user.image_url) else None,
+        role=effective_role(user),
+        tenant_id=tenant_id_for(user),
+        capabilities=capabilities_for(user),
+    )
 
 
 def _invite_expired(invite: InstituteInvite, now: datetime) -> bool:
@@ -255,6 +275,22 @@ def signup(
     db.add(user)
     try:
         db.flush()
+        tenant_id = owner.id if owner else user.id
+        tenant = db.get(Tenant, tenant_id)
+        if tenant is None:
+            tenant = Tenant(
+                id=tenant_id,
+                owner_user_id=tenant_id,
+                name=((owner.workspace_name or owner.institute_name or "Workspace") if owner else (body.workspace_name or "Personal workspace")),
+                workspace_type=user.workspace_type,
+            )
+            db.add(tenant)
+            db.flush()
+        db.add(TenantMembership(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            role=invite.role if invite else "owner",
+        ))
         if invite is not None and owner is not None:
             workspace_name = owner.workspace_name or owner.institute_name or "the shared workspace"
             create_notification(
@@ -357,11 +393,13 @@ def list_workspace_members(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[WorkspaceMemberResponse]:
-    from apps.api.security import tenant_owner_id
+    from apps.api.security import can_administer_workspace, tenant_owner_id
 
     tenant_id = tenant_owner_id(user)
     if user.workspace_type == "personal":
         return [_workspace_member_response(user, tenant_id)]
+    if not can_administer_workspace(user):
+        raise HTTPException(status_code=403, detail="Only workspace owners and admins can view members.")
     members = db.scalars(
         select(User).where((User.id == tenant_id) | (User.workspace_owner_id == tenant_id)).order_by(User.created_at)
     ).all()
@@ -385,6 +423,14 @@ def update_workspace_member_role(
     tenant_id = tenant_owner_id(user)
     member = _managed_workspace_member(db, tenant_id, member_id)
     member.workspace_role = body.role
+    membership = db.scalar(
+        select(TenantMembership).where(
+            TenantMembership.tenant_id == tenant_id,
+            TenantMembership.user_id == member.id,
+        )
+    )
+    if membership is not None:
+        membership.role = body.role
     db.commit()
     return _workspace_member_response(member, tenant_id)
 
@@ -402,7 +448,8 @@ def remove_workspace_member(
     enforce_csrf(request)
     if not can_administer_workspace(user):
         raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
-    member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
+    tenant_id = tenant_owner_id(user)
+    member = _managed_workspace_member(db, tenant_id, member_id)
     now = utcnow()
     _revoke_sessions_and_challenges(db, member.id, now)
     # The removed member still knows the shared codes; retire all of them
@@ -420,6 +467,28 @@ def remove_workspace_member(
     member.workspace_role = "owner"
     member.institute_name = None
     member.institute_owner_id = None
+    membership = db.scalar(
+        select(TenantMembership).where(
+            TenantMembership.tenant_id == tenant_id,
+            TenantMembership.user_id == member.id,
+        )
+    )
+    if membership is not None:
+        db.delete(membership)
+    db.flush()
+    # Idempotent: the member's personal tenant may already exist (migration
+    # backfill, or an earlier removal), so never insert it blindly.
+    WorkspaceRepository(db).ensure_tenant(
+        member.id,
+        member.id,
+        name="Personal workspace",
+        workspace_type="personal",
+    )
+    personal = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    if personal is None:
+        db.add(TenantMembership(tenant_id=member.id, user_id=member.id, role="owner"))
+    elif personal.tenant_id == member.id:
+        personal.role = "owner"
     db.commit()
     return Response(status_code=204)
 
@@ -814,4 +883,18 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
+    return _user_response(user)
+
+
+@router.put("/profile-image", response_model=UserResponse)
+def update_profile_image(
+    body: ProfileImageRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    enforce_csrf(request)
+    user.image_url = body.image_url
+    db.commit()
+    db.refresh(user)
     return _user_response(user)

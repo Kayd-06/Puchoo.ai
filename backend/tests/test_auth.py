@@ -1,6 +1,9 @@
 """Auth API: signup, login, session, logout, CSRF, and rate limits."""
 
+import base64
 from datetime import timedelta
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -102,6 +105,91 @@ def test_login_success_and_me(client: TestClient, otp_codes):
     assert me.status_code == 200
     assert me.json()["full_name"] == "Ada Lovelace"
     assert me.json()["workspace_type"] == "personal"
+
+
+def test_me_returns_canonical_effective_role_tenant_and_capabilities(client: TestClient, otp_codes):
+    client.post(
+        "/api/v1/auth/signup",
+        json=signup_payload(email="role-contract@college.edu"),
+        headers=csrf_headers(client),
+    )
+    finish_signup(client, "role-contract@college.edu", otp_codes)
+
+    payload = client.get("/api/v1/auth/me").json()
+
+    assert payload["role"] == "owner"
+    assert payload["tenant_id"] == payload["id"]
+    assert payload["capabilities"] == {
+        "view_workspaces": True,
+        "view_history": True,
+        "query_workspace": True,
+        "manage_data_sources": True,
+        "administer_workspace": True,
+        "manage_account": True,
+    }
+
+
+def test_profile_image_update_persists_across_session_refresh(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    image_url = "data:image/png;base64," + base64.b64encode(PNG_BYTES).decode()
+    updated = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": image_url},
+        headers=csrf_headers(client),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["image_url"] == image_url
+    assert client.get("/api/v1/auth/me").json()["image_url"] == image_url
+
+
+def test_profile_image_rejects_unsafe_links(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    response = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "javascript:alert(1)"},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+def test_profile_image_rejects_oversized_payload(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+
+    response = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "data:image/png;base64," + ("a" * 1_500_000)},
+        headers=csrf_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+def test_profile_image_can_be_removed(client: TestClient, otp_codes):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    headers = csrf_headers(client)
+    client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": "data:image/png;base64,aGVsbG8="},
+        headers=headers,
+    )
+
+    removed = client.put(
+        "/api/v1/auth/profile-image",
+        json={"image_url": None},
+        headers=csrf_headers(client),
+    )
+
+    assert removed.status_code == 200
+    assert removed.json()["image_url"] is None
+    assert client.get("/api/v1/auth/me").json()["image_url"] is None
 
 
 def test_refresh_checks_keep_a_stable_valid_session(client: TestClient, otp_codes):
@@ -562,3 +650,60 @@ def test_recovery_code_endpoints_and_login_format_are_removed(client: TestClient
         headers=csrf_headers(client),
     )
     assert verified.status_code == 422
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def _put_image(client, image_url):
+    return client.put("/api/v1/auth/profile-image", json={"image_url": image_url}, headers=csrf_headers(client))
+
+
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "https://images.example.com/ada.png",
+        "data:image/svg+xml;base64," + base64.b64encode(b"<svg onload=alert(1)>").decode(),
+        "data:image/png;base64,not-valid-base64!!",
+        "data:image/png;base64," + base64.b64encode(b"GIF89a" + b"\x00" * 16).decode(),
+        "data:image/jpeg;base64," + base64.b64encode(PNG_BYTES).decode(),
+        "data:image/png," + "plain",
+        "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * (200 * 1024)).decode(),
+    ],
+    ids=["external-link", "svg", "bad-base64", "gif-as-png", "png-as-jpeg", "not-base64", "over-200kb"],
+)
+def test_profile_image_rejects_links_and_invalid_images(client: TestClient, otp_codes, image_url):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    assert _put_image(client, image_url).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("mime", "payload"),
+    [
+        ("image/png", PNG_BYTES),
+        ("image/jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 16),
+        ("image/gif", b"GIF89a" + b"\x00" * 16),
+        ("image/webp", b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 16),
+    ],
+)
+def test_profile_image_accepts_real_images_by_magic_bytes(client: TestClient, otp_codes, mime, payload):
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    response = _put_image(client, f"data:{mime};base64," + base64.b64encode(payload).decode())
+    assert response.status_code == 200
+
+
+def test_legacy_external_profile_link_is_not_served(client: TestClient, otp_codes):
+    from backend import database
+    from backend.models import User
+
+    client.post("/api/v1/auth/signup", json=signup_payload(), headers=csrf_headers(client))
+    finish_signup(client, "ada@college.edu", otp_codes)
+    db = database.SessionLocal()
+    try:
+        db.query(User).filter_by(email="ada@college.edu").one().image_url = "https://tracker.example.com/p.png"
+        db.commit()
+    finally:
+        db.close()
+    assert client.get("/api/v1/auth/me").json()["image_url"] is None

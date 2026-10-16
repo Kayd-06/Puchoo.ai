@@ -1,9 +1,12 @@
 """Request and response models for account routes."""
 
+import base64
+import binascii
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from backend.authorization import AccountCapabilities, EffectiveRole
 from backend.security import password_is_valid
 
 
@@ -204,6 +207,50 @@ class UserResponse(BaseModel):
     workspace_name: str | None = None
     workspace_owner_id: str | None = None
     workspace_role: str = "owner"
+    image_url: str | None = None
+    role: EffectiveRole
+    tenant_id: str
+    capabilities: AccountCapabilities
+
+
+PROFILE_IMAGE_MAX_BYTES = 200 * 1024
+_PROFILE_IMAGE_SIGNATURES = {
+    "image/png": lambda data: data.startswith(b"\x89PNG\r\n\x1a\n"),
+    "image/jpeg": lambda data: data.startswith(b"\xff\xd8\xff"),
+    "image/gif": lambda data: data[:6] in (b"GIF87a", b"GIF89a"),
+    "image/webp": lambda data: data[:4] == b"RIFF" and data[8:12] == b"WEBP",
+}
+
+
+def is_stored_profile_image(value: str | None) -> bool:
+    """Only uploaded data-URL images are served back; legacy external links are not."""
+
+    return bool(value) and value.startswith("data:image/")
+
+
+class ProfileImageRequest(RequestModel):
+    # base64 of 200 KB is ~273 KB of text, plus the data-URL prefix.
+    image_url: str | None = Field(default=None, max_length=280_000)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        header, separator, encoded = value.partition(",")
+        mime = header.removeprefix("data:").removesuffix(";base64")
+        if not separator or not header.startswith("data:") or not header.endswith(";base64") or mime not in _PROFILE_IMAGE_SIGNATURES:
+            raise ValueError("Upload a PNG, JPEG, WebP, or GIF image. Image links are not supported.")
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("The uploaded image is not valid base64 data.") from None
+        if not data or len(data) > PROFILE_IMAGE_MAX_BYTES:
+            raise ValueError("Choose an image smaller than 200 KB.")
+        if not _PROFILE_IMAGE_SIGNATURES[mime](data):
+            raise ValueError("The uploaded file is not a valid PNG, JPEG, WebP, or GIF image.")
+        return f"{header},{encoded}"
 
 
 class InstituteInviteResponse(BaseModel):

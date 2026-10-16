@@ -97,8 +97,12 @@ export function forgotPassword(payload) { return api('/api/v1/auth/password/forg
 export function resetPassword(payload) { return api('/api/v1/auth/password/reset', { method: 'POST', body: payload }); }
 export function createInstituteInvite() { return api('/api/v1/auth/institute/invite', { method: 'POST' }); }
 export function createWorkspaceInvite(role = 'editor') { return api('/api/v1/auth/workspace/invite', { method: 'POST', body: { role } }); }
+export function listWorkspaceMembers() { return api('/api/v1/auth/workspace/members'); }
+export function updateWorkspaceMemberRole(memberId, role) { return api(`/api/v1/auth/workspace/members/${memberId}`, { method: 'PATCH', body: { role } }); }
+export function removeWorkspaceMember(memberId) { return api(`/api/v1/auth/workspace/members/${memberId}`, { method: 'DELETE' }); }
 export function requestEmailChange(payload) { return api('/api/v1/auth/email/change', { method: 'POST', body: payload }); }
 export function verifyEmailChange(payload) { return api('/api/v1/auth/email/change/verify', { method: 'POST', body: payload }); }
+export function updateProfileImage(imageUrl) { return api('/api/v1/auth/profile-image', { method: 'PUT', body: { image_url: imageUrl } }); }
 export function logout() {
   return api('/api/v1/auth/logout', { method: 'POST' });
 }

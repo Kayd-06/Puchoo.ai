@@ -1,6 +1,8 @@
 """End-to-end upload checks, including credential-redaction guarantees."""
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+import pytest
 from uuid import uuid4
 
 from apps.api.session import session_manager
@@ -18,6 +20,20 @@ def test_csv_validation_accepts_utf8_split_at_the_8kib_sniff_boundary():
 
     assert len(prefix) == 8191
     assert workspace_router._validated_upload_kind("boundary.csv", contents) == ".csv"
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        ("archive.zip", b"PK\x03\x04not-a-workbook"),
+        ("workspace.db", b"SQLite format 3\x00\x00\x01"),
+    ],
+)
+def test_upload_validation_rejects_zip_and_sqlite_files(filename, contents):
+    """Only CSV and Excel files can create an uploaded workspace."""
+
+    with pytest.raises(HTTPException, match="Unsupported file format"):
+        workspace_router._validated_upload_kind(filename, contents)
 
 
 def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_path, monkeypatch, otp_codes):
@@ -68,6 +84,38 @@ def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_p
     session_manager.schema_snapshots.pop(f"schema_{workspace['id']}", None)
 
 
+def test_editor_cannot_upload_data_sources(client, otp_codes):
+    owner_email = "upload-owner@example.com"
+    assert client.post(
+        "/api/v1/auth/signup",
+        json=signup_payload(email=owner_email, workspace_type="business", workspace_name="Acme"),
+        headers=csrf_headers(client),
+    ).status_code == 202
+    finish_signup(client, owner_email, otp_codes)
+    invite = client.post(
+        "/api/v1/auth/workspace/invite",
+        json={"role": "editor"},
+        headers=csrf_headers(client),
+    ).json()["code"]
+
+    with TestClient(create_app(include_product=True)) as editor:
+        email = "upload-editor@example.com"
+        assert editor.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email=email, invite_code=invite),
+            headers=csrf_headers(editor),
+        ).status_code == 202
+        finish_signup(editor, email, otp_codes)
+
+        denied = editor.post(
+            "/api/workspaces/upload",
+            files={"file": ("report.csv", b"month,total\nJan,4\n", "text/csv")},
+            headers=csrf_headers(editor),
+        )
+
+        assert denied.status_code == 403
+
+
 def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes):
     """The content signature and a configured byte limit are enforced before parsing."""
 
@@ -98,3 +146,51 @@ def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes)
         )
         assert oversized.status_code == 413
         assert oversized.json()["detail"] == "The uploaded file is too large."
+
+
+@pytest.mark.parametrize(("count", "expected"), [(10, 200), (11, 400)])
+def test_upload_batch_allows_ten_files_and_rejects_eleven(app, monkeypatch, otp_codes, count, expected):
+    """The default batch limit permits ten files and rejects more."""
+
+    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+
+    with TestClient(create_app(include_product=True)) as client:
+        email = f"owner-{uuid4().hex}@uploadbatch.com"
+        assert client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email=email),
+            headers=csrf_headers(client),
+        ).status_code == 202
+        finish_signup(client, email, otp_codes)
+
+        uploaded = client.post(
+            "/api/workspaces/upload-multiple",
+            files=[
+                ("files", (f"report-{number}.csv", b"month,total\nJan,4\n", "text/csv"))
+                for number in range(count)
+            ],
+            headers=csrf_headers(client),
+        )
+
+        assert uploaded.status_code == expected
+        if expected == 200:
+            assert uploaded.json()["source_type"] == "spreadsheet_collection"
+
+
+def test_sqlite_database_uploads_are_rejected(app, monkeypatch, otp_codes):
+    """SQLite file uploads were removed; they must be refused, not imported."""
+
+    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+    with TestClient(create_app(include_product=True)) as client:
+        email = f"sqlite-{uuid4().hex}@uploadbatch.com"
+        assert client.post(
+            "/api/v1/auth/signup", json=signup_payload(email=email), headers=csrf_headers(client)
+        ).status_code == 202
+        finish_signup(client, email, otp_codes)
+        for suffix in (".db", ".sqlite", ".sqlite3"):
+            response = client.post(
+                "/api/workspaces/upload",
+                files={"file": (f"legacy{suffix}", b"SQLite format 3\x00" + b"\x00" * 84, "application/octet-stream")},
+                headers=csrf_headers(client),
+            )
+            assert response.status_code == 400, suffix

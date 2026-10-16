@@ -1,5 +1,6 @@
 """Role boundaries must be enforced by API routes, not only hidden in the UI."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.session import session_manager
@@ -7,6 +8,32 @@ from backend import database
 from backend.main import create_app
 from backend.models import User
 from backend.tests.conftest import csrf_headers, finish_login, finish_signup, signup_payload
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        ("owner", {"view_workspaces": True, "view_history": True, "query_workspace": True, "manage_data_sources": True, "administer_workspace": True, "manage_account": True}),
+        ("admin", {"view_workspaces": True, "view_history": True, "query_workspace": True, "manage_data_sources": True, "administer_workspace": True, "manage_account": True}),
+        ("editor", {"view_workspaces": True, "view_history": True, "query_workspace": True, "manage_data_sources": False, "administer_workspace": False, "manage_account": True}),
+        ("viewer", {"view_workspaces": True, "view_history": True, "query_workspace": False, "manage_data_sources": False, "administer_workspace": False, "manage_account": True}),
+    ],
+)
+def test_capabilities_match_effective_role(role, expected):
+    from backend.authorization import capabilities_for
+
+    tenant_id = "tenant-owner"
+    user = User(
+        id=tenant_id if role == "owner" else f"{role}-member",
+        full_name="Role Test",
+        email=f"{role}@example.com",
+        password_hash="unused",
+        workspace_type="business",
+        workspace_owner_id=None if role == "owner" else tenant_id,
+        workspace_role=role,
+    )
+
+    assert capabilities_for(user).model_dump() == expected
 
 
 def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_codes):

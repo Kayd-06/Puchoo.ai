@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
+import { Bell, CheckCheck, ChevronDown, LogOut } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../api/client';
+import ThemeToggle from '../ThemeToggle';
 
 function timeLabel(value) {
   const date = new Date(value);
@@ -107,14 +108,22 @@ export default function TopBar() {
     }
   }
 
+  const avatar = (className = 'topbar-avatar') => (
+    <span className={`${className}${user?.image_url ? ' has-image' : ''}`}>
+      {user?.image_url
+        ? <img src={user.image_url} alt="" referrerPolicy="no-referrer" />
+        : (user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U')}
+    </span>
+  );
+
   return (
     <header className="app-topbar">
       <div className="app-topbar-status">
-        <ShieldCheck size={20} />
-        <span>{activeWorkspace ? `${activeWorkspace.name} · Guardrails active` : 'Guardrails active'}</span>
+        <span>{activeWorkspace ? activeWorkspace.name : 'No data source selected'}</span>
       </div>
 
       <div className="app-topbar-actions">
+        <ThemeToggle />
         <div ref={notificationRef} className="topbar-menu-anchor">
           <button type="button" aria-label="Notifications" aria-expanded={open} className={`topbar-icon-button${open ? ' is-active' : ''}`} onClick={() => { setOpen((value) => !value); setAccountOpen(false); }}>
             <Bell size={17} />
@@ -128,13 +137,13 @@ export default function TopBar() {
         </div>
         <div ref={accountRef} className="topbar-menu-anchor">
           <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => { setAccountOpen((value) => !value); setOpen(false); }} className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}>
-            <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
+            {avatar()}
             <ChevronDown size={16} />
           </button>
           {accountOpen && <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
             <div className="topbar-account-summary">
-              <span className="topbar-avatar">{user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}</span>
-              <div><strong>{user?.full_name || 'Your account'}</strong><span>{user?.email}</span></div>
+              {avatar()}
+              <div className="topbar-account-copy"><strong>{user?.full_name || 'Your account'}</strong><span className="topbar-account-email" title={user?.email}>{user?.email}</span></div>
             </div>
             <button type="button" className="topbar-logout-button" onClick={onLogout} disabled={loggingOut}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
           </section>}
