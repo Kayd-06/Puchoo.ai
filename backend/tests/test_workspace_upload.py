@@ -148,8 +148,9 @@ def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes)
         assert oversized.json()["detail"] == "The uploaded file is too large."
 
 
-def test_owner_can_upload_twenty_csv_files_in_one_workspace(monkeypatch, otp_codes):
-    """The default batch limit permits the full twenty-file allowance."""
+@pytest.mark.parametrize(("count", "expected"), [(10, 200), (11, 400)])
+def test_upload_batch_allows_ten_files_and_rejects_eleven(monkeypatch, otp_codes, count, expected):
+    """The default batch limit permits ten files and rejects more."""
 
     monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
 
@@ -166,10 +167,11 @@ def test_owner_can_upload_twenty_csv_files_in_one_workspace(monkeypatch, otp_cod
             "/api/workspaces/upload-multiple",
             files=[
                 ("files", (f"report-{number}.csv", b"month,total\nJan,4\n", "text/csv"))
-                for number in range(20)
+                for number in range(count)
             ],
             headers=csrf_headers(client),
         )
 
-        assert uploaded.status_code == 200
-        assert uploaded.json()["source_type"] == "spreadsheet_collection"
+        assert uploaded.status_code == expected
+        if expected == 200:
+            assert uploaded.json()["source_type"] == "spreadsheet_collection"
