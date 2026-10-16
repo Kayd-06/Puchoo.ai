@@ -2304,21 +2304,33 @@ html[data-theme="light"] .settings-action:hover:not(:disabled) { border-color: r
   .theme-toggle { transition-duration: .01ms !important; transform: none !important; }
 }
 
-/* The oversized DATA/LINK label is an outline, never filled. */
+/* DATA/LINK is an SVG outline so only the visible letter stroke receives hover. */
 .connect-word {
-  pointer-events: auto;
-  transition: -webkit-text-stroke-color .22s ease, filter .22s ease, opacity .22s ease;
+  z-index: 4;
+  width: 100%;
+  height: clamp(7rem, 16vw, 16.5rem);
+  overflow: visible;
+  pointer-events: none;
+}
+.connect-word text {
+  fill: transparent;
+  stroke: rgba(221,230,238,.19);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  transition: stroke .22s ease, filter .22s ease, opacity .22s ease;
 }
 .connect-word:hover { opacity: 1; }
-html[data-theme="dark"] .connect-word:hover {
-  -webkit-text-stroke-color: #fff;
+html[data-theme="dark"] .connect-word:hover text {
+  stroke: #fff;
   filter: drop-shadow(0 0 7px rgba(255,255,255,.78)) drop-shadow(0 0 18px rgba(255,255,255,.38));
 }
-html[data-theme="light"] .connect-word:hover {
-  -webkit-text-stroke-color: #111;
+html[data-theme="light"] .connect-word text { stroke: rgba(62,88,100,.2); }
+html[data-theme="light"] .connect-word:hover text {
+  stroke: #111;
   filter: drop-shadow(0 0 7px rgba(17,17,17,.48)) drop-shadow(0 0 16px rgba(17,17,17,.2));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .connect-word { transition: none; }
+  .connect-word text { transition: none; }
 }

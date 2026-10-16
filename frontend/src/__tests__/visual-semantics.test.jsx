@@ -53,10 +53,13 @@ it('defines separate authenticated palettes for both theme states', () => {
 });
 
 it('keeps the data-source background word outline-only and highlights it only on direct hover', () => {
+  const markup = source('src/pages/ConnectData.jsx');
   const css = source('src/index.css');
+  expect(markup).toMatch(/<svg className="connect-word"[\s\S]*pointerEvents="stroke"/);
   expect(css).not.toMatch(/\.connect-stage:has\(\.connect-tablist button:hover\) \.connect-word/s);
   expect(css).toMatch(/\.connect-word:hover/s);
-  expect(css).toMatch(/html\[data-theme="dark"\][^{]*\{[^}]*-webkit-text-stroke-color:\s*#fff/s);
-  expect(css).toMatch(/html\[data-theme="light"\][^{]*\{[^}]*-webkit-text-stroke-color:\s*#111/s);
+  expect(css).toMatch(/\.connect-word text\s*\{[^}]*pointer-events:\s*stroke/s);
+  expect(css).toMatch(/html\[data-theme="dark"\][^{]*\{[^}]*stroke:\s*#fff/s);
+  expect(css).toMatch(/html\[data-theme="light"\][^{]*\{[^}]*stroke:\s*#111/s);
   expect(css).toMatch(/\.connect-word\s*\{[^}]*color:\s*transparent/s);
 });
