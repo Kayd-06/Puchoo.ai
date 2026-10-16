@@ -38,7 +38,7 @@ def test_init_db_upgrades_stale_invite_schema_and_removes_recovery_codes(tmp_pat
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     assert "image_url" in user_columns
     with database.engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261015_0015"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261016_0016"
     assert {"tenants", "tenant_memberships", "workspace_records", "workspace_guardrails", "workspace_history_records"}.issubset(
         set(inspector.get_table_names())
     )

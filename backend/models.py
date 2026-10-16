@@ -83,9 +83,12 @@ class WorkspaceGuardrail(Base):
 
 class WorkspaceHistoryRecord(Base):
     __tablename__ = "workspace_history_records"
+    __table_args__ = (UniqueConstraint("workspace_id", "entry_id", name="uq_workspace_history_entry"),)
 
-    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=new_id)
+    # Surrogate UUID key: history entry ids only need to be unique per workspace.
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspace_records.id", ondelete="CASCADE"), index=True, nullable=False)
+    entry_id: Mapped[str] = mapped_column(String(100), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 

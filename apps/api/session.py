@@ -3,9 +3,13 @@
 In production, this would be backed by Redis or a database.
 """
 
-from typing import Any, Dict, List
+import logging
+from typing import Any, Dict, Iterable, List
 
 from apps.core.local_state import load_local_state, save_local_state
+
+logger = logging.getLogger(__name__)
+
 
 class SessionManager:
     DEFAULT_GUARDRAILS = {
@@ -54,7 +58,12 @@ class SessionManager:
         self.save()
 
     def save(self, active_workspace_id: str | None = None) -> None:
-        """Persist workspace state without writing server credentials to disk."""
+        """Persist workspace state without writing server credentials to disk.
+
+        Only the workspace that changed is written to the database. Without an
+        ``active_workspace_id`` (e.g. after a removal, which deletes its own
+        rows) only the local JSON snapshot is refreshed.
+        """
 
         save_local_state(
             workspaces=self.workspaces,
@@ -63,7 +72,8 @@ class SessionManager:
             query_history=self.query_history,
             profile=self.profile,
         )
-        self._save_to_database()
+        if active_workspace_id is not None:
+            self._save_to_database([active_workspace_id])
 
     def hydrate_from_database(self) -> None:
         """Import legacy JSON once, then make relational state authoritative."""
@@ -98,30 +108,44 @@ class SessionManager:
                 }
                 self.query_history[record.id] = repository.get_history(record.id)
 
-    def _save_to_database(self) -> None:
+    def _save_to_database(self, workspace_ids: Iterable[str] | None = None) -> None:
+        from sqlalchemy.exc import IntegrityError
+
         from backend import database
-        from backend.models import Tenant, User, WorkspaceRecord
+        from backend.models import Tenant, User
         from backend.workspace_repository import WorkspaceRepository
 
+        ids = list(self.workspaces) if workspace_ids is None else list(workspace_ids)
         with database.SessionLocal() as db:
             repository = WorkspaceRepository(db)
-            for workspace in self.workspaces.values():
+            for workspace_id in ids:
+                workspace = self.workspaces.get(workspace_id)
+                if not workspace:
+                    continue
                 tenant_id = workspace.get("owner_user_id")
                 if not tenant_id:
                     continue
-                if db.get(Tenant, tenant_id) is None:
-                    owner = db.get(User, tenant_id)
-                    if owner is None:
-                        continue
-                    repository.ensure_tenant(
-                        tenant_id,
-                        owner.id,
-                        name=owner.workspace_name or owner.institute_name or "Workspace",
-                        workspace_type=owner.workspace_type,
-                    )
-                repository.save_workspace(workspace, tenant_id)
-                repository.save_guardrails(workspace["id"], self.get_guardrails(workspace["id"]))
-                repository.save_history(workspace["id"], self.query_history.get(workspace["id"], []))
+                try:
+                    with db.begin_nested():
+                        if db.get(Tenant, tenant_id) is None:
+                            owner = db.get(User, tenant_id)
+                            if owner is None:
+                                continue
+                            repository.ensure_tenant(
+                                tenant_id,
+                                owner.id,
+                                name=owner.workspace_name or owner.institute_name or "Workspace",
+                                workspace_type=owner.workspace_type,
+                            )
+                        repository.save_workspace(workspace, tenant_id)
+                        repository.save_guardrails(workspace_id, self.get_guardrails(workspace_id))
+                        repository.save_history(workspace_id, self.query_history.get(workspace_id, []))
+                except ValueError:
+                    # Workspace id already owned by another tenant: never
+                    # overwrite it, and never fail the user's request.
+                    logger.warning("skipping workspace persistence: id belongs to another tenant workspace=%s", workspace_id)
+                except IntegrityError:
+                    logger.warning("workspace persistence conflict; will retry on next save workspace=%s", workspace_id)
             db.commit()
 
     @staticmethod

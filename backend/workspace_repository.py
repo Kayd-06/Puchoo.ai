@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,20 @@ def _local_source_ref(workspace: dict[str, Any]) -> str | None:
     if database_uri.startswith("sqlite:///"):
         return str(Path(database_uri.removeprefix("sqlite:///")).expanduser().resolve())
     return None
+
+
+def _history_entry_id(payload: dict[str, Any], seen: set[str]) -> str:
+    """Stable per-workspace id for a history payload (its own id when present)."""
+
+    base = str(payload.get("id") or "")[:80]
+    if not base:
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+        base = f"h-{digest[:32]}"
+    entry_id, suffix = base, 1
+    while entry_id in seen:
+        suffix += 1
+        entry_id = f"{base}~{suffix}"
+    return entry_id
 
 
 @dataclass(frozen=True)
@@ -109,18 +124,35 @@ class WorkspaceRepository:
         return json.loads(record.settings_json) if record else {}
 
     def save_history(self, workspace_id: str, records: list[dict[str, Any]]) -> None:
-        existing = self.db.scalars(
-            select(WorkspaceHistoryRecord).where(WorkspaceHistoryRecord.workspace_id == workspace_id)
-        ).all()
-        for record in existing:
-            self.db.delete(record)
+        """Sync history incrementally: insert new entries, drop removed ones.
+
+        The common case (one new approved query) is a single INSERT plus
+        position updates, instead of deleting and re-inserting every row.
+        """
+
+        existing = {
+            record.entry_id: record
+            for record in self.db.scalars(
+                select(WorkspaceHistoryRecord).where(WorkspaceHistoryRecord.workspace_id == workspace_id)
+            ).all()
+        }
+        seen: set[str] = set()
         for position, payload in enumerate(records):
-            self.db.add(WorkspaceHistoryRecord(
-                id=str(payload.get("id") or f"{workspace_id}-{position}"),
-                workspace_id=workspace_id,
-                position=position,
-                payload_json=json.dumps(payload, default=str),
-            ))
+            entry_id = _history_entry_id(payload, seen)
+            seen.add(entry_id)
+            record = existing.get(entry_id)
+            if record is None:
+                self.db.add(WorkspaceHistoryRecord(
+                    workspace_id=workspace_id,
+                    entry_id=entry_id,
+                    position=position,
+                    payload_json=json.dumps(payload, default=str),
+                ))
+            elif record.position != position:
+                record.position = position
+        for entry_id, record in existing.items():
+            if entry_id not in seen:
+                self.db.delete(record)
         self.db.flush()
 
     def get_history(self, workspace_id: str) -> list[dict[str, Any]]:

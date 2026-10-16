@@ -117,3 +117,119 @@ def test_legacy_import_backfills_memberships_once_and_hides_server_credentials(t
         assert workspace["availability"] == "unavailable"
         assert "secret" not in repr(workspace)
         assert "database_uri" not in workspace
+
+
+def _fresh(tmp_path, name="history.db"):
+    database.configure_database("sqlite:///" + (tmp_path / name).as_posix())
+    database.init_db()
+    return sessionmaker(bind=database.engine, expire_on_commit=False)
+
+
+def test_history_ids_only_need_to_be_unique_per_workspace(tmp_path):
+    from backend.workspace_repository import WorkspaceRepository
+
+    sessions = _fresh(tmp_path)
+    with sessions() as db:
+        db.add(_user("owner"))
+        db.commit()
+        repository = WorkspaceRepository(db)
+        repository.ensure_tenant("owner", "owner", name="Acme", workspace_type="business")
+        for ws in ("one", "two"):
+            repository.save_workspace({"id": ws, "name": ws, "source_type": "file"}, "owner")
+            repository.save_history(ws, [{"id": "same-id", "question": ws}])
+        db.commit()
+        assert repository.get_history("one")[0]["question"] == "one"
+        assert repository.get_history("two")[0]["question"] == "two"
+
+
+def test_history_save_appends_instead_of_rewriting_rows(tmp_path):
+    from backend.models import WorkspaceHistoryRecord
+    from backend.workspace_repository import WorkspaceRepository
+
+    sessions = _fresh(tmp_path)
+    with sessions() as db:
+        db.add(_user("owner"))
+        db.commit()
+        repository = WorkspaceRepository(db)
+        repository.ensure_tenant("owner", "owner", name="Acme", workspace_type="business")
+        repository.save_workspace({"id": "ws", "name": "ws", "source_type": "file"}, "owner")
+        repository.save_history("ws", [{"id": "q1"}, {"id": "q2"}])
+        db.commit()
+        before = {r.entry_id: r.id for r in db.query(WorkspaceHistoryRecord)}
+
+        # Newest first, as the query router inserts at index 0.
+        repository.save_history("ws", [{"id": "q3"}, {"id": "q1"}, {"id": "q2"}])
+        db.commit()
+        after = {r.entry_id: r.id for r in db.query(WorkspaceHistoryRecord)}
+        assert after["q1"] == before["q1"] and after["q2"] == before["q2"]
+        assert [item["id"] for item in repository.get_history("ws")] == ["q3", "q1", "q2"]
+
+        repository.save_history("ws", [{"id": "q3"}, {"id": "q2"}])
+        db.commit()
+        assert [item["id"] for item in repository.get_history("ws")] == ["q3", "q2"]
+        repository.save_history("ws", [])
+        db.commit()
+        assert repository.get_history("ws") == []
+
+
+def test_session_save_only_writes_the_changed_workspace_and_survives_id_clash(tmp_path, monkeypatch):
+    from apps.api.session import SessionManager
+    from backend import workspace_repository
+    from backend.workspace_repository import WorkspaceRepository
+
+    sessions = _fresh(tmp_path, "session.db")
+    with sessions() as db:
+        db.add_all([_user("owner-a"), _user("owner-b")])
+        db.commit()
+        repository = WorkspaceRepository(db)
+        repository.ensure_tenant("owner-b", "owner-b", name="B", workspace_type="business")
+        repository.save_workspace({"id": "clash", "name": "B's", "source_type": "file"}, "owner-b")
+        db.commit()
+
+    monkeypatch.setattr("apps.api.session.save_local_state", lambda **_kwargs: None)
+    manager = SessionManager.__new__(SessionManager)
+    manager.workspaces = {
+        "a1": {"id": "a1", "name": "A1", "owner_user_id": "owner-a", "source_type": "file"},
+        "a2": {"id": "a2", "name": "A2", "owner_user_id": "owner-a", "source_type": "file"},
+        "clash": {"id": "clash", "name": "Imposter", "owner_user_id": "owner-a", "source_type": "file"},
+    }
+    manager.workspace_guardrails = {}
+    manager.query_history = {"a1": [{"id": "q1"}], "a2": [{"id": "q2"}], "clash": []}
+    manager.profile = {}
+
+    written: list[str] = []
+    original = workspace_repository.WorkspaceRepository.save_workspace
+
+    def spy(self, workspace, tenant_id):
+        written.append(workspace["id"])
+        return original(self, workspace, tenant_id)
+
+    monkeypatch.setattr(workspace_repository.WorkspaceRepository, "save_workspace", spy)
+
+    manager.save(active_workspace_id="a1")
+    assert written == ["a1"]
+
+    manager.save(active_workspace_id="clash")  # must not raise
+    with sessions() as db:
+        record = WorkspaceRepository(db).get_for_tenant("clash", "owner-b")
+        assert record["name"] == "B's"
+        assert WorkspaceRepository(db).get_for_tenant("a2", "owner-a") is None
+
+
+def test_migration_0016_round_trip_keeps_history(tmp_path):
+    from alembic import command
+    from sqlalchemy import text
+
+    _fresh(tmp_path, "migrate.db")
+    with database.engine.begin() as connection:
+        connection.execute(text("INSERT INTO users (id, full_name, email, password_hash, workspace_type, workspace_role, created_at) VALUES ('o','o','o@x.com','x','business','owner',CURRENT_TIMESTAMP)"))
+        connection.execute(text("INSERT INTO tenants (id, owner_user_id, name, workspace_type, created_at) VALUES ('o','o','A','business',CURRENT_TIMESTAMP)"))
+        connection.execute(text("INSERT INTO workspace_records (id, tenant_id, name, source_type, availability, metadata_json, created_at, updated_at) VALUES ('w','o','W','file','available','{}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
+        connection.execute(text("INSERT INTO workspace_history_records (id, workspace_id, entry_id, position, payload_json) VALUES ('u1','w','q1',0,'{\"id\": \"q1\"}')"))
+    config = database._alembic_config()
+    command.downgrade(config, "20261015_0015")
+    with database.engine.connect() as connection:
+        assert connection.execute(text("SELECT id FROM workspace_history_records")).scalars().all() == ["q1"]
+    command.upgrade(config, "head")
+    with database.engine.connect() as connection:
+        assert connection.execute(text("SELECT entry_id FROM workspace_history_records")).scalars().all() == ["q1"]
