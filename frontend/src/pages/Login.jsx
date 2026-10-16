@@ -171,7 +171,14 @@ export default function Login() {
       >
         {step === 'code' ? (
           <form className="space-y-5" onSubmit={onVerify} noValidate>
-            <OtpInput id="code" value={code} onChange={setCode} error={errors.code} disabled={pending} autoFocus />
+            <OtpInput
+              id="code"
+              value={code}
+              onChange={setCode}
+              error={errors.code}
+              disabled={pending}
+              autoFocus
+            />
             <p className="text-sm text-[#3f5474]" role="timer" aria-live="polite">
               This code expires in {formatClock(challengeLeft)}.
             </p>

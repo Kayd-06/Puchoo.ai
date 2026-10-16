@@ -21,8 +21,11 @@ describe('WorkspaceInvitePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     user = {
-      id: 'admin-id', role: 'admin', workspace_role: 'admin',
-      workspace_type: 'business', workspace_name: 'Acme',
+      id: 'admin-id',
+      role: 'admin',
+      workspace_role: 'admin',
+      workspace_type: 'business',
+      workspace_name: 'Acme',
       capabilities: { administer_workspace: true },
     };
     listWorkspaceMembers.mockResolvedValue([
@@ -38,7 +41,9 @@ describe('WorkspaceInvitePanel', () => {
     expect(await screen.findByText('Eddie Editor')).toBeInTheDocument();
     expect(screen.getByLabelText(/role for eddie editor/i)).toHaveClass('workspace-member-role');
     expect(screen.getByLabelText(/role for eddie editor/i)).toHaveValue('editor');
-    expect(screen.getByRole('button', { name: /remove eddie editor/i })).toHaveClass('workspace-member-remove');
+    expect(screen.getByRole('button', { name: /remove eddie editor/i })).toHaveClass(
+      'workspace-member-remove',
+    );
     expect(screen.queryByRole('button', { name: /remove olivia owner/i })).not.toBeInTheDocument();
   });
 

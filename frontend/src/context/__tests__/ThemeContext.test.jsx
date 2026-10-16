@@ -5,7 +5,11 @@ import { ThemeProvider, applyStoredTheme, useTheme } from '../ThemeContext';
 
 function Probe() {
   const { theme, toggleTheme } = useTheme();
-  return <button type="button" onClick={toggleTheme}>Toggle theme: {theme}</button>;
+  return (
+    <button type="button" onClick={toggleTheme}>
+      Toggle theme: {theme}
+    </button>
+  );
 }
 
 describe('theme state', () => {
@@ -20,7 +24,11 @@ describe('theme state', () => {
   });
 
   it('defaults to dark and applies it to the document root', () => {
-    render(<ThemeProvider><Probe /></ThemeProvider>);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
 
     expect(screen.getByRole('button', { name: 'Toggle theme: dark' })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
@@ -28,7 +36,11 @@ describe('theme state', () => {
 
   it('restores a saved preference, toggles it, and persists the next value', () => {
     localStorage.setItem('puchoo:theme', 'light');
-    render(<ThemeProvider><Probe /></ThemeProvider>);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle theme: light' }));
 
@@ -39,7 +51,11 @@ describe('theme state', () => {
   it('falls back to dark when the saved preference is invalid', () => {
     localStorage.setItem('puchoo:theme', 'sepia');
 
-    render(<ThemeProvider><Probe /></ThemeProvider>);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
 
     expect(screen.getByRole('button', { name: 'Toggle theme: dark' })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
@@ -53,7 +69,11 @@ describe('theme state', () => {
       throw new Error('Storage unavailable');
     });
 
-    render(<ThemeProvider><Probe /></ThemeProvider>);
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Toggle theme: dark' }));
 
     expect(document.documentElement).toHaveAttribute('data-theme', 'light');
