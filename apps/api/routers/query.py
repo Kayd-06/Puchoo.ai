@@ -369,7 +369,7 @@ def generate_query(
                         _redact_sql(generated_sql),
                     )
                     raise SQLGenerationError(
-                        "Puchoo could not produce a safe, executable query for this request."
+                        "Puchoo.si could not produce a safe, executable query for this request."
                     )
         else:
             attempt = 1
