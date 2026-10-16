@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend import emailer
 from backend.authorization import capabilities_for, effective_role, tenant_id_for
 from backend.config import settings
+from backend.workspace_repository import WorkspaceRepository
 from backend.database import get_db
 from backend.emailer import EmailDeliveryError
 from backend.models import (
@@ -421,7 +422,12 @@ def update_workspace_member_role(
     tenant_id = tenant_owner_id(user)
     member = _managed_workspace_member(db, tenant_id, member_id)
     member.workspace_role = body.role
-    membership = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    membership = db.scalar(
+        select(TenantMembership).where(
+            TenantMembership.tenant_id == tenant_id,
+            TenantMembership.user_id == member.id,
+        )
+    )
     if membership is not None:
         membership.role = body.role
     db.commit()
@@ -441,7 +447,8 @@ def remove_workspace_member(
     enforce_csrf(request)
     if not can_administer_workspace(user):
         raise HTTPException(status_code=403, detail="Only workspace owners and admins can manage members.")
-    member = _managed_workspace_member(db, tenant_owner_id(user), member_id)
+    tenant_id = tenant_owner_id(user)
+    member = _managed_workspace_member(db, tenant_id, member_id)
     now = utcnow()
     _revoke_sessions_and_challenges(db, member.id, now)
     # The removed member still knows the shared codes; retire all of them
@@ -459,18 +466,28 @@ def remove_workspace_member(
     member.workspace_role = "owner"
     member.institute_name = None
     member.institute_owner_id = None
-    membership = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    membership = db.scalar(
+        select(TenantMembership).where(
+            TenantMembership.tenant_id == tenant_id,
+            TenantMembership.user_id == member.id,
+        )
+    )
     if membership is not None:
         db.delete(membership)
     db.flush()
-    db.add(Tenant(
-        id=member.id,
-        owner_user_id=member.id,
+    # Idempotent: the member's personal tenant may already exist (migration
+    # backfill, or an earlier removal), so never insert it blindly.
+    WorkspaceRepository(db).ensure_tenant(
+        member.id,
+        member.id,
         name="Personal workspace",
         workspace_type="personal",
-    ))
-    db.flush()
-    db.add(TenantMembership(tenant_id=member.id, user_id=member.id, role="owner"))
+    )
+    personal = db.scalar(select(TenantMembership).where(TenantMembership.user_id == member.id))
+    if personal is None:
+        db.add(TenantMembership(tenant_id=member.id, user_id=member.id, role="owner"))
+    elif personal.tenant_id == member.id:
+        personal.role = "owner"
     db.commit()
     return Response(status_code=204)
 

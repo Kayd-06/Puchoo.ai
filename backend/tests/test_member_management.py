@@ -189,3 +189,80 @@ def test_removing_member_revokes_all_workspace_invites(client, otp_codes):
             headers=csrf_headers(another_member_client),
         )
         assert editor_join.status_code == 400
+
+
+def test_removing_member_is_safe_when_their_personal_tenant_already_exists(client, otp_codes):
+    """A pre-existing personal Tenant row (backfill or earlier removal) must not cause a 500."""
+
+    from backend.models import Tenant
+
+    _owner_email, code = _create_owner_and_invite(client, otp_codes)
+    with TestClient(client.app) as member_client:
+        assert member_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(full_name="Repeat Member", email="repeat@northstar.com", invite_code=code),
+            headers=csrf_headers(member_client),
+        ).status_code == 202
+        finish_signup(member_client, "repeat@northstar.com", otp_codes)
+
+    db = database.SessionLocal()
+    try:
+        member_id = db.query(User.id).filter_by(email="repeat@northstar.com").scalar()
+        db.add(Tenant(id=member_id, owner_user_id=member_id, name="Personal workspace", workspace_type="personal"))
+        db.commit()
+    finally:
+        db.close()
+
+    removed = client.delete(f"/api/v1/auth/workspace/members/{member_id}", headers=csrf_headers(client))
+    assert removed.status_code == 204
+
+    db = database.SessionLocal()
+    try:
+        assert db.query(Tenant).filter_by(id=member_id).count() == 1
+        membership = db.query(TenantMembership).filter_by(user_id=member_id).one()
+        assert (membership.tenant_id, membership.role) == (member_id, "owner")
+    finally:
+        db.close()
+
+
+def test_role_change_only_touches_membership_in_the_admins_tenant(client, otp_codes):
+    """The membership lookup is scoped to the caller's tenant, not just the user id."""
+
+    owner_email, code = _create_owner_and_invite(client, otp_codes)
+    with TestClient(client.app) as member_client:
+        assert member_client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(full_name="Scoped Member", email="scoped@northstar.com", invite_code=code),
+            headers=csrf_headers(member_client),
+        ).status_code == 202
+        finish_signup(member_client, "scoped@northstar.com", otp_codes)
+
+    db = database.SessionLocal()
+    try:
+        owner_id = db.query(User.id).filter_by(email=owner_email).scalar()
+        member_id = db.query(User.id).filter_by(email="scoped@northstar.com").scalar()
+        # Simulate a stale membership row that points at a different tenant.
+        membership = db.query(TenantMembership).filter_by(user_id=member_id).one()
+        from backend.models import Tenant
+
+        db.add(Tenant(id="other-tenant", owner_user_id=member_id, name="Other", workspace_type="business"))
+        db.flush()
+        membership.tenant_id = "other-tenant"
+        membership.role = "editor"
+        db.commit()
+    finally:
+        db.close()
+
+    changed = client.patch(
+        f"/api/v1/auth/workspace/members/{member_id}",
+        json={"role": "viewer"},
+        headers=csrf_headers(client),
+    )
+    assert changed.status_code == 200
+    db = database.SessionLocal()
+    try:
+        stale = db.query(TenantMembership).filter_by(user_id=member_id).one()
+        assert (stale.tenant_id, stale.role) == ("other-tenant", "editor")
+        assert owner_id
+    finally:
+        db.close()
