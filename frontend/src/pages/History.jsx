@@ -192,11 +192,6 @@ export default function History() {
 
   return (
     <div className="history-page">
-      <div className="history-ambient" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
       <section className="history-hero">
         <div className="history-hero-copy">
           <div className="history-eyebrow">

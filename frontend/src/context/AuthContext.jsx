@@ -8,6 +8,7 @@ import {
   requestEmailChange as requestEmailChangeRequest,
   verifyEmailChange as verifyEmailChangeRequest,
   verifyLogin as verifyRequest,
+  updateProfileImage as updateProfileImageRequest,
 } from '../api/auth';
 
 const AuthContext = createContext(null);
@@ -70,6 +71,11 @@ export function AuthProvider({ children, loadSession = true }) {
         const result = await verifyEmailChangeRequest(payload);
         setUser(result.user);
         return result.user;
+      },
+      async updateProfileImage(imageUrl) {
+        const nextUser = await updateProfileImageRequest(imageUrl);
+        setUser(nextUser);
+        return nextUser;
       },
       async logout() {
         await logoutRequest();

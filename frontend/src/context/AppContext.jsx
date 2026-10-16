@@ -34,6 +34,11 @@ export function AppProvider({ children }) {
 
   // Load initial data
   useEffect(() => {
+    const clearUnauthorizedWorkspace = () => {
+      setWorkspaces([]);
+      setActiveWorkspaceId(null);
+    };
+    window.addEventListener('puchoo:unauthorized', clearUnauthorizedWorkspace);
     async function loadInitialData() {
       try {
         const [, profileData] = await Promise.all([
@@ -49,6 +54,7 @@ export function AppProvider({ children }) {
     }
 
     loadInitialData();
+    return () => window.removeEventListener('puchoo:unauthorized', clearUnauthorizedWorkspace);
     // Load once on entry to the analytics workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

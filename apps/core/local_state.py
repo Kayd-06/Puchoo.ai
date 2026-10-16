@@ -45,10 +45,13 @@ def save_local_state(
 ) -> None:
     """Persist only local source metadata and user-approved query history.
 
-    A database-server URI embeds a password, so server sources are purposely
-    excluded. Users reconnect those sources after a browser refresh.
+    Server sources retain only non-secret identity metadata and are marked
+    unavailable. Users reconnect credentials after a process restart.
     """
 
+    # Server sources are represented durably by the tenant repository. Keep the
+    # legacy desktop JSON strictly file-only so connection metadata and history
+    # cannot leak into a second persistence store.
     local_workspaces = {
         workspace_id: workspace
         for workspace_id, workspace in workspaces.items()

@@ -15,19 +15,27 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pip-audit
-      - run: python -m pytest -q
+      - run: mkdir -p reports
+      - run: python -m pytest -q backend/tests/test_schema_upgrade.py --junitxml=reports/migrations.xml
+      - run: python -m pytest -q --junitxml=reports/backend.xml
       # chromadb has no fixed release for these advisories. All four are in Chroma's HTTP
       # server (/api/v2 endpoints, RBAC provider); the app only embeds chromadb.PersistentClient
       # and never runs or exposes a Chroma server. Revisit when a patched chromadb ships.
       # PYSEC-2026-311 (GHSA-f4j7-r4q5-qw2c), PYSEC-2026-3814 (GHSA-36p7-vc44-83pf),
       # PYSEC-2026-3815 (GHSA-xph7-9rjv-w5fr), PYSEC-2026-3813 (GHSA-2wm9-hf6c-p5cr)
       - run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-311 --ignore-vuln PYSEC-2026-3814 --ignore-vuln PYSEC-2026-3815 --ignore-vuln PYSEC-2026-3813
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefix frontend
+      - run: npm --prefix frontend test -- --run --reporter=junit --outputFile=../reports/frontend.xml
       - run: npm --prefix frontend run lint
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend audit --omit=dev --audit-level=high
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: verification-reports
+          path: reports/

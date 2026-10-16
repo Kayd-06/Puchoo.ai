@@ -8,6 +8,7 @@ from backend.routers.auth import current_user
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import settings
+from backend.authorization import capabilities_for, effective_role, require_capability, tenant_id_for
 
 CSRF_HEADER_NAME = "X-CSRF-Token"
 
@@ -48,21 +49,19 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 def tenant_owner_id(user) -> str:
     """Canonical tenant boundary for every workspace, query, and memory record."""
-    return user.workspace_owner_id or user.institute_owner_id or user.id
+    return tenant_id_for(user)
 
 
 def workspace_role(user) -> str:
-    if tenant_owner_id(user) == user.id:
-        return "owner"
-    return user.workspace_role or "viewer"
+    return effective_role(user)
 
 
 def can_manage_data(user) -> bool:
-    return workspace_role(user) in {"owner", "admin", "editor"}
+    return capabilities_for(user).manage_data_sources
 
 
 def can_administer_workspace(user) -> bool:
-    return workspace_role(user) in {"owner", "admin"}
+    return capabilities_for(user).administer_workspace
 
 
 def require_connection_admin(user=Depends(current_user)):
@@ -102,8 +101,13 @@ def get_workspace_guard(workspace_id: str, user=Depends(current_user)):
 
 def require_workspace_editor(
     workspace: dict = Depends(get_workspace_guard),
-    user=Depends(require_data_manager),
+    user=Depends(require_capability("query_workspace")),
 ):
+    if workspace.get("availability") == "unavailable" or not workspace.get("database_uri"):
+        raise HTTPException(
+            status_code=409,
+            detail="This data source is unavailable. Reconnect or upload it again before asking a question.",
+        )
     return workspace
 
 

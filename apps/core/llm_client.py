@@ -529,6 +529,27 @@ def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
     def find_table(required: set[str]) -> str | None:
         return next((table for table, columns in table_columns.items() if required <= columns), None)
 
+    expense_category_breakdown = bool(
+        re.search(r"\bexpenses?\b", q)
+        and re.search(r"\b(?:category\s*[- ]?wise|by\s+(?:expense\s+)?category|categor(?:y|ies)\s+breakdown)\b", q)
+    )
+    if expense_category_breakdown:
+        expenses = find_table({"expense_date", "expense_category", "amount"})
+        if expenses:
+            monthly = bool(re.search(r"\b(?:monthly|by\s+month|month\s*[- ]?wise)\b", q))
+            if monthly:
+                return f"""SELECT strftime('%Y-%m', e.expense_date) AS expense_month,
+       e.expense_category,
+       SUM(e.amount) AS total_expenses
+FROM {expenses} AS e
+GROUP BY strftime('%Y-%m', e.expense_date), e.expense_category
+ORDER BY expense_month ASC, total_expenses DESC, e.expense_category ASC"""
+            return f"""SELECT e.expense_category,
+       SUM(e.amount) AS total_expenses
+FROM {expenses} AS e
+GROUP BY e.expense_category
+ORDER BY total_expenses DESC, e.expense_category ASC"""
+
     # Do not leave a straightforward superlative request to an LLM.  It is a
     # closed, schema-verifiable aggregation: one product, total invoice-item
     # quantity, and a deterministic product-id tie break.  This also makes the

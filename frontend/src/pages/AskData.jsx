@@ -1,20 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  ChevronDown,
-  Code2,
-  Database,
-  LoaderCircle,
-  MessageSquarePlus,
-  Mic,
-  Play,
-  ShieldCheck,
-  Sparkles,
-  Square,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
@@ -32,6 +18,25 @@ const DEFAULT_RESULT_LABELS = {
   verified_match: 'Verified match',
   needs_review: 'Needs review',
 };
+
+export function queryUniversePalette(theme) {
+  if (theme === 'light') {
+    return {
+      composite: 'source-over', motion: 1.45,
+      orbit: '38, 54, 63', pulse: '48, 68, 79',
+      cluster: '38, 57, 67', clusterEdge: '38, 57, 67',
+      dust: '16, 28, 35', dustSpark: '24, 38, 47',
+      stream: '29, 50, 64', star: '15, 28, 36', starSpark: '19, 35, 44',
+    };
+  }
+  return {
+    composite: 'lighter', motion: 1,
+    orbit: '139, 197, 239', pulse: '112, 185, 238',
+    cluster: '131, 199, 255', clusterEdge: '56, 126, 196',
+    dust: '224, 240, 255', dustSpark: '205, 231, 255',
+    stream: '173, 218, 251', star: '230, 244, 255', starSpark: '185, 225, 255',
+  };
+}
 
 function QueryUniverse() {
   const canvasRef = useRef(null);
@@ -56,9 +61,7 @@ function QueryUniverse() {
         active: true,
       };
     };
-    const clearPointer = () => {
-      pointerRef.current.active = false;
-    };
+    const clearPointer = () => { pointerRef.current.active = false; };
     const setup = () => {
       const bounds = canvas.getBoundingClientRect();
       const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -69,32 +72,33 @@ function QueryUniverse() {
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       const dustCount = Math.min(300, Math.max(150, Math.round(width / 6)));
       const streamCount = Math.min(430, Math.max(240, Math.round(width / 4.2)));
+      const motion = queryUniversePalette(document.documentElement.dataset.theme).motion;
       const dust = Array.from({ length: dustCount }, () => ({
         kind: 'dust',
         x: Math.random() * width,
         y: Math.random() * height,
-        drift: (Math.random() - 0.5) * 0.00065,
-        size: Math.random() > 0.91 ? 1.7 : 0.35 + Math.random() * 0.8,
-        alpha: 0.21 + Math.random() * 0.72,
+        drift: (Math.random() - .5) * .008 * motion,
+        size: Math.random() > .91 ? 1.7 : .35 + Math.random() * .8,
+        alpha: .21 + Math.random() * .72,
         phase: Math.random() * Math.PI * 2,
       }));
       const streams = Array.from({ length: streamCount }, (_, index) => ({
         kind: 'stream',
         angle: Math.random() * Math.PI * 2,
-        radius: 0.19 + Math.pow(Math.random(), 0.55) * 0.65,
-        speed: (0.00009 + Math.random() * 0.00026) * (index % 3 === 0 ? -1 : 1),
-        lane: 0.16 + Math.random() * 0.29,
-        size: Math.random() > 0.92 ? 1.55 : 0.35 + Math.random() * 0.8,
-        alpha: 0.15 + Math.random() * 0.62,
+        radius: .19 + Math.pow(Math.random(), .55) * .65,
+        speed: (.00017 + Math.random() * .0003) * motion * (index % 3 === 0 ? -1 : 1),
+        lane: .16 + Math.random() * .29,
+        size: Math.random() > .92 ? 1.55 : .35 + Math.random() * .8,
+        alpha: .15 + Math.random() * .62,
         phase: Math.random() * Math.PI * 2,
-        tail: 0.014 + Math.random() * 0.035,
+        tail: .014 + Math.random() * .035,
       }));
       const clusters = Array.from({ length: 17 }, () => ({
         kind: 'cluster',
         x: Math.random() * width,
         y: Math.random() * height,
         radius: 18 + Math.random() * 50,
-        alpha: 0.015 + Math.random() * 0.035,
+        alpha: .015 + Math.random() * .035,
         phase: Math.random() * Math.PI * 2,
       }));
       particles = [...clusters, ...dust, ...streams];
@@ -102,83 +106,53 @@ function QueryUniverse() {
     const draw = (time) => {
       context.clearRect(0, 0, width, height);
       const centerX = width / 2;
-      const centerY = height * 0.58;
-      context.globalCompositeOperation = 'lighter';
+      const centerY = height * .58;
+      const palette = queryUniversePalette(document.documentElement.dataset.theme);
+      context.globalCompositeOperation = palette.composite;
       const pointer = pointerRef.current;
 
-      if (pointer.active) {
-        const pointerGlow = context.createRadialGradient(
-          pointer.x,
-          pointer.y,
-          0,
-          pointer.x,
-          pointer.y,
-          150,
-        );
-        pointerGlow.addColorStop(0, 'rgba(119, 200, 255, .075)');
-        pointerGlow.addColorStop(0.42, 'rgba(78, 151, 219, .028)');
-        pointerGlow.addColorStop(1, 'rgba(31, 92, 147, 0)');
-        context.fillStyle = pointerGlow;
-        context.fillRect(pointer.x - 150, pointer.y - 150, 300, 300);
-
-        for (let ring = 0; ring < 3; ring += 1) {
-          const pulse = (time * 0.00017 + ring / 3) % 1;
-          context.beginPath();
-          context.arc(pointer.x, pointer.y, 18 + pulse * 76, 0, Math.PI * 2);
-          context.strokeStyle = `rgba(155, 220, 255, ${(1 - pulse) * 0.11})`;
-          context.lineWidth = 0.65;
-          context.stroke();
-        }
-      }
       // Slow, transparent orbital paths give the field depth without becoming
       // a bright static panel behind the composer.
       context.save();
       context.translate(centerX, centerY);
       for (let index = 0; index < 4; index += 1) {
-        const phase = time * (0.000018 + index * 0.000004) * (index % 2 ? -1 : 1);
-        const horizontal = width * (0.24 + index * 0.105);
-        const vertical = Math.max(56, height * (0.1 + index * 0.038));
-        context.rotate(phase + index * 0.34);
+        const phase = time * (.000018 + index * .000004) * (index % 2 ? -1 : 1);
+        const horizontal = width * (.24 + index * .105);
+        const vertical = Math.max(56, height * (.10 + index * .038));
+        context.rotate(phase + index * .34);
         context.beginPath();
         context.ellipse(0, 0, horizontal, vertical, 0, 0, Math.PI * 2);
-        context.strokeStyle = `rgba(139, 197, 239, ${0.022 + index * 0.009})`;
-        context.lineWidth = 0.55;
+        context.strokeStyle = `rgba(${palette.orbit}, ${.022 + index * .009})`;
+        context.lineWidth = .55;
         context.stroke();
-        context.rotate(-(phase + index * 0.34));
+        context.rotate(-(phase + index * .34));
       }
       context.restore();
 
       // Three expanding, very low-opacity pulses provide movement between the
       // star streams without introducing a white glow in the idle UI.
       for (let index = 0; index < 3; index += 1) {
-        const progress = (time * 0.000035 + index / 3) % 1;
+        const progress = (time * .00006 * palette.motion + index / 3) % 1;
         context.beginPath();
         context.ellipse(
           centerX,
           centerY,
-          width * (0.13 + progress * 0.54),
-          Math.max(44, height * (0.055 + progress * 0.19)),
-          -0.07,
+          width * (.13 + progress * .54),
+          Math.max(44, height * (.055 + progress * .19)),
+          -.07,
           0,
           Math.PI * 2,
         );
-        context.strokeStyle = `rgba(112, 185, 238, ${(1 - progress) * 0.035})`;
-        context.lineWidth = 0.65;
+        context.strokeStyle = `rgba(${palette.pulse}, ${(1 - progress) * .035})`;
+        context.lineWidth = .65;
         context.stroke();
       }
       particles.forEach((particle) => {
         if (particle.kind === 'cluster') {
-          const breathing = 0.72 + Math.sin(time * 0.0007 + particle.phase) * 0.28;
-          const gradient = context.createRadialGradient(
-            particle.x,
-            particle.y,
-            0,
-            particle.x,
-            particle.y,
-            particle.radius,
-          );
-          gradient.addColorStop(0, `rgba(131, 199, 255, ${particle.alpha * breathing})`);
-          gradient.addColorStop(1, 'rgba(56, 126, 196, 0)');
+          const breathing = .72 + Math.sin(time * .0007 + particle.phase) * .28;
+          const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, particle.radius);
+          gradient.addColorStop(0, `rgba(${palette.cluster}, ${particle.alpha * breathing})`);
+          gradient.addColorStop(1, `rgba(${palette.clusterEdge}, 0)`);
           context.fillStyle = gradient;
           context.beginPath();
           context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
@@ -187,17 +161,17 @@ function QueryUniverse() {
         }
         if (particle.kind === 'dust') {
           const x = (particle.x + time * particle.drift) % width;
-          const y = particle.y + Math.sin(time * 0.00035 + particle.phase) * 3;
+          const y = particle.y + Math.sin(time * .00035 + particle.phase) * 3;
           const distance = pointer.active ? Math.hypot(x - pointer.x, y - pointer.y) : Infinity;
-          const cursorLift = distance < 170 ? (1 - distance / 170) * 0.7 : 0;
-          const twinkle = 0.62 + Math.sin(time * 0.0022 + particle.phase) * 0.38 + cursorLift;
-          context.fillStyle = `rgba(224, 240, 255, ${Math.min(1, particle.alpha * twinkle)})`;
+          const cursorLift = distance < 170 ? (1 - distance / 170) * .7 : 0;
+          const twinkle = .62 + Math.sin(time * .0022 + particle.phase) * .38 + cursorLift;
+          context.fillStyle = `rgba(${palette.dust}, ${Math.min(1, particle.alpha * twinkle)})`;
           context.beginPath();
           context.arc(x < 0 ? x + width : x, y, particle.size, 0, Math.PI * 2);
           context.fill();
           if (particle.size > 1.35) {
-            context.strokeStyle = `rgba(205, 231, 255, ${particle.alpha * 0.55})`;
-            context.lineWidth = 0.55;
+            context.strokeStyle = `rgba(${palette.dustSpark}, ${particle.alpha * .55})`;
+            context.lineWidth = .55;
             context.beginPath();
             context.moveTo(x - 5, y);
             context.lineTo(x + 5, y);
@@ -214,22 +188,22 @@ function QueryUniverse() {
         const trailX = centerX + Math.cos(trailingAngle) * ellipticalRadius;
         const trailY = centerY + Math.sin(trailingAngle) * verticalRadius;
         const distance = pointer.active ? Math.hypot(x - pointer.x, y - pointer.y) : Infinity;
-        const cursorLift = distance < 190 ? (1 - distance / 190) * 0.55 : 0;
-        const twinkle = 0.62 + Math.sin(time * 0.0024 + particle.phase) * 0.38 + cursorLift;
-        if (particle.size > 0.72) {
+        const cursorLift = distance < 190 ? (1 - distance / 190) * .55 : 0;
+        const twinkle = .62 + Math.sin(time * .0024 + particle.phase) * .38 + cursorLift;
+        if (particle.size > .72) {
           context.beginPath();
-          context.strokeStyle = `rgba(173, 218, 251, ${particle.alpha * 0.46 * twinkle})`;
-          context.lineWidth = particle.size > 1.3 ? 0.9 : 0.42;
+          context.strokeStyle = `rgba(${palette.stream}, ${particle.alpha * .46 * twinkle})`;
+          context.lineWidth = particle.size > 1.3 ? .9 : .42;
           context.moveTo(trailX, trailY);
           context.lineTo(x, y);
           context.stroke();
         }
         context.beginPath();
-        context.fillStyle = `rgba(230, 244, 255, ${particle.alpha * twinkle})`;
+        context.fillStyle = `rgba(${palette.star}, ${particle.alpha * twinkle})`;
         context.arc(x, y, particle.size, 0, Math.PI * 2);
         context.fill();
         if (particle.size > 1.35) {
-          context.strokeStyle = `rgba(185, 225, 255, ${particle.alpha * 0.62})`;
+          context.strokeStyle = `rgba(${palette.starSpark}, ${particle.alpha * .62})`;
           context.beginPath();
           context.moveTo(x - 7, y);
           context.lineTo(x + 7, y);
@@ -269,23 +243,25 @@ function consumeWelcome(routeWelcome) {
   return routeWelcome || null;
 }
 
+// Advisory notice when the question could not be matched to the schema by
+// keywords. Rendered as plain text (React escapes it); it never blocks a query.
+export function ScopeWarning({ message }) {
+  if (!message) return null;
+  return <p className="scope-warning" role="status">{message}</p>;
+}
+
 export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
   const { user } = useAuth();
   const [question, setQuestion] = useState('');
   const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
-  const [questionLanguage, setQuestionLanguage] = useState(
-    () => location.state?.continuation?.languageCode || null,
-  );
+  const [questionLanguage, setQuestionLanguage] = useState(() => location.state?.continuation?.languageCode || null);
   const [welcome, setWelcome] = useState(() => consumeWelcome(location.state?.welcome));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [clarification, setClarification] = useState(null);
-  // Generated SQL waiting for the user's explicit Run / Cancel decision.
-  const [pending, setPending] = useState(null);
-  const [running, setRunning] = useState(false);
   const [voiceState, setVoiceState] = useState('idle');
   const [voiceError, setVoiceError] = useState('');
   const recorderRef = useRef(null);
@@ -295,99 +271,72 @@ export default function AskData() {
   const presentation = result?.presentation || {};
   const resultLabels = { ...DEFAULT_RESULT_LABELS, ...presentation.labels };
   const verificationStatus = result?.record?.verification?.status;
-  const verificationBadge =
-    verificationStatus === 'VERIFIED'
-      ? { className: 'badge badge-ok', label: resultLabels.verified_match }
-      : verificationStatus === 'FAILED'
-        ? { className: 'badge badge-bad', label: 'Verification failed' }
-        : { className: 'badge badge-warn', label: resultLabels.needs_review };
+  const verificationBadge = verificationStatus === 'VERIFIED'
+    ? { className: 'badge badge-ok', label: resultLabels.verified_match }
+    : verificationStatus === 'FAILED'
+      ? { className: 'badge badge-bad', label: 'Verification failed' }
+      : { className: 'badge badge-warn', label: resultLabels.needs_review };
 
   const reportError = async (err, fallback) => {
     const message = err.message || fallback;
     if (message.toLowerCase().includes('workspace not found')) {
       await refreshWorkspaces();
-      setError(
-        'The previous workspace was no longer active. Your saved workspaces were refreshed; please try again.',
-      );
+      setError('The previous workspace was no longer active. Your saved workspaces were refreshed; please try again.');
     } else {
       setError(message);
     }
   };
 
+  const executeProposal = async (proposal) => {
+    let currentProposal = proposal;
+    // A runtime-only database error can produce one corrected, fully guarded
+    // proposal. Run that correction in the same user action instead of asking
+    // the user to confirm a second time.
+    for (let repairAttempt = 0; repairAttempt <= 1; repairAttempt += 1) {
+      if (!currentProposal?.pending_id || !currentProposal?.sql_hash) {
+        throw new Error('The generated query could not be prepared for execution.');
+      }
+      const response = await fetchApi(`/query/${activeWorkspaceId}/pending/${currentProposal.pending_id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ sql_hash: currentProposal.sql_hash }),
+      });
+      if (response?.status !== 'repair_pending_approval') {
+        setResult(response);
+        return;
+      }
+      currentProposal = response.proposal;
+    }
+    throw new Error('The query could not be executed after an automatic correction.');
+  };
+
   const handleAsk = async () => {
     if (!question.trim() || !activeWorkspaceId) return;
-    if (pending) {
-      // A new question replaces the proposal on screen; release it on the server too.
-      fetchApi(`/query/${activeWorkspaceId}/pending/${pending.pending_id}/cancel`, {
-        method: 'POST',
-      }).catch(() => {});
-    }
     setLoading(true);
     setError('');
     setResult(null);
     setClarification(null);
-    setPending(null);
     try {
       const questionForQuery = continuation
         ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${question.trim()}`
         : question.trim();
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
+        body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage })
       });
       if (proposal.status === 'clarification_required') {
         setClarification(proposal);
         return;
       }
-      // Nothing runs until the user reviews the SQL and presses Run.
-      setPending({ ...proposal, repairMessage: null });
+      await executeProposal(proposal);
     } catch (err) {
-      await reportError(err, 'Error generating query');
+      await reportError(err, 'Error running query');
     } finally {
       setLoading(false);
     }
   };
 
-  const runPending = async () => {
-    if (!pending || !activeWorkspaceId || running) return;
-    setRunning(true);
-    setError('');
-    try {
-      const response = await fetchApi(
-        `/query/${activeWorkspaceId}/pending/${pending.pending_id}/approve`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ sql_hash: pending.sql_hash }),
-        },
-      );
-      if (response?.status === 'repair_pending_approval') {
-        // The corrected SQL is only proposed. It needs a fresh approval.
-        setPending({ ...response.proposal, repairMessage: response.message });
-        return;
-      }
-      setPending(null);
-      setResult(response);
-    } catch (err) {
-      setPending(null);
-      await reportError(err, 'Error executing query');
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const cancelPending = async () => {
-    if (!pending || !activeWorkspaceId) return;
-    const pendingId = pending.pending_id;
-    setPending(null);
-    try {
-      await fetchApi(`/query/${activeWorkspaceId}/pending/${pendingId}/cancel`, { method: 'POST' });
-    } catch {
-      // The approval also expires on its own; nothing else to undo.
-    }
-  };
-
   const releaseMicrophone = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
   };
 
@@ -400,16 +349,12 @@ export default function AskData() {
     try {
       const audio = new FormData();
       // Safari/iOS records audio/mp4; name the file after what was actually recorded.
-      const extension = blob.type.includes('mp4')
-        ? 'm4a'
-        : blob.type.includes('ogg')
-          ? 'ogg'
-          : 'webm';
+      const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
       audio.append('file', blob, `puchoo-question.${extension}`);
       const response = await fetchApi('/sarvam/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
-      setQuestion((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+      setQuestion(current => current.trim() ? `${current.trim()} ${transcript}` : transcript);
       setQuestionLanguage(response?.language_code || null);
     } catch (err) {
       setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
@@ -422,9 +367,7 @@ export default function AskData() {
   const startVoiceInput = async () => {
     setVoiceError('');
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setVoiceError(
-        'Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.',
-      );
+      setVoiceError('Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.');
       return;
     }
     setVoiceState('requesting');
@@ -437,7 +380,7 @@ export default function AskData() {
         ? new MediaRecorder(stream, { mimeType: preferredMimeType })
         : new MediaRecorder(stream);
       recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
+      recorder.ondataavailable = event => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
@@ -455,11 +398,9 @@ export default function AskData() {
     } catch (err) {
       releaseMicrophone();
       setVoiceState('idle');
-      setVoiceError(
-        err.name === 'NotAllowedError'
-          ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
-          : 'We could not start the microphone. Please try again.',
-      );
+      setVoiceError(err.name === 'NotAllowedError'
+        ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
+        : 'We could not start the microphone. Please try again.');
     }
   };
 
@@ -493,39 +434,14 @@ export default function AskData() {
 
   const welcomeNotice = welcome ? (
     <section className="ask-welcome animate-fade-slide" role="status">
-      <div className="ask-welcome-icon">
-        <Sparkles size={16} />
-      </div>
-      <div>
-        <strong>{welcome.title}</strong>
-        <p>{welcome.message}</p>
-      </div>
-      <button type="button" onClick={() => setWelcome(null)} aria-label="Dismiss welcome message">
-        <X size={16} />
-      </button>
+      <div className="ask-welcome-icon"><Sparkles size={16} /></div>
+      <div><strong>{welcome.title}</strong><p>{welcome.message}</p></div>
+      <button type="button" onClick={() => setWelcome(null)} aria-label="Dismiss welcome message"><X size={16} /></button>
     </section>
   ) : null;
 
   if (user?.workspace_role === 'viewer') {
-    return (
-      <div className="ask-page">
-        {welcomeNotice}
-        <section className="ask-viewer-state">
-          <div className="ask-viewer-icon">
-            <ShieldCheck size={22} />
-          </div>
-          <span>Viewer access</span>
-          <h1>Explore approved answers.</h1>
-          <p>
-            Your role can review shared query history, while prompts, data sources, and workspace
-            settings remain protected.
-          </p>
-          <Link className="ask-primary-action" to="/history">
-            Open history <ArrowUpRight size={17} />
-          </Link>
-        </section>
-      </div>
-    );
+    return <div className="ask-page">{welcomeNotice}<section className="ask-viewer-state"><div className="ask-viewer-icon"><ShieldCheck size={22} /></div><span>Viewer access</span><h1>Explore approved answers.</h1><p>Your role can review shared query history, while prompts, data sources, and workspace settings remain protected.</p><Link className="ask-primary-action" to="/history">Open history <ArrowUpRight size={17} /></Link></section></div>;
   }
 
   return (
@@ -534,43 +450,25 @@ export default function AskData() {
       <section className="ask-stage">
         <QueryUniverse />
         <div className="ask-stage-content">
-          <h1>
-            A clearer way
-            <br />
-            to see <em>data.</em>
-          </h1>
-          <p>
-            {continuation
-              ? 'Continue your analysis with secure context from the selected question.'
-              : activeWorkspace
-                ? 'Ask, verify, and act on the numbers that matter.'
-                : 'Connect a data source to ask secure, verified questions in your own workspace.'}
-          </p>
+          <h1>A clearer way<br />to see <em>data.</em></h1>
+          <p>{continuation ? 'Continue your analysis with secure context from the selected question.' : activeWorkspace ? 'Ask, verify, and act on the numbers that matter.' : 'Connect a data source to ask secure, verified questions in your own workspace.'}</p>
 
           {!activeWorkspace ? (
-            <Link className="ask-connect-action" to="/connect">
-              <Database size={17} /> Connect a data source <ArrowUpRight size={16} />
-            </Link>
+            <Link className="ask-connect-action" to="/connect"><Database size={17} /> Connect a data source <ArrowUpRight size={16} /></Link>
           ) : (
             <div className={`ask-prompt-shell${loading ? ' is-loading' : ''}`} aria-busy={loading}>
               <textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={onComposerKeyDown}
-                placeholder={
-                  continuation
-                    ? 'For example: Break that down by month.'
-                    : 'Ask a question about your data…'
-                }
+                placeholder={continuation ? 'For example: Break that down by month.' : 'Ask a question about your data…'}
                 aria-label="Ask a question about your data"
                 aria-describedby={loading ? 'query-processing-status' : undefined}
                 rows="3"
               />
               <div className="ask-prompt-controls">
                 <div className="ask-prompt-meta">
-                  <span>
-                    <ShieldCheck size={14} /> Read-only
-                  </span>
+                  <span><ShieldCheck size={14} /> Read-only</span>
                   <span className="ask-prompt-divider" />
                   <button
                     type="button"
@@ -578,90 +476,32 @@ export default function AskData() {
                     onClick={voiceState === 'recording' ? stopVoiceInput : startVoiceInput}
                     disabled={voiceState === 'requesting' || voiceState === 'transcribing'}
                     aria-pressed={voiceState === 'recording'}
-                    aria-label={
-                      voiceState === 'recording' ? 'Stop recording' : 'Speak your question'
-                    }
+                    aria-label={voiceState === 'recording' ? 'Stop recording' : 'Speak your question'}
                   >
-                    {voiceState === 'requesting' || voiceState === 'transcribing' ? (
-                      <LoaderCircle size={15} className="voice-spinner" />
-                    ) : voiceState === 'recording' ? (
-                      <Square size={12} fill="currentColor" />
-                    ) : (
-                      <Mic size={15} />
-                    )}
-                    <span>
-                      {voiceState === 'recording'
-                        ? 'Stop'
-                        : voiceState === 'transcribing'
-                          ? 'Transcribing…'
-                          : voiceState === 'requesting'
-                            ? 'Starting…'
-                            : 'Voice'}
-                    </span>
+                    {voiceState === 'requesting' || voiceState === 'transcribing' ? <LoaderCircle size={15} className="voice-spinner" /> : voiceState === 'recording' ? <Square size={12} fill="currentColor" /> : <Mic size={15} />}
+                    <span>{voiceState === 'recording' ? 'Stop' : voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'requesting' ? 'Starting…' : 'Voice'}</span>
                   </button>
                 </div>
                 <div className="ask-prompt-actions">
-                  {loading ? (
-                    <span
-                      id="query-processing-status"
-                      className="ask-query-mode ask-query-processing"
-                    >
-                      <i /> Generating query
-                    </span>
-                  ) : (
-                    <span className="ask-query-mode">
-                      Verified query <ChevronDown size={14} />
-                    </span>
-                  )}
-                  {question && (
-                    <button
-                      className="ask-clear-button"
-                      type="button"
-                      onClick={() => {
-                        setQuestion('');
-                        setQuestionLanguage(null);
-                      }}
-                    >
-                      Clear
-                    </button>
-                  )}
-                  <button
-                    className="ask-submit-button"
-                    type="button"
-                    onClick={handleAsk}
-                    disabled={loading || running || !question.trim()}
-                    aria-label="Generate secure query"
-                  >
-                    {loading ? (
-                      <LoaderCircle size={19} className="voice-spinner" />
-                    ) : (
-                      <ArrowUpRight size={20} />
-                    )}
+                  {loading ? <span id="query-processing-status" className="ask-query-mode ask-query-processing"><i /> Analyzing data</span> : <span className="ask-query-mode">Verified query <ChevronDown size={14} /></span>}
+                  {question && <button className="ask-clear-button" type="button" onClick={() => { setQuestion(''); setQuestionLanguage(null); }}>Clear</button>}
+                  <button className="ask-submit-button" type="button" onClick={handleAsk} disabled={loading || !question.trim()} aria-label="Run secure query">
+                    {loading ? <LoaderCircle size={19} className="voice-spinner" /> : <ArrowUpRight size={20} />}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="ask-stage-footer">
-            <span>Puchoo.si intelligence · {activeWorkspace?.name || 'Private workspace'}</span>
-          </div>
+          <div className="ask-stage-footer"><span>Puchoo.si intelligence · {activeWorkspace?.name || 'Private workspace'}</span></div>
         </div>
       </section>
 
       {clarification && (
-        <div
-          className="card animate-fade-slide"
-          style={{
-            marginBottom: '2rem',
-            borderColor: 'var(--accent-amber)',
-            background: 'var(--accent-amber-bg)',
-          }}
-        >
+        <div className="card animate-fade-slide" style={{ marginBottom: '2rem', borderColor: 'var(--accent-amber)', background: 'var(--accent-amber-bg)' }}>
           <h3 style={{ marginBottom: '0.5rem' }}>I need one detail before querying</h3>
-          <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
-            {clarification.message}
-          </p>
+          <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>{clarification.message}</p>
+          <ScopeWarning message={clarification.scope_warning} />
           {clarification.interpreted_request && (
             <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
               Interpreted request: {clarification.interpreted_request}
@@ -673,250 +513,120 @@ export default function AskData() {
             </p>
           )}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {clarification.suggestions?.map((suggestion) => (
-              <button
-                key={suggestion}
-                className="btn btn-secondary"
-                onClick={() => setQuestion((current) => `${current}. ${suggestion}`)}
-              >
-                {suggestion}
-              </button>
+            {clarification.suggestions?.map(suggestion => (
+              <button key={suggestion} className="btn btn-secondary" onClick={() => setQuestion(current => `${current}. ${suggestion}`)}>{suggestion}</button>
             ))}
           </div>
         </div>
       )}
 
-      {pending && (
-        <section
-          className="card animate-fade-slide"
-          aria-label="Review query before running"
-          style={{ marginBottom: '2rem' }}
-        >
-          <h3
-            style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-          >
-            <ShieldCheck size={18} />{' '}
-            {pending.repairMessage
-              ? 'Corrected query ready for review'
-              : 'Review the query before it runs'}
-          </h3>
-          {pending.repairMessage && (
-            <p role="status" style={{ color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
-              {pending.repairMessage}
-            </p>
-          )}
-          {pending.interpreted_request && (
-            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-              Interpreted request: {pending.interpreted_request}
-            </p>
-          )}
-          {pending.assumptions?.length > 0 && (
-            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-              Assumptions: {pending.assumptions.join('; ')}
-            </p>
-          )}
-          <p style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-            Puchoo.si will run exactly this read-only SQL, once, only if you choose Run.
-          </p>
-          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: '1rem' }}>
-            {pending.sql}
-          </pre>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={runPending}
-              disabled={running}
-            >
-              {running ? <LoaderCircle size={16} className="voice-spinner" /> : <Play size={16} />}{' '}
-              {pending.repairMessage ? 'Run again' : 'Run query'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={cancelPending}
-              disabled={running}
-            >
-              <X size={16} /> Cancel
-            </button>
-            {pending.expires_at && (
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                Approval expires at {new Date(pending.expires_at).toLocaleTimeString()}
-              </span>
-            )}
-          </div>
-        </section>
-      )}
-
       {error && (
-        <div
-          className="card"
-          role="alert"
-          style={{
-            marginBottom: '2rem',
-            color: '#b42318',
-            borderColor: '#fda29b',
-            backgroundColor: '#fff1f0',
-          }}
-        >
-          {error}
+        <div className="ask-error" role="alert">
+          <span aria-hidden="true"><X size={16} /></span>
+          <p>{error}</p>
+          <button type="button" onClick={() => setError('')} aria-label="Dismiss error"><X size={15} /></button>
         </div>
       )}
       {continuation && (
         <div className="continuation-banner animate-fade-slide">
-          <div className="continuation-icon">
-            <MessageSquarePlus size={19} />
-          </div>
+          <div className="continuation-icon"><MessageSquarePlus size={19} /></div>
           <div>
             <span>Continuing a previous question</span>
             <p>{continuation.question}</p>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => {
-              setContinuation(null);
-              setQuestion('');
-              setQuestionLanguage(null);
-            }}
-          >
-            <ArrowLeft size={16} /> Start fresh
-          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => { setContinuation(null); setQuestion(''); setQuestionLanguage(null); }}><ArrowLeft size={16} /> Start fresh</button>
         </div>
       )}
-      {questionLanguage && (
-        <p className="voice-language" role="status">
-          Voice language detected: {questionLanguage}. Your transcript and executive answer stay in
-          this language.
-        </p>
-      )}
-      {voiceError && (
-        <p className="voice-error" role="status">
-          {voiceError}
-        </p>
-      )}
+      {questionLanguage && <p className="voice-language" role="status">Voice language detected: {questionLanguage}. Your transcript and executive answer stay in this language.</p>}
+      {voiceError && <p className="voice-error" role="status">{voiceError}</p>}
 
       {result && (
         <section ref={resultRef} className="ask-results" aria-label="Query results" tabIndex="-1">
-          <div className="ask-results-heading">
-            <span>Verified output</span>
-            <p>Generated from your active workspace</p>
-          </div>
-          <div className="result-stack animate-fade-slide">
-            {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
-              <details className="query-details interpretation-details">
-                <summary>
-                  <span className="query-details-title">
-                    <Sparkles size={18} /> {resultLabels.interpretation}
-                  </span>
-                  <span className="query-details-hint">
-                    {resultLabels.view_details} <ChevronDown size={16} />
-                  </span>
-                </summary>
-                <div className="query-details-body">
-                  <p className="interpretation-copy">
-                    {result.record.interpreted_request || result.record.question}
-                  </p>
-                  {result.record.assumptions?.length > 0 && (
-                    <div className="interpretation-assumptions">
-                      <strong>Assumptions</strong>
-                      <p>{result.record.assumptions.join('; ')}</p>
-                    </div>
-                  )}
-                </div>
-              </details>
-            )}
-            <section className="result-summary-card">
-              <div className="result-summary-heading">
-                <div className="result-summary-icon">
-                  <Sparkles size={19} />
-                </div>
-                <div>
-                  <span className="result-overline">{resultLabels.executive_summary}</span>
-                  <p>{resultLabels.validated_answer}</p>
-                </div>
-              </div>
-              <span className={verificationBadge.className}>{verificationBadge.label}</span>
-              <div className="result-summary-copy">
-                <strong>{presentation.headline}</strong>
-                {presentation.detail && <p>{presentation.detail}</p>}
-              </div>
-              {presentation.highlights?.length > 0 && (
-                <div className="result-highlights">
-                  {presentation.highlights.map(([label, value]) => (
-                    <div key={label}>
-                      <span>{label}</span>
-                      <strong>{value}</strong>
-                    </div>
-                  ))}
-                </div>
+        <div className="ask-results-heading"><span>Verified output</span><p>Generated from your active workspace</p></div>
+        <div className="result-stack animate-fade-slide">
+          <ScopeWarning message={result.record.scope_warning} />
+          {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
+            <details className="query-details interpretation-details">
+              <summary>
+                <span className="query-details-title"><Sparkles size={18} /> {resultLabels.interpretation}</span>
+                <span className="query-details-hint">{resultLabels.view_details} <ChevronDown size={16} /></span>
+              </summary>
+              <div className="query-details-body">
+                <p className="interpretation-copy">{result.record.interpreted_request || result.record.question}</p>
+              {result.record.assumptions?.length > 0 && (
+                  <div className="interpretation-assumptions"><strong>Assumptions</strong><p>{result.record.assumptions.join('; ')}</p></div>
               )}
-            </section>
-
-            {result.record.sql && (
-              <details className="query-details">
-                <summary>
-                  <span className="query-details-title">
-                    <Code2 size={18} /> {resultLabels.view_sql}
-                  </span>
-                  <span className="query-details-hint">
-                    {resultLabels.read_only_query} <ChevronDown size={16} />
-                  </span>
-                </summary>
-                <div className="query-details-body">
-                  <p>This is the read-only SQL Puchoo.si ran to produce the answer.</p>
-                  <pre>{result.record.sql}</pre>
-                </div>
-              </details>
+              </div>
+            </details>
+          )}
+          <section className="result-summary-card">
+            <div className="result-summary-heading">
+              <div className="result-summary-icon"><Sparkles size={19} /></div>
+              <div>
+                <span className="result-overline">{resultLabels.executive_summary}</span>
+                <p>{resultLabels.validated_answer}</p>
+              </div>
+            </div>
+            <span className={verificationBadge.className}>{verificationBadge.label}</span>
+            <div className="result-summary-copy">
+              <strong>{presentation.headline}</strong>
+              {presentation.detail && <p>{presentation.detail}</p>}
+            </div>
+            {presentation.highlights?.length > 0 && (
+              <div className="result-highlights">
+                {presentation.highlights.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+              </div>
             )}
+          </section>
 
-            <section className="result-table-card">
-              <div className="result-table-heading">
-                <div>
-                  <span className="result-overline">{resultLabels.detailed_results}</span>
-                  <p>
-                    {result.record.row_count ?? 0} {resultLabels.rows_returned}
-                  </p>
-                  {result.record.truncated && (
-                    <p role="status">
-                      Showing the first {result.record.row_count} rows; the row limit was reached.
-                      Narrow the question to see the rest.
-                    </p>
-                  )}
-                </div>
-                <span className="result-table-status">
-                  <span></span>
-                  {resultLabels.read_only_query}
-                </span>
+          {result.record.sql && (
+            <details className="query-details">
+              <summary>
+                <span className="query-details-title"><Code2 size={18} /> {resultLabels.view_sql}</span>
+                <span className="query-details-hint">{resultLabels.read_only_query} <ChevronDown size={16} /></span>
+              </summary>
+              <div className="query-details-body">
+                <p>This is the read-only SQL Puchoo.si ran to produce the answer.</p>
+                <pre>{result.record.sql}</pre>
               </div>
-              <div className="result-table-scroll">
-                {result.record.rows && result.record.rows.length > 0 ? (
-                  <table className="result-table">
-                    <thead>
-                      <tr>
-                        {result.record.columns.map((c) => (
-                          <th key={c}>{presentation.column_labels?.[c] || c}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.record.rows.map((row, index) => (
-                        <tr key={index}>
-                          {result.record.columns.map((c) => (
-                            <td key={c}>
-                              {(presentation.display_rows?.[index] || row)[c]?.toString() || '—'}
-                            </td>
-                          ))}
-                        </tr>
+            </details>
+          )}
+
+          <section className="result-table-card">
+            <div className="result-table-heading">
+              <div>
+                <span className="result-overline">{resultLabels.detailed_results}</span>
+                <p>{result.record.row_count ?? 0} {resultLabels.rows_returned}</p>
+                {result.record.truncated && <p role="status">Showing the first {result.record.row_count} rows; the row limit was reached. Narrow the question to see the rest.</p>}
+              </div>
+              <span className="result-table-status"><span></span>{resultLabels.read_only_query}</span>
+            </div>
+            <div className="result-table-scroll">
+            {result.record.rows && result.record.rows.length > 0 ? (
+              <table className="result-table">
+                <thead>
+                  <tr>
+                    {result.record.columns.map(c => (
+                      <th key={c}>{presentation.column_labels?.[c] || c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.record.rows.map((row, index) => (
+                    <tr key={index}>
+                      {result.record.columns.map(c => (
+                        <td key={c}>{(presentation.display_rows?.[index] || row)[c]?.toString() || '—'}</td>
                       ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p className="result-empty">{resultLabels.no_rows}</p>
-                )}
-              </div>
-            </section>
-          </div>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="result-empty">{resultLabels.no_rows}</p>
+            )}
+            </div>
+          </section>
+        </div>
         </section>
       )}
     </div>

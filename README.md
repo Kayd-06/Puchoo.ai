@@ -126,6 +126,13 @@ The landing page is `/`. `/login` and `/signup` are the account forms. `/ask` is
 
 To replace the final call-to-action image, add a file at `frontend/public/cta-visual.png`.
 
+## Uploading data
+
+- Accepted files: **CSV, XLSX and XLS** only. Each upload is converted into a private SQLite workspace on the server.
+- **SQLite database uploads (`.db`, `.sqlite`, `.sqlite3`) are no longer supported.** An arbitrary database file can carry triggers, views and features the tabular importer never has to trust, so the upload path now accepts spreadsheets only. To use data from an existing SQLite file, export its tables to CSV/XLSX, or connect a PostgreSQL/MySQL server as a data source.
+- Limits: up to `UPLOAD_MAX_FILES` files per upload (default **10**) and `UPLOAD_MAX_BYTES` per file (default 25 MB).
+- Only workspace owners and admins can upload (see `docs/permissions.md`).
+
 ## Safe execution and verification
 
 - **Nothing runs without your approval.** Asking a question generates SQL, validates it, and stores it as a pending query (about 10 minutes). The UI shows the exact SQL with **Run** and **Cancel**. Run sends `POST /api/query/{workspace}/pending/{id}/approve` with the SQL's SHA-256; it is CSRF-protected, works once, only for the user who asked (same tenant and workspace), and is rejected after expiry. The SQL is re-validated against the live schema and current limits, then run byte-for-byte.
