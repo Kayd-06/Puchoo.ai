@@ -243,13 +243,38 @@ def test_generate_rejects_questions_unrelated_to_workspace_data(env, question):
     assert session_manager.query_history[WORKSPACE_ID] == []
 
 
-def test_generate_rejects_requested_fields_missing_from_workspace_schema(env):
+def test_missing_schema_fields_are_an_advisory_warning_not_a_rejection(env):
+    """Keyword misses still go to SQL review; nothing runs without approval."""
+
     response = env.generate(question="Show customer phone numbers")
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "I cannot find the requested data in this workspace."
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "pending_approval"
+    assert "could not match some requested data" in body["scope_warning"]
     assert env.executions == []
     assert session_manager.query_history[WORKSPACE_ID] == []
+
+
+def test_translated_question_with_synonym_is_not_rejected(env, monkeypatch):
+    """A Hindi question translated to English may use words the schema lacks
+    (e.g. 'income' instead of 'amount'); it must reach review, not a 400."""
+
+    monkeypatch.setattr(query_router, "_translate_for_sql", lambda _q, _lang: "What is the total income for each area?")
+    response = env.generate(question="हर क्षेत्र की कुल आय कितनी है?")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "pending_approval"
+    assert body["question"] == "हर क्षेत्र की कुल आय कितनी है?"
+    assert body.get("scope_warning")
+    assert env.executions == []
+
+
+def test_anchored_question_has_no_scope_warning(env):
+    body = env.generate(question="Show total amount per region").json()
+    assert body["status"] == "pending_approval"
+    assert "scope_warning" not in body
 
 
 def test_generate_returns_actionable_error_when_workspace_source_is_unavailable(env):

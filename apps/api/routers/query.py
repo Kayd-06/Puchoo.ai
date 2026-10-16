@@ -238,19 +238,18 @@ def generate_query(
             workspace["database_uri"], connect_args=workspace.get("connect_args")
         )
         scope = classify_question_scope(schema, planning_question)
-        if not scope.allowed:
-            detail = (
-                "I cannot find the requested data in this workspace."
-                if scope.reason == "missing_data"
-                else "I can only answer questions using data available in this workspace."
-            )
-            raise HTTPException(status_code=400, detail=detail)
+        if scope.blocking:
+            raise HTTPException(status_code=400, detail="I can only answer questions using data available in this workspace.")
+        # Keyword misses (synonyms, translated wording) are advisory only: the
+        # guardrail and the user's approval still gate every query.
+        scope_warning = scope.warning
         autonomous = _autonomous_mode()
         clarification = None if autonomous else question_clarification(schema, planning_question)
         if clarification:
             return {
                 "status": "clarification_required",
                 "question": question,
+                **({"scope_warning": scope_warning} if scope_warning else {}),
                 **clarification,
             }
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
@@ -395,6 +394,8 @@ def generate_query(
             "interpreted_request": _translate_for_display(public_plan.get("normalized_question", planning_question), language_code),
             "status": "pending_approval",
         }
+        if scope_warning:
+            proposal["scope_warning"] = scope_warning
         trace = {
             "route": decision.route,
             "complexity_reasons": decision.reasons,

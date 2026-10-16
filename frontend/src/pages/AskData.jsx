@@ -243,6 +243,13 @@ function consumeWelcome(routeWelcome) {
   return routeWelcome || null;
 }
 
+// Advisory notice when the question could not be matched to the schema by
+// keywords. Rendered as plain text (React escapes it); it never blocks a query.
+export function ScopeWarning({ message }) {
+  if (!message) return null;
+  return <p className="scope-warning" role="status">{message}</p>;
+}
+
 export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
@@ -494,6 +501,7 @@ export default function AskData() {
         <div className="card animate-fade-slide" style={{ marginBottom: '2rem', borderColor: 'var(--accent-amber)', background: 'var(--accent-amber-bg)' }}>
           <h3 style={{ marginBottom: '0.5rem' }}>I need one detail before querying</h3>
           <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>{clarification.message}</p>
+          <ScopeWarning message={clarification.scope_warning} />
           {clarification.interpreted_request && (
             <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
               Interpreted request: {clarification.interpreted_request}
@@ -536,6 +544,7 @@ export default function AskData() {
         <section ref={resultRef} className="ask-results" aria-label="Query results" tabIndex="-1">
         <div className="ask-results-heading"><span>Verified output</span><p>Generated from your active workspace</p></div>
         <div className="result-stack animate-fade-slide">
+          <ScopeWarning message={result.record.scope_warning} />
           {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
             <details className="query-details interpretation-details">
               <summary>

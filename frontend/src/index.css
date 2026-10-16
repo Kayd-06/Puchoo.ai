@@ -2386,3 +2386,13 @@ html[data-theme="light"] .ask-page .result-table tbody tr:hover { background: rg
 html[data-theme="light"] .ask-page .badge-ok { border-color: rgba(38, 125, 87, .28); background: rgba(38, 125, 87, .08); color: #267957; }
 html[data-theme="light"] .ask-page .badge-warn { border-color: rgba(175, 113, 32, .28); background: rgba(175, 113, 32, .08); color: #a46517; }
 html[data-theme="light"] .ask-page .badge-bad { border-color: rgba(181, 76, 85, .28); background: rgba(181, 76, 85, .08); color: #aa4450; }
+
+.scope-warning {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid var(--accent-amber);
+  background: var(--accent-amber-bg);
+  color: var(--text-primary);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}

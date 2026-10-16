@@ -10,8 +10,30 @@ from apps.core.semantic_layer import parse_schema
 
 @dataclass(frozen=True)
 class QuestionScope:
+    """Result of the keyword relevance check.
+
+    ``reason`` is one of:
+    - ``"off_topic"``: clearly not a data question (poems, weather, prompt
+      injection). The API rejects these.
+    - ``"missing_data"`` / ``"unrelated"``: no keyword overlap with the schema.
+      Keyword matching misses synonyms and translations, so the API treats
+      these as an advisory warning only and still lets the user review SQL.
+    """
+
     allowed: bool
     reason: str | None = None
+
+    @property
+    def blocking(self) -> bool:
+        return not self.allowed and self.reason == "off_topic"
+
+    @property
+    def warning(self) -> str | None:
+        if self.allowed or self.blocking:
+            return None
+        if self.reason == "missing_data":
+            return "Puchoo.si could not match some requested data to this workspace's tables. Check the SQL carefully before running it."
+        return "This question may not relate to the data in this workspace. Check the SQL carefully before running it."
 
 
 _STOP_WORDS = {
@@ -59,10 +81,10 @@ def _tokens(value: str) -> set[str]:
 
 
 def classify_question_scope(schema: str, question: str) -> QuestionScope:
-    """Allow only analytical questions anchored to the active schema."""
+    """Classify how well a question is anchored to the active schema."""
 
     if _NON_DATA_PATTERN.search(question):
-        return QuestionScope(False, "unrelated")
+        return QuestionScope(False, "off_topic")
 
     schema_tokens: set[str] = set()
     for table in parse_schema(schema):
