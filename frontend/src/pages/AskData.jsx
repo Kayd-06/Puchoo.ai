@@ -19,6 +19,25 @@ const DEFAULT_RESULT_LABELS = {
   needs_review: 'Needs review',
 };
 
+export function queryUniversePalette(theme) {
+  if (theme === 'light') {
+    return {
+      composite: 'source-over',
+      orbit: '38, 54, 63', pulse: '48, 68, 79',
+      cluster: '38, 57, 67', clusterEdge: '38, 57, 67',
+      dust: '16, 28, 35', dustSpark: '24, 38, 47',
+      stream: '29, 50, 64', star: '15, 28, 36', starSpark: '19, 35, 44',
+    };
+  }
+  return {
+    composite: 'lighter',
+    orbit: '139, 197, 239', pulse: '112, 185, 238',
+    cluster: '131, 199, 255', clusterEdge: '56, 126, 196',
+    dust: '224, 240, 255', dustSpark: '205, 231, 255',
+    stream: '173, 218, 251', star: '230, 244, 255', starSpark: '185, 225, 255',
+  };
+}
+
 function QueryUniverse() {
   const canvasRef = useRef(null);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
@@ -87,7 +106,8 @@ function QueryUniverse() {
       context.clearRect(0, 0, width, height);
       const centerX = width / 2;
       const centerY = height * .58;
-      context.globalCompositeOperation = 'lighter';
+      const palette = queryUniversePalette(document.documentElement.dataset.theme);
+      context.globalCompositeOperation = palette.composite;
       const pointer = pointerRef.current;
 
       // Slow, transparent orbital paths give the field depth without becoming
@@ -101,7 +121,7 @@ function QueryUniverse() {
         context.rotate(phase + index * .34);
         context.beginPath();
         context.ellipse(0, 0, horizontal, vertical, 0, 0, Math.PI * 2);
-        context.strokeStyle = `rgba(139, 197, 239, ${.022 + index * .009})`;
+        context.strokeStyle = `rgba(${palette.orbit}, ${.022 + index * .009})`;
         context.lineWidth = .55;
         context.stroke();
         context.rotate(-(phase + index * .34));
@@ -122,7 +142,7 @@ function QueryUniverse() {
           0,
           Math.PI * 2,
         );
-        context.strokeStyle = `rgba(112, 185, 238, ${(1 - progress) * .035})`;
+        context.strokeStyle = `rgba(${palette.pulse}, ${(1 - progress) * .035})`;
         context.lineWidth = .65;
         context.stroke();
       }
@@ -130,8 +150,8 @@ function QueryUniverse() {
         if (particle.kind === 'cluster') {
           const breathing = .72 + Math.sin(time * .0007 + particle.phase) * .28;
           const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, particle.radius);
-          gradient.addColorStop(0, `rgba(131, 199, 255, ${particle.alpha * breathing})`);
-          gradient.addColorStop(1, 'rgba(56, 126, 196, 0)');
+          gradient.addColorStop(0, `rgba(${palette.cluster}, ${particle.alpha * breathing})`);
+          gradient.addColorStop(1, `rgba(${palette.clusterEdge}, 0)`);
           context.fillStyle = gradient;
           context.beginPath();
           context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
@@ -144,12 +164,12 @@ function QueryUniverse() {
           const distance = pointer.active ? Math.hypot(x - pointer.x, y - pointer.y) : Infinity;
           const cursorLift = distance < 170 ? (1 - distance / 170) * .7 : 0;
           const twinkle = .62 + Math.sin(time * .0022 + particle.phase) * .38 + cursorLift;
-          context.fillStyle = `rgba(224, 240, 255, ${Math.min(1, particle.alpha * twinkle)})`;
+          context.fillStyle = `rgba(${palette.dust}, ${Math.min(1, particle.alpha * twinkle)})`;
           context.beginPath();
           context.arc(x < 0 ? x + width : x, y, particle.size, 0, Math.PI * 2);
           context.fill();
           if (particle.size > 1.35) {
-            context.strokeStyle = `rgba(205, 231, 255, ${particle.alpha * .55})`;
+            context.strokeStyle = `rgba(${palette.dustSpark}, ${particle.alpha * .55})`;
             context.lineWidth = .55;
             context.beginPath();
             context.moveTo(x - 5, y);
@@ -171,18 +191,18 @@ function QueryUniverse() {
         const twinkle = .62 + Math.sin(time * .0024 + particle.phase) * .38 + cursorLift;
         if (particle.size > .72) {
           context.beginPath();
-          context.strokeStyle = `rgba(173, 218, 251, ${particle.alpha * .46 * twinkle})`;
+          context.strokeStyle = `rgba(${palette.stream}, ${particle.alpha * .46 * twinkle})`;
           context.lineWidth = particle.size > 1.3 ? .9 : .42;
           context.moveTo(trailX, trailY);
           context.lineTo(x, y);
           context.stroke();
         }
         context.beginPath();
-        context.fillStyle = `rgba(230, 244, 255, ${particle.alpha * twinkle})`;
+        context.fillStyle = `rgba(${palette.star}, ${particle.alpha * twinkle})`;
         context.arc(x, y, particle.size, 0, Math.PI * 2);
         context.fill();
         if (particle.size > 1.35) {
-          context.strokeStyle = `rgba(185, 225, 255, ${particle.alpha * .62})`;
+          context.strokeStyle = `rgba(${palette.starSpark}, ${particle.alpha * .62})`;
           context.beginPath();
           context.moveTo(x - 7, y);
           context.lineTo(x + 7, y);
