@@ -304,6 +304,32 @@ def test_verification_mismatch_returns_result_with_failed_badge(env, monkeypatch
     assert len(session_manager.query_history.get(WORKSPACE_ID, [])) == 1
 
 
+def test_unexpected_verifier_error_still_consumes_the_approval(env, monkeypatch):
+    """Once SQL has executed, the approval is closed even if verification crashes."""
+
+    class ExplodingVerifier:
+        def verify(self, **_kwargs):
+            raise ValueError("verifier bug")
+
+    monkeypatch.setattr(query_router, "get_verifier", lambda: ExplodingVerifier())
+    pending = env.generate().json()
+
+    try:
+        response = env.approve(pending)
+        assert response.status_code != 200
+    except ValueError:
+        pass  # TestClient re-raises server exceptions by default.
+
+    db = database.SessionLocal()
+    try:
+        assert db.get(PendingQuery, pending["pending_id"]).outcome == "executed"
+    finally:
+        db.close()
+    monkeypatch.setattr(query_router, "get_verifier", lambda: FakeVerifier())
+    assert env.approve(pending).status_code == 409
+    assert len(env.executions) == 1
+
+
 def test_approval_requires_csrf_token(env):
     pending = env.generate().json()
     response = env.approve(pending, csrf=False)

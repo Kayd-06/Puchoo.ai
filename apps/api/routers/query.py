@@ -572,29 +572,30 @@ def approve_pending_query(
                 "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
                 "proposal": repaired,
             }
+        # The SQL has already run, so the pending approval must be closed even
+        # if verification fails unexpectedly; otherwise it could be replayed.
         try:
-            verification = get_verifier().verify(
-                question=proposal.get("processing_question", proposal["question"]),
-                sql=result.sql,
-                columns=result.columns,
-                rows=result.rows,
-                row_count=result.row_count,
-            )
-            verification_dict = verification.as_dict()
-        except RuntimeError as exc:
-            verification_dict = verification_unavailable(str(exc)).as_dict()
+            try:
+                verification = get_verifier().verify(
+                    question=proposal.get("processing_question", proposal["question"]),
+                    sql=result.sql,
+                    columns=result.columns,
+                    rows=result.rows,
+                    row_count=result.row_count,
+                )
+                verification_dict = verification.as_dict()
+            except RuntimeError as exc:
+                verification_dict = verification_unavailable(str(exc)).as_dict()
 
-        if verification_dict.get("status") == "VERIFICATION_MISMATCH":
-            # Log the mismatch but do not block the result. The verifier is an
-            # independent trust signal shown to the user as a badge; it should
-            # not discard a query that the guardrail and executor already
-            # accepted. The frontend renders a "Verification failed" badge for
-            # FAILED status without blocking the data.
-            logger.warning("query verification mismatch workspace=%s pending=%s", workspace_id, pending.id)
+            if verification_dict.get("status") == "VERIFICATION_MISMATCH":
+                # Non-blocking by design: the verifier is an independent trust
+                # signal. The guardrail and the user's approval already gate
+                # execution, so a mismatch is returned with the result and the
+                # UI shows a "Verification failed" badge instead of hiding data.
+                logger.warning("query verification mismatch workspace=%s pending=%s", workspace_id, pending.id)
+        finally:
+            finish_pending(db, pending, "executed")
 
-
-        finish_pending(db, pending, "executed")
-            
         record = {
             **proposal,
             "status": "executed",
