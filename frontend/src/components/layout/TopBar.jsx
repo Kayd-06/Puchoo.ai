@@ -47,7 +47,9 @@ export default function TopBar() {
       try {
         const incoming = JSON.parse(event.data);
         if (!active || !incoming?.id) return;
-        setNotifications((current) => [incoming, ...current.filter((item) => item.id !== incoming.id)].slice(0, 12));
+        setNotifications((current) =>
+          [incoming, ...current.filter((item) => item.id !== incoming.id)].slice(0, 12),
+        );
         if (!incoming.read_at) setUnreadCount((count) => count + 1);
       } catch {
         // Ignore malformed stream data and retain persisted notifications.
@@ -61,7 +63,8 @@ export default function TopBar() {
 
   useEffect(() => {
     function closeMenus(event) {
-      if (notificationRef.current && !notificationRef.current.contains(event.target)) setOpen(false);
+      if (notificationRef.current && !notificationRef.current.contains(event.target))
+        setOpen(false);
       if (accountRef.current && !accountRef.current.contains(event.target)) setAccountOpen(false);
     }
     function closeOnEscape(event) {
@@ -82,7 +85,11 @@ export default function TopBar() {
     if (notification.read_at) return;
     try {
       await fetchApi(`/notifications/${notification.id}/read`, { method: 'POST' });
-      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item));
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item,
+        ),
+      );
       setUnreadCount((count) => Math.max(0, count - 1));
     } catch {
       // Keep the persisted unread state if the request fails.
@@ -92,7 +99,9 @@ export default function TopBar() {
   async function markAllRead() {
     try {
       await fetchApi('/notifications/read-all', { method: 'POST' });
-      setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
+      setNotifications((current) =>
+        current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })),
+      );
       setUnreadCount(0);
     } catch {
       // The panel remains usable after a transient failure.
@@ -110,9 +119,13 @@ export default function TopBar() {
 
   const avatar = (className = 'topbar-avatar') => (
     <span className={`${className}${user?.image_url ? ' has-image' : ''}`}>
-      {user?.image_url
-        ? <img src={user.image_url} alt="" referrerPolicy="no-referrer" />
-        : (user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U')}
+      {user?.image_url ? (
+        <img src={user.image_url} alt="" referrerPolicy="no-referrer" />
+      ) : user?.full_name ? (
+        user.full_name.charAt(0).toUpperCase()
+      ) : (
+        'U'
+      )}
     </span>
   );
 
@@ -125,28 +138,103 @@ export default function TopBar() {
       <div className="app-topbar-actions">
         <ThemeToggle />
         <div ref={notificationRef} className="topbar-menu-anchor">
-          <button type="button" aria-label="Notifications" aria-expanded={open} className={`topbar-icon-button${open ? ' is-active' : ''}`} onClick={() => { setOpen((value) => !value); setAccountOpen(false); }}>
+          <button
+            type="button"
+            aria-label="Notifications"
+            aria-expanded={open}
+            className={`topbar-icon-button${open ? ' is-active' : ''}`}
+            onClick={() => {
+              setOpen((value) => !value);
+              setAccountOpen(false);
+            }}
+          >
             <Bell size={17} />
-            {unreadCount > 0 && <span className="topbar-notification-count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 9 ? '9+' : unreadCount}</span>}
+            {unreadCount > 0 && (
+              <span
+                className="topbar-notification-count"
+                aria-label={`${unreadCount} unread notifications`}
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
-          {open && <section aria-label="Notifications" className="topbar-popover topbar-notification-panel">
-            <header className="topbar-popover-header"><div><span>Activity</span><strong>Notifications</strong></div>{unreadCount > 0 && <button type="button" className="topbar-text-button" onClick={markAllRead}><CheckCheck size={14} /> Mark all read</button>}</header>
-            <div className="topbar-notification-list">
-              {notifications.length === 0 ? <p className="topbar-empty-state">Your important workspace activity will appear here.</p> : notifications.map((notification) => <button key={notification.id} type="button" onClick={() => markRead(notification)} className={`topbar-notification-item${notification.read_at ? '' : ' is-unread'}`}><div><strong>{notification.title}</strong><span>{timeLabel(notification.created_at)}</span></div>{notification.body && <p>{notification.body}</p>}</button>)}</div>
-          </section>}
+          {open && (
+            <section
+              aria-label="Notifications"
+              className="topbar-popover topbar-notification-panel"
+            >
+              <header className="topbar-popover-header">
+                <div>
+                  <span>Activity</span>
+                  <strong>Notifications</strong>
+                </div>
+                {unreadCount > 0 && (
+                  <button type="button" className="topbar-text-button" onClick={markAllRead}>
+                    <CheckCheck size={14} /> Mark all read
+                  </button>
+                )}
+              </header>
+              <div className="topbar-notification-list">
+                {notifications.length === 0 ? (
+                  <p className="topbar-empty-state">
+                    Your important workspace activity will appear here.
+                  </p>
+                ) : (
+                  notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      onClick={() => markRead(notification)}
+                      className={`topbar-notification-item${notification.read_at ? '' : ' is-unread'}`}
+                    >
+                      <div>
+                        <strong>{notification.title}</strong>
+                        <span>{timeLabel(notification.created_at)}</span>
+                      </div>
+                      {notification.body && <p>{notification.body}</p>}
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
         </div>
         <div ref={accountRef} className="topbar-menu-anchor">
-          <button type="button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => { setAccountOpen((value) => !value); setOpen(false); }} className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}>
+          <button
+            type="button"
+            aria-label="Account menu"
+            aria-expanded={accountOpen}
+            onClick={() => {
+              setAccountOpen((value) => !value);
+              setOpen(false);
+            }}
+            className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}
+          >
             {avatar()}
             <ChevronDown size={16} />
           </button>
-          {accountOpen && <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
-            <div className="topbar-account-summary">
-              {avatar()}
-              <div className="topbar-account-copy"><strong>{user?.full_name || 'Your account'}</strong><span className="topbar-account-email" title={user?.email}>{user?.email}</span></div>
-            </div>
-            <button type="button" className="topbar-logout-button" onClick={onLogout} disabled={loggingOut}><LogOut size={16} />{loggingOut ? 'Logging out…' : 'Log out'}</button>
-          </section>}
+          {accountOpen && (
+            <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
+              <div className="topbar-account-summary">
+                {avatar()}
+                <div className="topbar-account-copy">
+                  <strong>{user?.full_name || 'Your account'}</strong>
+                  <span className="topbar-account-email" title={user?.email}>
+                    {user?.email}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="topbar-logout-button"
+                onClick={onLogout}
+                disabled={loggingOut}
+              >
+                <LogOut size={16} />
+                {loggingOut ? 'Logging out…' : 'Log out'}
+              </button>
+            </section>
+          )}
         </div>
       </div>
     </header>

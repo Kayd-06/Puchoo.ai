@@ -24,7 +24,15 @@ export function strengthOf(password) {
   return { score, label: ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][score] };
 }
 
-export default function PasswordField({ id, label, value, onChange, error, autoComplete, className = '' }) {
+export default function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  autoComplete,
+  className = '',
+}) {
   const [visible, setVisible] = useState(false);
   const strength = strengthOf(value);
   return (

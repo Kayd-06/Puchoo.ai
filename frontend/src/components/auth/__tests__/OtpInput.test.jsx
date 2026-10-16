@@ -6,7 +6,17 @@ import OtpInput from '../OtpInput';
 
 function Harness({ onComplete = vi.fn(), ...props }) {
   const [value, setValue] = useState('');
-  return <OtpInput id="otp" value={value} onChange={(next) => { setValue(next); if (next.length === 6) onComplete(next); }} {...props} />;
+  return (
+    <OtpInput
+      id="otp"
+      value={value}
+      onChange={(next) => {
+        setValue(next);
+        if (next.length === 6) onComplete(next);
+      }}
+      {...props}
+    />
+  );
 }
 
 it('normalizes typing and paste to six digits and completes once', () => {

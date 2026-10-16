@@ -7,10 +7,15 @@ import './styles/site.css';
 applyStoredTheme();
 
 const root = createRoot(document.getElementById('root'));
-const pageModule = window.location.pathname === '/'
-  ? import('./pages/Landing.jsx')
-  : import('./App.jsx');
+const pageModule =
+  window.location.pathname === '/' ? import('./pages/Landing.jsx') : import('./App.jsx');
 
 pageModule.then(({ default: Page }) => {
-  root.render(<StrictMode><ThemeProvider><Page /></ThemeProvider></StrictMode>);
+  root.render(
+    <StrictMode>
+      <ThemeProvider>
+        <Page />
+      </ThemeProvider>
+    </StrictMode>,
+  );
 });

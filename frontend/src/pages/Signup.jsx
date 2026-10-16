@@ -43,7 +43,11 @@ export default function Signup() {
     }
     if (values.password !== values.confirm_password)
       next.confirm_password = 'Passwords do not match.';
-    if (values.workspace_type !== 'personal' && !values.invite_code.trim() && !values.workspace_name.trim()) {
+    if (
+      values.workspace_type !== 'personal' &&
+      !values.invite_code.trim() &&
+      !values.workspace_name.trim()
+    ) {
       next.workspace_name = 'Enter a workspace name when creating a new shared workspace.';
     }
     return next;
@@ -63,7 +67,8 @@ export default function Signup() {
         password: values.password,
         confirm_password: values.confirm_password,
         workspace_type: values.workspace_type,
-        workspace_name: values.workspace_type === 'personal' ? null : values.workspace_name.trim() || null,
+        workspace_name:
+          values.workspace_type === 'personal' ? null : values.workspace_name.trim() || null,
         invite_code: values.invite_code.trim() || null,
       });
       navigate('/login', {
@@ -139,7 +144,9 @@ export default function Signup() {
             onChange={(event) => update('confirm_password', event.target.value)}
           />
           <fieldset className="auth-form-wide">
-            <legend className="mb-2 text-sm font-medium text-[#111827]">How will you use Puchoo.si?</legend>
+            <legend className="mb-2 text-sm font-medium text-[#111827]">
+              How will you use Puchoo.si?
+            </legend>
             <div className="grid gap-2 sm:grid-cols-3">
               {[
                 ['personal', 'Personal', 'Only you can access your private workspace.'],
@@ -150,14 +157,27 @@ export default function Signup() {
                   key={value}
                   className={`flex min-h-28 flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-sm ${values.workspace_type === value ? 'border-[#111827] bg-[#eef3fc]' : 'border-black/10'} ${focusRing}`}
                 >
-                  <span className="flex items-center gap-2 font-medium"><input type="radio" name="workspace_type" value={value} checked={values.workspace_type === value} onChange={() => update('workspace_type', value)} />{label}</span>
+                  <span className="flex items-center gap-2 font-medium">
+                    <input
+                      type="radio"
+                      name="workspace_type"
+                      value={value}
+                      checked={values.workspace_type === value}
+                      onChange={() => update('workspace_type', value)}
+                    />
+                    {label}
+                  </span>
                   <span className="text-xs leading-relaxed text-[#64748b]">{detail}</span>
                 </label>
               ))}
             </div>
           </fieldset>
           {values.workspace_type !== 'personal' ? (
-            <Field id="workspace_name" label={values.workspace_type === 'business' ? 'Business name' : 'Institution name'} error={errors.workspace_name}>
+            <Field
+              id="workspace_name"
+              label={values.workspace_type === 'business' ? 'Business name' : 'Institution name'}
+              error={errors.workspace_name}
+            >
               <input
                 id="workspace_name"
                 name="workspace_name"
@@ -169,12 +189,27 @@ export default function Signup() {
               />
             </Field>
           ) : null}
-          {values.workspace_type !== 'personal' ? <Field id="invite_code" label="Join with a workspace code instead (optional)">
-            <input id="invite_code" value={values.invite_code} onChange={(event) => update('invite_code', event.target.value)} placeholder="PUCHOO-…" className={inputClass(false)} />
-            <p className="mt-2 text-xs leading-relaxed text-[#64748b]">A code links you to the owner’s tenant after your email and OTP are verified. It never exposes another workspace in the picker.</p>
-          </Field>
-          : null}
-          <PillButton type="submit" variant="dark" disabled={pending} className="auth-form-wide w-full">
+          {values.workspace_type !== 'personal' ? (
+            <Field id="invite_code" label="Join with a workspace code instead (optional)">
+              <input
+                id="invite_code"
+                value={values.invite_code}
+                onChange={(event) => update('invite_code', event.target.value)}
+                placeholder="PUCHOO-…"
+                className={inputClass(false)}
+              />
+              <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
+                A code links you to the owner’s tenant after your email and OTP are verified. It
+                never exposes another workspace in the picker.
+              </p>
+            </Field>
+          ) : null}
+          <PillButton
+            type="submit"
+            variant="dark"
+            disabled={pending}
+            className="auth-form-wide w-full"
+          >
             {pending ? 'Creating account…' : 'Get started'}
           </PillButton>
         </form>

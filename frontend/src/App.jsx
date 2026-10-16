@@ -36,8 +36,10 @@ function RoutedApplication() {
 
   return (
     <AuthProvider key={loadSession ? 'private' : 'public'} loadSession={loadSession}>
-        <a className="puchoo-skip-link" href="#main-content">Skip to main content</a>
-        <Suspense fallback={<main className="puchoo-route-loading" aria-label="Loading Puchoo.si" />}>
+      <a className="puchoo-skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <Suspense fallback={<main className="puchoo-route-loading" aria-label="Loading Puchoo.si" />}>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route
@@ -48,7 +50,14 @@ function RoutedApplication() {
               </GuestRoute>
             }
           />
-          <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestRoute>
+                <ForgotPassword />
+              </GuestRoute>
+            }
+          />
           <Route
             path="/signup"
             element={
@@ -61,11 +70,11 @@ function RoutedApplication() {
           <Route path="/privacy" element={<Legal kind="privacy" />} />
           <Route path="/terms" element={<Legal kind="terms" />} />
           <Route
-            element={(
+            element={
               <ProtectedRoute>
                 <ProductLayout />
               </ProtectedRoute>
-            )}
+            }
           >
             <Route path="/ask" element={<AskData />} />
             <Route path="/connect" element={<ConnectData />} />
@@ -74,14 +83,18 @@ function RoutedApplication() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        </Suspense>
-        <SessionPrivacyNotice />
+      </Suspense>
+      <SessionPrivacyNotice />
     </AuthProvider>
   );
 }
 
 function App() {
-  return <BrowserRouter><RoutedApplication /></BrowserRouter>;
+  return (
+    <BrowserRouter>
+      <RoutedApplication />
+    </BrowserRouter>
+  );
 }
 
 export default App;

@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from apps.core.guardrails import SchemaCatalog
+from apps.core.upload_limits import UploadLimitError, UploadLimits, read_tabular
 
 from apps.core.db_connection import (
     GENERIC_CONNECTION_ERROR,
@@ -75,6 +76,53 @@ def create_sqlite_workspace(name: str, database_path: str) -> Workspace:
     return Workspace(id=f"ws_{uuid4().hex[:12]}", name=name.strip(), database_uri=uri)
 
 
+def workspace_source_file(database_uri: object, *, root: Path | None = None) -> Path | None:
+    """Return the SQLite file Puchoo.si stored for a workspace, if it is ours.
+
+    Only a file directly managed under the workspaces directory qualifies. A
+    linked local database chosen by the user, a server URI, a path that
+    escapes the directory (``..``, symlinks) or the directory itself returns
+    ``None``, so deleting a workspace can never remove anything else.
+    """
+
+    if not isinstance(database_uri, str) or not database_uri.startswith("sqlite:///"):
+        return None
+    raw = database_uri[len("sqlite:///"):].split("?", 1)[0]
+    if not raw or raw == ":memory:" or raw.startswith("file:") or "\x00" in raw:
+        return None
+    base = (root or LOCAL_WORKSPACE_DIRECTORY).resolve()
+    try:
+        candidate = Path(raw).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if candidate == base or not candidate.is_relative_to(base):
+        return None
+    return candidate
+
+
+def delete_workspace_files(database_uri: object, *, root: Path | None = None) -> list[Path]:
+    """Delete a workspace's stored SQLite file and its journal files.
+
+    Missing files are ignored. Returns the paths that were removed.
+    """
+
+    source = workspace_source_file(database_uri, root=root)
+    if source is None:
+        return []
+    removed: list[Path] = []
+    for path in (source, *(source.with_name(source.name + suffix) for suffix in ("-wal", "-shm", "-journal"))):
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            path.unlink()
+            removed.append(path)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.warning("workspace_file_delete_failed name=%s", path.name)
+    return removed
+
+
 def create_uploaded_sqlite_workspace(name: str, filename: str, contents: bytes) -> Workspace:
     """Persist a user-uploaded SQLite file in Pucho's local workspace store."""
 
@@ -121,11 +169,11 @@ def create_tabular_workspace(
         with tempfile.NamedTemporaryFile(prefix="pucho_import_", suffix=".db", dir=destination, delete=False) as temporary_file:
             sqlite_path = Path(temporary_file.name)
 
-        if suffix == ".csv":
-            frame = pd.read_csv(_bytes_reader(contents))
-            dataframes = {Path(filename).stem: frame}
-        else:
-            dataframes = pd.read_excel(_bytes_reader(contents), sheet_name=None)
+        dataframes = read_tabular(filename, contents)
+    except UploadLimitError:
+        if sqlite_path:
+            sqlite_path.unlink(missing_ok=True)
+        raise
     except (OSError, UnicodeDecodeError, ValueError, ImportError, BadZipFile, pd.errors.EmptyDataError) as exc:
         if sqlite_path:
             sqlite_path.unlink(missing_ok=True)
@@ -188,21 +236,28 @@ def create_tabular_collection_workspace(
         connection = sqlite3.connect(sqlite_path)
         try:
             written_tables: set[str] = set()
+            limits = UploadLimits.from_env()
+            total_cells = 0
             for filename, contents in files:
                 if not contents:
                     raise ValueError(f"{filename} is empty.")
                 suffix = Path(filename).suffix.lower()
                 file_stem = Path(filename).stem
                 if suffix == ".csv":
-                    frames = {file_stem: pd.read_csv(_bytes_reader(contents))}
+                    frames = read_tabular(filename, contents, limits)
                 elif suffix in {".xlsx", ".xls"}:
-                    sheets = pd.read_excel(_bytes_reader(contents), sheet_name=None)
+                    sheets = read_tabular(filename, contents, limits)
                     frames = {
                         f"{file_stem}_{sheet_name}": frame
                         for sheet_name, frame in sheets.items()
                     }
                 else:
                     raise ValueError(f"Unsupported file format: {filename}")
+                total_cells += sum(frame.shape[0] * frame.shape[1] for frame in frames.values())
+                if total_cells > limits.max_cells:
+                    raise UploadLimitError(
+                        f"The uploaded files have more than {limits.max_cells:,} cells in total.", status_code=400
+                    )
 
                 for source_name, frame in frames.items():
                     if frame.empty and len(frame.columns) == 0:
@@ -218,6 +273,8 @@ def create_tabular_collection_workspace(
     except (OSError, UnicodeDecodeError, ValueError, sqlite3.Error, ImportError, BadZipFile, pd.errors.EmptyDataError) as exc:
         if sqlite_path:
             sqlite_path.unlink(missing_ok=True)
+        if isinstance(exc, UploadLimitError):
+            raise
         if isinstance(exc, ValueError) and str(exc).startswith(("Unsupported file format:",)):
             raise
         raise ValueError("The selected files could not be combined into a query workspace.") from exc
