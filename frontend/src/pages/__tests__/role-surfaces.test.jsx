@@ -71,6 +71,8 @@ describe('role-aware product surfaces', () => {
     expect(screen.queryByText('Data sources')).not.toBeInTheDocument();
     renderRoute(<ConnectData />);
     expect(screen.queryByLabelText(/upload/i)).not.toBeInTheDocument();
+    expect(document.getElementById('fileUpload')).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
     expect(screen.getByText(/does not allow data source changes/i)).toBeInTheDocument();
   });
 
