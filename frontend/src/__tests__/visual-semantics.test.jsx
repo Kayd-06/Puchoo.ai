@@ -51,3 +51,11 @@ it('defines separate authenticated palettes for both theme states', () => {
   expect(css).toMatch(/html\[data-theme="light"\]\s*\.app-container/s);
   expect(css).toMatch(/\.theme-toggle\s*\{/);
 });
+
+it('keeps the data-source background word outline-only and highlights it in both themes', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/\.connect-stage:has\(\.connect-tablist button:hover\) \.connect-word/s);
+  expect(css).toMatch(/html\[data-theme="dark"\][^{]*\{[^}]*-webkit-text-stroke-color:\s*#fff/s);
+  expect(css).toMatch(/html\[data-theme="light"\][^{]*\{[^}]*-webkit-text-stroke-color:\s*#111/s);
+  expect(css).toMatch(/\.connect-word\s*\{[^}]*color:\s*transparent/s);
+});
