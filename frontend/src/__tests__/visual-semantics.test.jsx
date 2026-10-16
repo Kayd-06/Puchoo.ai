@@ -44,3 +44,10 @@ it('renders query errors as a compact dark-theme alert', () => {
   expect(markup).toMatch(/className="ask-error" role="alert"/);
   expect(css).toMatch(/\.ask-error\s*\{[^}]*background:\s*#[0-9a-f]{6}/s);
 });
+
+it('defines separate authenticated palettes for both theme states', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/html\[data-theme="dark"\]\s*\.app-container/s);
+  expect(css).toMatch(/html\[data-theme="light"\]\s*\.app-container/s);
+  expect(css).toMatch(/\.theme-toggle\s*\{/);
+});
