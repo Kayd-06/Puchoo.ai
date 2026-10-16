@@ -28,6 +28,9 @@ vi.mock('../../components/auth/ChangeEmailPanel', () => ({
 vi.mock('../../api/client', () => ({
   fetchApi: vi.fn().mockResolvedValue({ items: [], unread_count: 0 }),
 }));
+vi.mock('../../context/ThemeContext', () => ({
+  useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
+}));
 
 const capabilityMap = {
   owner: { view_workspaces: true, view_history: true, query_workspace: true, manage_data_sources: true, administer_workspace: true, manage_account: true },
