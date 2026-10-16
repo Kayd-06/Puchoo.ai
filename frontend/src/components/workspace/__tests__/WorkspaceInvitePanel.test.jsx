@@ -36,8 +36,9 @@ describe('WorkspaceInvitePanel', () => {
 
     expect(screen.getByRole('heading', { name: /invite people to acme/i })).toBeInTheDocument();
     expect(await screen.findByText('Eddie Editor')).toBeInTheDocument();
+    expect(screen.getByLabelText(/role for eddie editor/i)).toHaveClass('workspace-member-role');
     expect(screen.getByLabelText(/role for eddie editor/i)).toHaveValue('editor');
-    expect(screen.getByRole('button', { name: /remove eddie editor/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove eddie editor/i })).toHaveClass('workspace-member-remove');
     expect(screen.queryByRole('button', { name: /remove olivia owner/i })).not.toBeInTheDocument();
   });
 

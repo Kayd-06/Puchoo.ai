@@ -27,6 +27,7 @@ from apps.core.llm_client import (
     schema_guided_fallback_sql,
 )
 from apps.core.verification import get_verifier, verification_unavailable
+from apps.core.question_scope import classify_question_scope
 from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
 from apps.core.semantic_layer import (
@@ -236,6 +237,14 @@ def generate_query(
         schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
             workspace["database_uri"], connect_args=workspace.get("connect_args")
         )
+        scope = classify_question_scope(schema, planning_question)
+        if not scope.allowed:
+            detail = (
+                "I cannot find the requested data in this workspace."
+                if scope.reason == "missing_data"
+                else "I can only answer questions using data available in this workspace."
+            )
+            raise HTTPException(status_code=400, detail=detail)
         autonomous = _autonomous_mode()
         clarification = None if autonomous else question_clarification(schema, planning_question)
         if clarification:
@@ -563,8 +572,6 @@ def approve_pending_query(
                 "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
                 "proposal": repaired,
             }
-        finish_pending(db, pending, "executed")
-
         try:
             verification = get_verifier().verify(
                 question=proposal.get("processing_question", proposal["question"]),
@@ -576,6 +583,17 @@ def approve_pending_query(
             verification_dict = verification.as_dict()
         except RuntimeError as exc:
             verification_dict = verification_unavailable(str(exc)).as_dict()
+
+        if verification_dict.get("status") == "VERIFICATION_MISMATCH":
+            # Log the mismatch but do not block the result. The verifier is an
+            # independent trust signal shown to the user as a badge; it should
+            # not discard a query that the guardrail and executor already
+            # accepted. The frontend renders a "Verification failed" badge for
+            # FAILED status without blocking the data.
+            logger.warning("query verification mismatch workspace=%s pending=%s", workspace_id, pending.id)
+
+
+        finish_pending(db, pending, "executed")
             
         record = {
             **proposal,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -21,6 +22,20 @@ from backend.models import (
 
 
 SAFE_METADATA_KEYS = {"dialect", "tables", "row_count", "columns", "description"}
+
+
+def _local_source_ref(workspace: dict[str, Any]) -> str | None:
+    """Return a durable local path without persisting any server credentials."""
+
+    if workspace.get("source_type") == "server":
+        return None
+    source_ref = workspace.get("source_ref")
+    if source_ref:
+        return str(Path(str(source_ref)).expanduser().resolve())
+    database_uri = str(workspace.get("database_uri") or "")
+    if database_uri.startswith("sqlite:///"):
+        return str(Path(database_uri.removeprefix("sqlite:///")).expanduser().resolve())
+    return None
 
 
 @dataclass(frozen=True)
@@ -62,7 +77,7 @@ class WorkspaceRepository:
         if record is not None and record.tenant_id != tenant_id:
             raise ValueError("Workspace ID already belongs to another tenant")
         source_type = str(workspace.get("source_type", "file"))
-        source_ref = workspace.get("source_ref")
+        source_ref = _local_source_ref(workspace)
         availability = str(workspace.get("availability", "available"))
         if source_type == "server":
             source_ref = None
@@ -118,7 +133,7 @@ class WorkspaceRepository:
 
     @staticmethod
     def _as_dict(record: WorkspaceRecord) -> dict[str, Any]:
-        return {
+        workspace = {
             "id": record.id,
             "name": record.name,
             "owner_user_id": record.tenant_id,
@@ -128,6 +143,15 @@ class WorkspaceRepository:
             "availability": record.availability,
             **json.loads(record.metadata_json or "{}"),
         }
+        if record.source_type != "server" and record.source_ref:
+            source_path = Path(record.source_ref).expanduser().resolve()
+            if source_path.is_file():
+                workspace["source_ref"] = str(source_path)
+                workspace["database_uri"] = f"sqlite:///{source_path}"
+                workspace["availability"] = "available"
+            else:
+                workspace["availability"] = "unavailable"
+        return workspace
 
 
 def import_legacy_local_state(db: Session, state: dict[str, Any] | None = None) -> LegacyImportResult:

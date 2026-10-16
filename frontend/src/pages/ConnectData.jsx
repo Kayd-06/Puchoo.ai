@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 import { can } from '../auth/capabilities';
 
-const ACCEPTED_FILES = '.csv,.xlsx,.xls,.db,.sqlite,.sqlite3';
+const ACCEPTED_FILES = '.csv,.xlsx,.xls';
 
 function fileLabel(file) {
   const size = file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
@@ -112,7 +112,7 @@ export default function ConnectData() {
           ) : activeTab === 'upload' ? (
             <div className="connect-upload-flow">
               <h1>Bring your data<br />into focus.</h1>
-              <p>Upload CSV, Excel, or SQLite files. Puchoo.si builds one private, queryable workspace without mutating the source.</p>
+              <p>Upload CSV or Excel files, up to 20 at once. Puchoo.si builds one private, queryable workspace without mutating the source.</p>
               <input id="fileUpload" type="file" multiple accept={ACCEPTED_FILES} onChange={(event) => selectFiles(event.target.files)} hidden />
               <label htmlFor="fileUpload" className={`connect-dropzone${isDragging ? ' is-dragging' : ''}${uploading ? ' is-uploading' : ''}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={(event) => { event.preventDefault(); setIsDragging(false); selectFiles(event.dataTransfer.files); }}>
                 <div className="connect-dropzone-mark"><Upload size={23} /></div>
@@ -141,7 +141,7 @@ export default function ConnectData() {
             </form>
           )}
         </div>
-        <footer className="connect-stage-footer"><span>CSV · XLSX · SQLITE</span><span>Source data is never altered</span></footer>
+        <footer className="connect-stage-footer"><span>CSV · XLS · XLSX</span><span>Source data is never altered</span></footer>
       </section>
     </div>
   );

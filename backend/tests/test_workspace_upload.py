@@ -1,6 +1,8 @@
 """End-to-end upload checks, including credential-redaction guarantees."""
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+import pytest
 from uuid import uuid4
 
 from apps.api.session import session_manager
@@ -18,6 +20,20 @@ def test_csv_validation_accepts_utf8_split_at_the_8kib_sniff_boundary():
 
     assert len(prefix) == 8191
     assert workspace_router._validated_upload_kind("boundary.csv", contents) == ".csv"
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        ("archive.zip", b"PK\x03\x04not-a-workbook"),
+        ("workspace.db", b"SQLite format 3\x00\x00\x01"),
+    ],
+)
+def test_upload_validation_rejects_zip_and_sqlite_files(filename, contents):
+    """Only CSV and Excel files can create an uploaded workspace."""
+
+    with pytest.raises(HTTPException, match="Unsupported file format"):
+        workspace_router._validated_upload_kind(filename, contents)
 
 
 def test_owner_can_upload_csv_and_workspace_api_never_returns_database_uri(tmp_path, monkeypatch, otp_codes):
@@ -130,3 +146,30 @@ def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes)
         )
         assert oversized.status_code == 413
         assert oversized.json()["detail"] == "The uploaded file is too large."
+
+
+def test_owner_can_upload_twenty_csv_files_in_one_workspace(monkeypatch, otp_codes):
+    """The default batch limit permits the full twenty-file allowance."""
+
+    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+
+    with TestClient(create_app(include_product=True)) as client:
+        email = f"owner-{uuid4().hex}@uploadbatch.com"
+        assert client.post(
+            "/api/v1/auth/signup",
+            json=signup_payload(email=email),
+            headers=csrf_headers(client),
+        ).status_code == 202
+        finish_signup(client, email, otp_codes)
+
+        uploaded = client.post(
+            "/api/workspaces/upload-multiple",
+            files=[
+                ("files", (f"report-{number}.csv", b"month,total\nJan,4\n", "text/csv"))
+                for number in range(20)
+            ],
+            headers=csrf_headers(client),
+        )
+
+        assert uploaded.status_code == 200
+        assert uploaded.json()["source_type"] == "spreadsheet_collection"

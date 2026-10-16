@@ -103,6 +103,11 @@ def require_workspace_editor(
     workspace: dict = Depends(get_workspace_guard),
     user=Depends(require_capability("query_workspace")),
 ):
+    if workspace.get("availability") == "unavailable" or not workspace.get("database_uri"):
+        raise HTTPException(
+            status_code=409,
+            detail="This data source is unavailable. Reconnect or upload it again before asking a question.",
+        )
     return workspace
 
 

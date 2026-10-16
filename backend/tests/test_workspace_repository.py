@@ -48,6 +48,38 @@ def test_repository_is_tenant_scoped_and_persists_guardrails_and_history(tmp_pat
         assert repository.get_history("sales")[0]["id"] == "q1"
 
 
+def test_repository_restores_local_database_uri_after_restart(tmp_path):
+    from backend.workspace_repository import WorkspaceRepository
+
+    source = tmp_path / "business.db"
+    source.touch()
+    database.configure_database("sqlite:///" + (tmp_path / "repository.db").as_posix())
+    database.init_db()
+    sessions = sessionmaker(bind=database.engine, expire_on_commit=False)
+    with sessions() as db:
+        db.add(_user("owner"))
+        db.commit()
+        repository = WorkspaceRepository(db)
+        repository.ensure_tenant("owner", "owner", name="Acme", workspace_type="business")
+        repository.save_workspace(
+            {
+                "id": "business",
+                "name": "My Business",
+                "source_type": "spreadsheet_collection",
+                "database_uri": f"sqlite:///{source}",
+                "dialect": "sqlite",
+            },
+            "owner",
+        )
+        db.commit()
+
+    with sessions() as db:
+        restored = WorkspaceRepository(db).get_for_tenant("business", "owner")
+        assert restored["source_ref"] == str(source)
+        assert restored["database_uri"] == f"sqlite:///{source}"
+        assert restored["availability"] == "available"
+
+
 def test_legacy_import_backfills_memberships_once_and_hides_server_credentials(tmp_path):
     from backend.models import Tenant, TenantMembership, WorkspaceRecord
     from backend.workspace_repository import WorkspaceRepository, import_legacy_local_state

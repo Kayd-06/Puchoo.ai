@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -71,6 +71,12 @@ describe('role-aware product surfaces', () => {
     expect(screen.getByText(/does not allow data source changes/i)).toBeInTheDocument();
   });
 
+  it('limits data-source selection to CSV and Excel files', () => {
+    renderRoute(<ConnectData />);
+    expect(document.getElementById('fileUpload')).toHaveAttribute('accept', '.csv,.xlsx,.xls');
+    expect(screen.getByText(/upload CSV or Excel files/i)).toBeInTheDocument();
+  });
+
   it('viewer sees history and account settings only', () => {
     setRole('viewer');
     renderRoute(<Sidebar />);
@@ -103,5 +109,16 @@ describe('role-aware product surfaces', () => {
     user.image_url = 'https://images.example.com/ada.png';
     const { container } = renderRoute(<TopBar />);
     expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('src', user.image_url);
+  });
+
+  it('keeps a long account email on one truncatable line', () => {
+    setRole('owner');
+    user.email = 'academicplanningsystem@gmail.com';
+    renderRoute(<TopBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }));
+    const email = screen.getByText(user.email);
+    expect(email).toHaveClass('topbar-account-email');
+    expect(email).toHaveAttribute('title', user.email);
+    expect(email.parentElement).toHaveClass('topbar-account-copy');
   });
 });

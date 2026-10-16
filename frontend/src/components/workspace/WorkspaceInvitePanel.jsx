@@ -110,7 +110,7 @@ export default function WorkspaceInvitePanel() {
         {!membersBusy && members.map((member) => <div className="workspace-member" key={member.id}>
           <div><strong>{member.full_name}</strong><span>{member.email}</span></div>
           {member.role === 'owner' ? <span className="workspace-member-owner">Owner</span> : <>
-            <select aria-label={`Role for ${member.full_name}`} value={member.role} onChange={(event) => changeMemberRole(member, event.target.value)}>
+            <select className="workspace-member-role" aria-label={`Role for ${member.full_name}`} value={member.role} onChange={(event) => changeMemberRole(member, event.target.value)}>
               {roles.map((memberRole) => <option key={memberRole} value={memberRole}>{memberRole}</option>)}
             </select>
             <button type="button" className="workspace-member-remove" aria-label={`Remove ${member.full_name}`} onClick={() => removeMember(member)}><Trash2 size={15} /></button>

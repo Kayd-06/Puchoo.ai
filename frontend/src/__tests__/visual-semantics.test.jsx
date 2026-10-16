@@ -20,3 +20,27 @@ it('removes authenticated scan and glow animation treatments', () => {
   expect(css).not.toMatch(/history-(?:border|metal)-beam|ask-query-perimeter|query-glow-angle|is-illuminated/);
   expect(css).toMatch(/\.settings-section::before,\.settings-email-dialog::before\{display:none!important/);
 });
+
+it('keeps narrow account and member controls compact without orphaned text', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/\.workspace-member\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+88px\s+34px/s);
+  expect(css).toMatch(/\.settings-workspace-badge\s*\{[^}]*white-space:\s*nowrap/s);
+  expect(css).toMatch(/\.topbar-account-copy\s*\{[^}]*min-width:\s*0/s);
+  expect(css).toMatch(/\.topbar-account-email\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
+  expect(css).toMatch(/\.topbar-account-panel\s*\{[^}]*width:\s*min\(284px,\s*calc\(100vw\s*-\s*24px\)\)/s);
+});
+
+it('runs a generated read-only query directly without a second confirmation panel', () => {
+  const markup = source('src/pages/AskData.jsx');
+  expect(markup).toMatch(/const executeProposal = async \(proposal\)/);
+  expect(markup).toMatch(/await executeProposal\(proposal\)/);
+  expect(markup).not.toMatch(/query-approval-panel/);
+  expect(markup).not.toMatch(/Ready to run this query\?/);
+});
+
+it('renders query errors as a compact dark-theme alert', () => {
+  const markup = source('src/pages/AskData.jsx');
+  const css = source('src/index.css');
+  expect(markup).toMatch(/className="ask-error" role="alert"/);
+  expect(css).toMatch(/\.ask-error\s*\{[^}]*background:\s*#[0-9a-f]{6}/s);
+});

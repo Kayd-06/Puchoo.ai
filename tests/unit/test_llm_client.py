@@ -456,6 +456,44 @@ Columns: invoice_id (INTEGER), invoice_date (TEXT), customer_id (INTEGER)"""
         self.assertIn("ORDER BY total_quantity_sold DESC, p.product_id ASC", sql)
         self.assertTrue(sql.rstrip().endswith("LIMIT 1"))
 
+    def test_monthly_expenses_by_category_uses_expense_fields_and_totals(self) -> None:
+        schema = """Table: _03_products_products
+Columns: product_id (INTEGER), product_name (TEXT), category (TEXT)
+
+Table: _09_expenses_expenses
+Columns: expense_id (INTEGER), expense_date (TEXT), expense_category (TEXT), amount (REAL)"""
+        question = "give my monthly expenses category wise"
+
+        sql = schema_guided_fallback_sql(schema, question)
+
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        self.assertIn("FROM _09_expenses_expenses AS e", sql)
+        self.assertIn("strftime('%Y-%m', e.expense_date) AS expense_month", sql)
+        self.assertIn("e.expense_category", sql)
+        self.assertIn("SUM(e.amount) AS total_expenses", sql)
+        self.assertNotIn("_03_products_products", sql)
+
+        connection = sqlite3.connect(":memory:")
+        connection.executescript(
+            """
+            CREATE TABLE _09_expenses_expenses (
+                expense_id INTEGER, expense_date TEXT, expense_category TEXT, amount REAL
+            );
+            INSERT INTO _09_expenses_expenses VALUES
+                (1, '2026-01-03', 'Rent', 1000),
+                (2, '2026-01-12', 'Supplies', 200),
+                (3, '2026-01-20', 'Rent', 500),
+                (4, '2026-02-02', 'Rent', 900);
+            """
+        )
+        rows = connection.execute(sql).fetchall()
+        connection.close()
+        self.assertEqual(
+            [("2026-01", "Rent", 1500.0), ("2026-01", "Supplies", 200.0), ("2026-02", "Rent", 900.0)],
+            rows,
+        )
+
     def test_rolling_window_requires_a_date_filter(self) -> None:
         feedback = local_semantic_feedback(
             "Show revenue over the rolling 90 days",

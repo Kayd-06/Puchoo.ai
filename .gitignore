@@ -7,10 +7,12 @@ node_modules/
 htmlcov/
 .venv/
 venv/
+.worktrees/
 
 # Environment and local runtime state
 .env
 .pucho/
+.superpowers/
 :memory:.ses
 *.db
 *.sqlite3

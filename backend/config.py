@@ -106,7 +106,7 @@ class Settings:
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     upload_max_bytes: int = 25 * 1024 * 1024
-    upload_max_files: int = 10
+    upload_max_files: int = 20
     auth_rate_limit: int = 5
     auth_rate_window_seconds: int = 15 * 60
     auth_backoff_base_seconds: int = 60
@@ -148,7 +148,7 @@ def load_settings() -> Settings:
         smtp_use_tls=_as_bool(os.getenv("SMTP_USE_TLS"), default=True),
         smtp_use_ssl=_as_bool(os.getenv("SMTP_USE_SSL"), default=False),
         upload_max_bytes=_positive_int("UPLOAD_MAX_BYTES", 25 * 1024 * 1024),
-        upload_max_files=_positive_int("UPLOAD_MAX_FILES", 10),
+        upload_max_files=_positive_int("UPLOAD_MAX_FILES", 20),
         auth_rate_limit=_positive_int("AUTH_RATE_LIMIT", 5),
         auth_rate_window_seconds=_positive_int("AUTH_RATE_WINDOW_SECONDS", 15 * 60),
         auth_backoff_base_seconds=_positive_int("AUTH_BACKOFF_BASE_SECONDS", 60),
