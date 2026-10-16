@@ -52,6 +52,13 @@ it('defines separate authenticated palettes for both theme states', () => {
   expect(css).toMatch(/\.theme-toggle\s*\{/);
 });
 
+it('renders query results as a light surface when the app uses light mode', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/html\[data-theme="light"\]\s+\.ask-results\s*\{[^}]*background:/s);
+  expect(css).toMatch(/html\[data-theme="light"\]\s+\.ask-page\s+\.result-summary-card[^}]*background:/s);
+  expect(css).toMatch(/html\[data-theme="light"\]\s+\.ask-page\s+\.result-table-card[^}]*background:/s);
+});
+
 it('keeps the data-source background word outline-only and highlights it only on direct hover', () => {
   const markup = source('src/pages/ConnectData.jsx');
   const css = source('src/index.css');

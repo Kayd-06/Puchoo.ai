@@ -5,6 +5,7 @@ import { queryUniversePalette } from '../AskData';
 it('uses visible black moving particles against the light app theme', () => {
   expect(queryUniversePalette('light')).toMatchObject({
     composite: 'source-over',
+    motion: 1.45,
     dust: '16, 28, 35',
     stream: '29, 50, 64',
     star: '15, 28, 36',

@@ -22,7 +22,7 @@ const DEFAULT_RESULT_LABELS = {
 export function queryUniversePalette(theme) {
   if (theme === 'light') {
     return {
-      composite: 'source-over',
+      composite: 'source-over', motion: 1.45,
       orbit: '38, 54, 63', pulse: '48, 68, 79',
       cluster: '38, 57, 67', clusterEdge: '38, 57, 67',
       dust: '16, 28, 35', dustSpark: '24, 38, 47',
@@ -30,7 +30,7 @@ export function queryUniversePalette(theme) {
     };
   }
   return {
-    composite: 'lighter',
+    composite: 'lighter', motion: 1,
     orbit: '139, 197, 239', pulse: '112, 185, 238',
     cluster: '131, 199, 255', clusterEdge: '56, 126, 196',
     dust: '224, 240, 255', dustSpark: '205, 231, 255',
@@ -72,11 +72,12 @@ function QueryUniverse() {
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       const dustCount = Math.min(300, Math.max(150, Math.round(width / 6)));
       const streamCount = Math.min(430, Math.max(240, Math.round(width / 4.2)));
+      const motion = queryUniversePalette(document.documentElement.dataset.theme).motion;
       const dust = Array.from({ length: dustCount }, () => ({
         kind: 'dust',
         x: Math.random() * width,
         y: Math.random() * height,
-        drift: (Math.random() - .5) * .00065,
+        drift: (Math.random() - .5) * .008 * motion,
         size: Math.random() > .91 ? 1.7 : .35 + Math.random() * .8,
         alpha: .21 + Math.random() * .72,
         phase: Math.random() * Math.PI * 2,
@@ -85,7 +86,7 @@ function QueryUniverse() {
         kind: 'stream',
         angle: Math.random() * Math.PI * 2,
         radius: .19 + Math.pow(Math.random(), .55) * .65,
-        speed: (.00009 + Math.random() * .00026) * (index % 3 === 0 ? -1 : 1),
+        speed: (.00017 + Math.random() * .0003) * motion * (index % 3 === 0 ? -1 : 1),
         lane: .16 + Math.random() * .29,
         size: Math.random() > .92 ? 1.55 : .35 + Math.random() * .8,
         alpha: .15 + Math.random() * .62,
@@ -131,7 +132,7 @@ function QueryUniverse() {
       // Three expanding, very low-opacity pulses provide movement between the
       // star streams without introducing a white glow in the idle UI.
       for (let index = 0; index < 3; index += 1) {
-        const progress = (time * .000035 + index / 3) % 1;
+        const progress = (time * .00006 * palette.motion + index / 3) % 1;
         context.beginPath();
         context.ellipse(
           centerX,

@@ -2348,3 +2348,41 @@ html[data-theme="light"] .connect-word:hover text {
 @media (prefers-reduced-motion: reduce) {
   .connect-word text { transition: none; }
 }
+
+/* Results remain in the same light system after a query completes. */
+html[data-theme="light"] .ask-results {
+  background: radial-gradient(ellipse 55% 18% at 50% 0, rgba(100, 148, 166, .15), transparent 75%), #f5f2ec;
+  color: #24343e;
+}
+html[data-theme="light"] .ask-results-heading span { color: #456a7b; }
+html[data-theme="light"] .ask-results-heading p { color: #667881; }
+html[data-theme="light"] .ask-page .query-details,
+html[data-theme="light"] .ask-page .result-summary-card,
+html[data-theme="light"] .ask-page .result-table-card {
+  border-color: rgba(79, 105, 117, .22);
+  background: rgba(255,255,255,.82);
+  box-shadow: inset 0 1px #fff, 0 14px 35px rgba(66,82,91,.08);
+  color: #263640;
+}
+html[data-theme="light"] .ask-page .query-details summary:hover { background: rgba(87, 125, 142, .07); }
+html[data-theme="light"] .ask-page .query-details-title,
+html[data-theme="light"] .ask-page .result-overline,
+html[data-theme="light"] .ask-page .result-summary-copy strong { color: #263842; }
+html[data-theme="light"] .ask-page .query-details-hint,
+html[data-theme="light"] .ask-page .query-details-body p,
+html[data-theme="light"] .ask-page .result-summary-heading p,
+html[data-theme="light"] .ask-page .result-table-heading p,
+html[data-theme="light"] .ask-page .result-summary-copy p,
+html[data-theme="light"] .ask-page .result-highlights span,
+html[data-theme="light"] .ask-page .result-table-status,
+html[data-theme="light"] .ask-page .result-empty { color: #687984; }
+html[data-theme="light"] .ask-page .result-summary-icon { border-color: rgba(73, 111, 130, .2); background: rgba(90, 145, 171, .11); color: #356b84; }
+html[data-theme="light"] .ask-page .result-highlights > div { border-color: rgba(79, 105, 117, .17); background: rgba(94, 139, 158, .07); }
+html[data-theme="light"] .ask-page .result-highlights strong { color: #263842; }
+html[data-theme="light"] .ask-page .result-table-heading { border-color: rgba(79, 105, 117, .16); }
+html[data-theme="light"] .ask-page .result-table th { border-color: rgba(79, 105, 117, .16); background: rgba(94, 139, 158, .08); color: #5b6f79; }
+html[data-theme="light"] .ask-page .result-table td { border-color: rgba(79, 105, 117, .11); color: #2c3d46; }
+html[data-theme="light"] .ask-page .result-table tbody tr:hover { background: rgba(94, 139, 158, .06); }
+html[data-theme="light"] .ask-page .badge-ok { border-color: rgba(38, 125, 87, .28); background: rgba(38, 125, 87, .08); color: #267957; }
+html[data-theme="light"] .ask-page .badge-warn { border-color: rgba(175, 113, 32, .28); background: rgba(175, 113, 32, .08); color: #a46517; }
+html[data-theme="light"] .ask-page .badge-bad { border-color: rgba(181, 76, 85, .28); background: rgba(181, 76, 85, .08); color: #aa4450; }
