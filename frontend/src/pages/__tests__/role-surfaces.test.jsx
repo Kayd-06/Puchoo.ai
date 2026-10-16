@@ -89,7 +89,6 @@ describe('role-aware product surfaces', () => {
     expect(screen.queryByText('Data sources')).not.toBeInTheDocument();
     renderRoute(<Settings />);
     expect(screen.getByText('Upload image')).toBeInTheDocument();
-    expect(screen.getByText('Use image link')).toBeInTheDocument();
     expect(screen.queryByText('Invite management')).not.toBeInTheDocument();
     expect(screen.getByText('Business · viewer')).toBeInTheDocument();
   });
@@ -104,12 +103,22 @@ describe('role-aware product surfaces', () => {
     setRole(role);
     renderRoute(<Settings />);
     expect(screen.getByText('Upload image')).toBeInTheDocument();
-    expect(screen.getByText('Use image link')).toBeInTheDocument();
+    // External image links were removed for privacy; only uploads are offered.
+    expect(screen.queryByText('Use image link')).not.toBeInTheDocument();
+  });
+
+  it('offers upload only in the profile image editor and states the 200 KB cap', () => {
+    setRole('owner');
+    renderRoute(<Settings />);
+    fireEvent.click(screen.getByText('Upload image'));
+    expect(screen.queryByRole('tab', { name: /image link/i })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/https:\/\//)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/200 KB/).length).toBeGreaterThan(0);
   });
 
   it('uses the account image in the top bar', () => {
     setRole('editor');
-    user.image_url = 'https://images.example.com/ada.png';
+    user.image_url = 'data:image/png;base64,iVBORw0KGgo=';
     const { container } = renderRoute(<TopBar />);
     expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('src', user.image_url);
     expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('referrerpolicy', 'no-referrer');

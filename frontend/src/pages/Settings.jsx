@@ -1,23 +1,24 @@
 import { useRef, useState } from 'react';
-import { Camera, Check, History as HistoryIcon, ImageUp, Link2, ShieldCheck, Trash2, User, X } from 'lucide-react';
+import { Camera, Check, History as HistoryIcon, ImageUp, ShieldCheck, Trash2, User, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangeEmailPanel from '../components/auth/ChangeEmailPanel';
 import WorkspaceInvitePanel from '../components/workspace/WorkspaceInvitePanel';
 import { can } from '../auth/capabilities';
 
+// Matches the backend cap; image links are not supported (privacy/tracking).
+const MAX_PROFILE_IMAGE_BYTES = 200 * 1024;
+
 export default function Settings() {
   const { user, updateProfileImage } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const [photoEditorOpen, setPhotoEditorOpen] = useState(false);
-  const [photoMode, setPhotoMode] = useState('upload');
   const [photoDraft, setPhotoDraft] = useState(user?.image_url || '');
   const [photoError, setPhotoError] = useState('');
   const [photoSaving, setPhotoSaving] = useState(false);
 
-  function openPhotoEditor(mode = 'upload') {
-    setPhotoMode(mode);
+  function openPhotoEditor() {
     setPhotoDraft(user?.image_url || '');
     setPhotoError('');
     setPhotoEditorOpen(true);
@@ -37,8 +38,8 @@ export default function Settings() {
       setPhotoError('Choose a PNG, JPEG, WebP, or GIF image.');
       return;
     }
-    if (file.size > 1_000_000) {
-      setPhotoError('Choose an image smaller than 1 MB.');
+    if (file.size > MAX_PROFILE_IMAGE_BYTES) {
+      setPhotoError('Choose an image smaller than 200 KB.');
       return;
     }
     const reader = new FileReader();
@@ -50,14 +51,9 @@ export default function Settings() {
     reader.readAsDataURL(file);
   }
 
-  function updatePhotoLink(value) {
-    setPhotoDraft(value);
-    setPhotoError(value && !value.startsWith('https://') ? 'Use a secure HTTPS image link.' : '');
-  }
-
   async function savePhoto(imageUrl = photoDraft) {
-    if (imageUrl && !imageUrl.startsWith('https://') && !imageUrl.startsWith('data:image/')) {
-      setPhotoError('Choose an image or enter a secure HTTPS image link.');
+    if (imageUrl && !imageUrl.startsWith('data:image/')) {
+      setPhotoError('Upload a PNG, JPEG, WebP, or GIF image.');
       return;
     }
     setPhotoSaving(true);
@@ -113,37 +109,28 @@ export default function Settings() {
           <div className="settings-photo-row">
             <div>
               <strong>Profile image</strong>
-              <span>PNG, JPEG, WebP or GIF · maximum 1 MB</span>
+              <span>PNG, JPEG, WebP or GIF · maximum 200 KB</span>
             </div>
             <div className="settings-photo-entry-actions">
-              <button type="button" className="settings-action" onClick={() => openPhotoEditor('upload')}><ImageUp size={15} /> Upload image</button>
-              <button type="button" className="settings-action" onClick={() => openPhotoEditor('link')}><Link2 size={15} /> Use image link</button>
+              <button type="button" className="settings-action" onClick={() => openPhotoEditor()}><ImageUp size={15} /> Upload image</button>
             </div>
           </div>
 
           {photoEditorOpen && <section className="settings-photo-editor" aria-label="Profile image editor">
             <div className="settings-photo-editor-head">
-              <div><span className="settings-section-kicker">Profile image</span><h3>Choose how to add your photo</h3></div>
+              <div><span className="settings-section-kicker">Profile image</span><h3>Upload your photo</h3></div>
               <button type="button" className="settings-photo-close" onClick={closePhotoEditor} aria-label="Close profile image editor"><X size={17} /></button>
-            </div>
-            <div className="settings-photo-tabs" role="tablist" aria-label="Profile image source">
-              <button type="button" role="tab" aria-selected={photoMode === 'upload'} className={photoMode === 'upload' ? 'is-active' : ''} onClick={() => { setPhotoMode('upload'); setPhotoError(''); }}><ImageUp size={15} /> Upload</button>
-              <button type="button" role="tab" aria-selected={photoMode === 'link'} className={photoMode === 'link' ? 'is-active' : ''} onClick={() => { setPhotoMode('link'); setPhotoDraft(user?.image_url?.startsWith('https://') ? user.image_url : ''); setPhotoError(''); }}><Link2 size={15} /> Image link</button>
             </div>
             <div className="settings-photo-workspace">
               <div className={`settings-photo-preview${photoDraft ? ' has-image' : ''}`}>
-                {photoDraft ? <img src={photoDraft} alt="Profile preview" referrerPolicy="no-referrer" onError={() => setPhotoError('This image cannot be loaded. Check the file or link.')} /> : <User size={26} />}
+                {photoDraft ? <img src={photoDraft} alt="Profile preview" referrerPolicy="no-referrer" onError={() => setPhotoError('This image cannot be loaded. Try another file.')} /> : <User size={26} />}
               </div>
-              {photoMode === 'upload' ? <div className="settings-photo-source">
+              <div className="settings-photo-source">
                 <strong>Upload from your device</strong>
-                <p>Your image is stored securely with your account.</p>
+                <p>PNG, JPEG, WebP, or GIF up to 200 KB. Your image is stored securely with your Puchoo.si account.</p>
                 <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={choosePhoto} hidden />
                 <button type="button" className="settings-action" onClick={() => fileInputRef.current?.click()}><ImageUp size={15} /> Choose image</button>
-              </div> : <label className="settings-photo-source settings-photo-link">
-                <strong>Paste an image link</strong>
-                <span>Use a public HTTPS link to an image.</span>
-                <div><Link2 size={15} /><input type="url" value={photoDraft} onChange={(event) => updatePhotoLink(event.target.value)} placeholder="https://example.com/photo.jpg" autoFocus /></div>
-              </label>}
+              </div>
             </div>
             {photoError && <p className="settings-photo-error" role="alert">{photoError}</p>}
             <footer className="settings-photo-actions">
