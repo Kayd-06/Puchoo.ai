@@ -4,11 +4,36 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Pending guardrail fix for sqlglot 30 (see #32)
+      - dependency-name: "sqlglot"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: "/frontend"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # eslint-plugin-react does not support eslint 10 yet
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
