@@ -111,7 +111,7 @@ export default function TopBar() {
   const avatar = (className = 'topbar-avatar') => (
     <span className={`${className}${user?.image_url ? ' has-image' : ''}`}>
       {user?.image_url
-        ? <img src={user.image_url} alt="" />
+        ? <img src={user.image_url} alt="" referrerPolicy="no-referrer" />
         : (user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U')}
     </span>
   );

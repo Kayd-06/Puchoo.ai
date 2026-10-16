@@ -112,6 +112,7 @@ describe('role-aware product surfaces', () => {
     user.image_url = 'https://images.example.com/ada.png';
     const { container } = renderRoute(<TopBar />);
     expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('src', user.image_url);
+    expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('referrerpolicy', 'no-referrer');
   });
 
   it('keeps a long account email on one truncatable line', () => {

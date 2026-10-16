@@ -94,7 +94,7 @@ export default function Settings() {
           <div className="settings-profile-topline">
             <button type="button" className={`settings-avatar settings-avatar-button${user?.image_url ? ' has-image' : ''}`} onClick={() => openPhotoEditor()} aria-label="Change profile image">
               {user?.image_url
-                ? <img src={user.image_url} alt="Your profile" />
+                ? <img src={user.image_url} alt="Your profile" referrerPolicy="no-referrer" />
                 : (user?.full_name ? user.full_name.charAt(0).toUpperCase() : <User />)}
               <span className="settings-avatar-edit" aria-hidden="true"><Camera size={12} /></span>
             </button>
@@ -132,7 +132,7 @@ export default function Settings() {
             </div>
             <div className="settings-photo-workspace">
               <div className={`settings-photo-preview${photoDraft ? ' has-image' : ''}`}>
-                {photoDraft ? <img src={photoDraft} alt="Profile preview" onError={() => setPhotoError('This image cannot be loaded. Check the file or link.')} /> : <User size={26} />}
+                {photoDraft ? <img src={photoDraft} alt="Profile preview" referrerPolicy="no-referrer" onError={() => setPhotoError('This image cannot be loaded. Check the file or link.')} /> : <User size={26} />}
               </div>
               {photoMode === 'upload' ? <div className="settings-photo-source">
                 <strong>Upload from your device</strong>
