@@ -149,7 +149,7 @@ def test_upload_rejects_oversized_or_forged_spreadsheets(monkeypatch, otp_codes)
 
 
 @pytest.mark.parametrize(("count", "expected"), [(10, 200), (11, 400)])
-def test_upload_batch_allows_ten_files_and_rejects_eleven(monkeypatch, otp_codes, count, expected):
+def test_upload_batch_allows_ten_files_and_rejects_eleven(app, monkeypatch, otp_codes, count, expected):
     """The default batch limit permits ten files and rejects more."""
 
     monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
@@ -175,3 +175,22 @@ def test_upload_batch_allows_ten_files_and_rejects_eleven(monkeypatch, otp_codes
         assert uploaded.status_code == expected
         if expected == 200:
             assert uploaded.json()["source_type"] == "spreadsheet_collection"
+
+
+def test_sqlite_database_uploads_are_rejected(app, monkeypatch, otp_codes):
+    """SQLite file uploads were removed; they must be refused, not imported."""
+
+    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+    with TestClient(create_app(include_product=True)) as client:
+        email = f"sqlite-{uuid4().hex}@uploadbatch.com"
+        assert client.post(
+            "/api/v1/auth/signup", json=signup_payload(email=email), headers=csrf_headers(client)
+        ).status_code == 202
+        finish_signup(client, email, otp_codes)
+        for suffix in (".db", ".sqlite", ".sqlite3"):
+            response = client.post(
+                "/api/workspaces/upload",
+                files={"file": (f"legacy{suffix}", b"SQLite format 3\x00" + b"\x00" * 84, "application/octet-stream")},
+                headers=csrf_headers(client),
+            )
+            assert response.status_code == 400, suffix
