@@ -31,10 +31,20 @@ def test_transcribe_uses_gnani_multipart_contract():
     assert request.headers["X-api-key-id"] == "secret"
     assert 'name="audio_file"; filename="voice.ogg"' in body
     assert 'name="language_code"' in body and "auto" in body
-    assert 'name="preferred_language"' in body
+    assert 'name="preferred_language"' not in body
     assert 'name="format"' in body and "transcribe" in body
     assert result.transcript == "नमस्ते"
     assert result.language_code == "hi-IN"
+
+
+def test_transcribe_includes_a_concrete_preferred_language():
+    with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_Response()) as request_open:
+        GnaniClient(api_key="secret", endpoint="https://stt.example").transcribe(
+            b"OggS audio", "voice.ogg", language_code="hi-IN"
+        )
+    body = request_open.call_args.args[0].data.decode("utf-8")
+    assert 'name="preferred_language"' in body
+    assert "hi-IN" in body
 
 
 def test_missing_key_and_invalid_response_are_safe(monkeypatch):

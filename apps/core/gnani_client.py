@@ -43,7 +43,9 @@ class GnaniClient:
     @staticmethod
     def _multipart(audio: bytes, filename: str, language_code: str) -> tuple[bytes, str]:
         boundary = f"----PuchooGnani{uuid.uuid4().hex}"
-        fields = (("language_code", language_code), ("preferred_language", language_code), ("format", "transcribe"))
+        fields = [("language_code", language_code), ("format", "transcribe")]
+        if language_code != "auto":
+            fields.insert(1, ("preferred_language", language_code))
         chunks: list[bytes] = []
         for key, value in fields:
             chunks.extend((f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(), value.encode(), b"\r\n"))
