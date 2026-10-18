@@ -351,7 +351,7 @@ export default function AskData() {
       // Safari/iOS records audio/mp4; name the file after what was actually recorded.
       const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
       audio.append('file', blob, `puchoo-question.${extension}`);
-      const response = await fetchApi('/sarvam/transcribe', { method: 'POST', body: audio });
+      const response = await fetchApi('/voice/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
       setQuestion(current => current.trim() ? `${current.trim()} ${transcript}` : transcript);
@@ -481,6 +481,7 @@ export default function AskData() {
                     {voiceState === 'requesting' || voiceState === 'transcribing' ? <LoaderCircle size={15} className="voice-spinner" /> : voiceState === 'recording' ? <Square size={12} fill="currentColor" /> : <Mic size={15} />}
                     <span>{voiceState === 'recording' ? 'Stop' : voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'requesting' ? 'Starting…' : 'Voice'}</span>
                   </button>
+                  <span className="voice-provider" aria-label="Speech transcription powered by Gnani">Powered by Gnani</span>
                 </div>
                 <div className="ask-prompt-actions">
                   {loading ? <span id="query-processing-status" className="ask-query-mode ask-query-processing"><i /> Analyzing data</span> : <span className="ask-query-mode">Verified query <ChevronDown size={14} /></span>}
@@ -537,7 +538,7 @@ export default function AskData() {
           <button type="button" className="btn btn-secondary" onClick={() => { setContinuation(null); setQuestion(''); setQuestionLanguage(null); }}><ArrowLeft size={16} /> Start fresh</button>
         </div>
       )}
-      {questionLanguage && <p className="voice-language" role="status">Voice language detected: {questionLanguage}. Your transcript and executive answer stay in this language.</p>}
+      {questionLanguage && <p className="voice-language" role="status">Voice language detected: {questionLanguage}. Your transcript stays in this language while we prepare your query.</p>}
       {voiceError && <p className="voice-error" role="status">{voiceError}</p>}
 
       {result && (

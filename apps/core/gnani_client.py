@@ -58,10 +58,11 @@ class GnaniClient:
         ))
         return b"".join(chunks), boundary
 
-    def transcribe(self, audio: bytes, filename: str, *, language_code: str = "auto") -> TranscriptionResult:
+    def transcribe(self, audio: bytes, filename: str, *, language_code: str | None = None) -> TranscriptionResult:
         if not audio:
             raise ValueError("audio must not be empty")
-        selected_language = language_code.strip() if isinstance(language_code, str) and language_code.strip() else "auto"
+        selected_language = language_code or os.getenv("GNANI_STT_LANGUAGE", "auto")
+        selected_language = selected_language.strip() if isinstance(selected_language, str) and selected_language.strip() else "auto"
         body, boundary = self._multipart(audio, filename, selected_language)
         request = urllib.request.Request(
             self.endpoint,

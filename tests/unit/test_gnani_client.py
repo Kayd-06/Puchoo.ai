@@ -38,7 +38,7 @@ def test_transcribe_uses_gnani_multipart_contract():
 
 
 def test_missing_key_and_invalid_response_are_safe(monkeypatch):
-    monkeypatch.delenv("GNANI_API_KEY", raising=False)
+    monkeypatch.setenv("GNANI_API_KEY", "")
     with pytest.raises(GnaniConfigurationError):
         GnaniClient()
 
