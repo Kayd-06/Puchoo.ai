@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from struct import unpack_from
 
 
 DEFAULT_ENDPOINT = "https://api.vachana.ai/stt/v3"
@@ -104,6 +105,35 @@ class GnaniClient:
         normalized = language.strip() if isinstance(language, str) and re.fullmatch(r"[a-z]{2,3}-[A-Z]{2}", language.strip()) else None
         return TranscriptionResult(transcript.strip(), normalized)
 
+    @staticmethod
+    def _is_valid_wav(audio: bytes) -> bool:
+        """Accept only complete RIFF/WAVE files containing format and sample data."""
+        if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            return False
+        riff_end = unpack_from("<I", audio, 4)[0] + 8
+        if riff_end > len(audio):
+            return False
+
+        cursor = 12
+        has_format_chunk = False
+        has_audio_frames = False
+        while cursor < riff_end:
+            if cursor + 8 > riff_end:
+                return False
+            chunk_id = audio[cursor:cursor + 4]
+            chunk_size = unpack_from("<I", audio, cursor + 4)[0]
+            chunk_end = cursor + 8 + chunk_size
+            if chunk_end > riff_end:
+                return False
+            if chunk_id == b"fmt ":
+                has_format_chunk = chunk_size >= 16
+            elif chunk_id == b"data" and chunk_size > 0:
+                has_audio_frames = True
+            cursor = chunk_end + (chunk_size % 2)
+            if cursor > riff_end:
+                return False
+        return has_format_chunk and has_audio_frames
+
     def synthesize(self, text: str, *, language_code: str) -> bytes:
         """Return a short, selected-language Gnani Timbre WAV clip."""
         if not isinstance(text, str) or not text.strip():
@@ -147,6 +177,6 @@ class GnaniClient:
             raise GnaniConfigurationError("Gnani speech is temporarily unavailable.") from exc
         if not isinstance(content_type, str) or not content_type.lower().startswith("audio/wav"):
             raise GnaniConfigurationError("Gnani returned an invalid speech response.")
-        if not audio or not audio.startswith(b"RIFF") or b"WAVE" not in audio[:16]:
+        if not self._is_valid_wav(audio):
             raise GnaniConfigurationError("Gnani returned an invalid speech response.")
         return audio

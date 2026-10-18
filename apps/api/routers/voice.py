@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from apps.api.security import require_capability
 from apps.core.gnani_client import DEFAULT_LANGUAGE_CODE, SUPPORTED_LANGUAGE_CODES, GnaniClient, GnaniConfigurationError
@@ -87,7 +88,11 @@ async def synthesize(
         raise HTTPException(status_code=400, detail="Provide a short answer to read aloud.") from None
 
     try:
-        audio = GnaniClient().synthesize(request.text, language_code=request.language_code)
+        audio = await run_in_threadpool(
+            GnaniClient().synthesize,
+            request.text,
+            language_code=request.language_code,
+        )
         return Response(content=audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
     except GnaniConfigurationError as exc:
         if "not configured" in str(exc):

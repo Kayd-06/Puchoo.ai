@@ -120,6 +120,10 @@ export function resolveResultSpeechLanguage(result, questionLanguage) {
   return VOICE_LANGUAGES.some(language => language.code === selectedLanguage) ? selectedLanguage : 'en-IN';
 }
 
+export function isActiveResultSpeech(audioRef, audio, requestRef, requestId) {
+  return audioRef.current === audio && requestRef.current === requestId;
+}
+
 export function stopResultSpeech(audioRef, urlRef) {
   const audio = audioRef.current;
   if (audio) {
@@ -689,7 +693,7 @@ export default function AskData() {
         setSpeechError('Audio playback could not start. Please try again.');
       };
       await audio.play();
-      if (speechAudioRef.current === audio) {
+      if (isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) {
         setSpeechState('playing');
         setActiveHighlight(0);
       }
@@ -711,10 +715,14 @@ export default function AskData() {
       return;
     }
     if (speechState === 'paused') {
+      const requestId = speechRequestRef.current;
       try {
         await audio.play();
+        if (!isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) return;
         setSpeechState('playing');
+        setActiveHighlight(0);
       } catch {
+        if (!isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) return;
         stopReadingResult();
         setSpeechError('Audio playback could not resume. Please try again.');
       }

@@ -80,6 +80,13 @@ def test_synthesis_returns_uncached_wav_for_an_authorized_language(monkeypatch, 
 
     fake = FakeGnaniClient()
     monkeypatch.setattr(voice, "GnaniClient", lambda: fake)
+    threadpool_calls = []
+
+    async def fake_run_in_threadpool(function, *args, **kwargs):
+        threadpool_calls.append((function, args, kwargs))
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(voice, "run_in_threadpool", fake_run_in_threadpool)
     with TestClient(create_app(include_product=True)) as client:
         email = f"voice-{uuid4().hex}@example.com"
         assert client.post(
@@ -100,6 +107,7 @@ def test_synthesis_returns_uncached_wav_for_an_authorized_language(monkeypatch, 
     assert response.headers["cache-control"] == "no-store"
     assert response.content == b"RIFF....WAVEfmt "
     assert fake.calls == [("आपका खर्च 200 है।", "hi-IN")]
+    assert threadpool_calls == [(fake.synthesize, ("आपका खर्च 200 है।",), {"language_code": "hi-IN"})]
 
 
 def test_synthesis_rejects_invalid_requests_and_hides_provider_errors(monkeypatch, otp_codes):

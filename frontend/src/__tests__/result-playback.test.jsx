@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   ResultSpeechControls,
   buildResultSpeechPayload,
+  isActiveResultSpeech,
   resolveResultSpeechLanguage,
   stopResultSpeech,
 } from '../pages/AskData';
@@ -54,6 +55,19 @@ it('stops audio and releases its object URL when a report is replaced or unmount
   expect(revoke).toHaveBeenCalledWith('blob:result-audio');
   expect(audioRef.current).toBeNull();
   expect(urlRef.current).toBeNull();
+});
+
+it('ignores a resume completion once the audio or playback request is no longer current', () => {
+  const audio = {};
+  const audioRef = { current: audio };
+  const requestRef = { current: 4 };
+
+  expect(isActiveResultSpeech(audioRef, audio, requestRef, 4)).toBe(true);
+  audioRef.current = null;
+  expect(isActiveResultSpeech(audioRef, audio, requestRef, 4)).toBe(false);
+  audioRef.current = audio;
+  requestRef.current = 5;
+  expect(isActiveResultSpeech(audioRef, audio, requestRef, 4)).toBe(false);
 });
 
 it('exposes user-controlled listen, pause or resume, and stop actions with a polite status', () => {

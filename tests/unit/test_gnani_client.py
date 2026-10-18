@@ -11,6 +11,16 @@ import pytest
 from apps.core.gnani_client import GnaniClient, GnaniConfigurationError
 
 
+VALID_WAV = (
+    b"RIFF" + (38).to_bytes(4, "little") + b"WAVE"
+    + b"fmt " + (16).to_bytes(4, "little")
+    + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+    + (24_000).to_bytes(4, "little") + (48_000).to_bytes(4, "little")
+    + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+    + b"data" + (2).to_bytes(4, "little") + b"\x00\x00"
+)
+
+
 class _Response:
     def read(self) -> bytes:
         return json.dumps({"transcript": "नमस्ते", "language_code": "hi-IN"}).encode()
@@ -25,7 +35,7 @@ class _Response:
 class _AudioResponse:
     headers = {"Content-Type": "audio/wav"}
 
-    def __init__(self, audio: bytes = b"RIFF....WAVEfmt ") -> None:
+    def __init__(self, audio: bytes = VALID_WAV) -> None:
         self.audio = audio
 
     def read(self) -> bytes:
@@ -132,6 +142,19 @@ def test_synthesize_rejects_non_audio_or_empty_upstream_responses():
             GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
 
     with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_AudioResponse(b"")):
+        with pytest.raises(GnaniConfigurationError, match="invalid speech response"):
+            GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
+
+
+@pytest.mark.parametrize(
+    "audio",
+    [
+        b"RIFF\x04\x00\x00\x00WAVE",
+        VALID_WAV[:-1],
+    ],
+)
+def test_synthesize_rejects_wav_without_complete_nonempty_audio_frames(audio):
+    with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_AudioResponse(audio)):
         with pytest.raises(GnaniConfigurationError, match="invalid speech response"):
             GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
 
