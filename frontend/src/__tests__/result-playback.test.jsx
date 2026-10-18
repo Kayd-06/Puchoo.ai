@@ -36,7 +36,9 @@ it('builds a bounded speech payload from only the visible executive answer', () 
 });
 
 it('prefers the result language before the current composer language', () => {
-  expect(resolveResultSpeechLanguage({ record: { language_code: 'hi-IN' } }, 'en-IN')).toBe('hi-IN');
+  expect(resolveResultSpeechLanguage({ record: { language_code: 'hi-IN' } }, 'en-IN')).toBe(
+    'hi-IN',
+  );
   expect(resolveResultSpeechLanguage({ record: {} }, 'ta-IN')).toBe('ta-IN');
   expect(resolveResultSpeechLanguage({ record: {} }, null)).toBe('en-IN');
 });
@@ -75,20 +77,42 @@ it('exposes user-controlled listen, pause or resume, and stop actions with a pol
   const onPauseResume = vi.fn();
   const onStop = vi.fn();
   const { rerender } = render(
-    <ResultSpeechControls speechState="idle" speechError="" onPlay={onPlay} onPauseResume={onPauseResume} onStop={onStop} />,
+    <ResultSpeechControls
+      speechState="idle"
+      speechError=""
+      onPlay={onPlay}
+      onPauseResume={onPauseResume}
+      onStop={onStop}
+    />,
   );
 
   fireEvent.click(screen.getByRole('button', { name: 'Listen to answer' }));
   expect(onPlay).toHaveBeenCalledOnce();
   expect(screen.getByRole('status')).toHaveTextContent('Ready to play the answer');
 
-  rerender(<ResultSpeechControls speechState="playing" speechError="" onPlay={onPlay} onPauseResume={onPauseResume} onStop={onStop} />);
+  rerender(
+    <ResultSpeechControls
+      speechState="playing"
+      speechError=""
+      onPlay={onPlay}
+      onPauseResume={onPauseResume}
+      onStop={onStop}
+    />,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Pause answer' }));
   fireEvent.click(screen.getByRole('button', { name: 'Stop reading answer' }));
   expect(onPauseResume).toHaveBeenCalledOnce();
   expect(onStop).toHaveBeenCalledOnce();
   expect(screen.getByRole('status')).toHaveTextContent('Playing summary');
 
-  rerender(<ResultSpeechControls speechState="paused" speechError="" onPlay={onPlay} onPauseResume={onPauseResume} onStop={onStop} />);
+  rerender(
+    <ResultSpeechControls
+      speechState="paused"
+      speechError=""
+      onPlay={onPlay}
+      onPauseResume={onPauseResume}
+      onStop={onStop}
+    />,
+  );
   expect(screen.getByRole('button', { name: 'Resume answer' })).toBeInTheDocument();
 });

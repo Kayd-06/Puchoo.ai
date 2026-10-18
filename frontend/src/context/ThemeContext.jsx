@@ -33,10 +33,13 @@ export function ThemeProvider({ children }) {
     }
   }, [theme]);
 
-  const value = useMemo(() => ({
-    theme,
-    toggleTheme: () => setTheme((current) => current === 'dark' ? 'light' : 'dark'),
-  }), [theme]);
+  const value = useMemo(
+    () => ({
+      theme,
+      toggleTheme: () => setTheme((current) => (current === 'dark' ? 'light' : 'dark')),
+    }),
+    [theme],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

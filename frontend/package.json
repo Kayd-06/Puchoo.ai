@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "@react-three/fiber": "^9.8.1",
-    "framer-motion": "^14.1.0",
+    "framer-motion": "^14.2.0",
     "jspdf": "^4.2.1",
-    "lucide-react": "^1.55.0",
+    "lucide-react": "^1.56.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",
@@ -41,8 +41,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",
     "jsdom": "^29.1.1",
-    "oxlint": "^1.87.0",
-    "prettier": "^3.9.9",
+    "oxlint": "^1.88.0",
+    "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"

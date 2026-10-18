@@ -21,10 +21,13 @@ it('returns an authenticated WAV blob from the API', async () => {
 
   expect(audio.type).toBe('audio/wav');
   expect(await audio.text()).toBe('wav-bytes');
-  expect(fetchMock).toHaveBeenCalledWith('/api/voice/synthesize', expect.objectContaining({
-    credentials: 'include',
-    headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
-  }));
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/voice/synthesize',
+    expect.objectContaining({
+      credentials: 'include',
+      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+    }),
+  );
 });
 
 it('rejects a successful response that is not WAV audio', async () => {
@@ -35,6 +38,7 @@ it('rejects a successful response that is not WAV audio', async () => {
     }),
   );
 
-  await expect(fetchApiBlob('/voice/synthesize', { method: 'POST', body: '{}' }))
-    .rejects.toThrow('Speech service returned an invalid audio response.');
+  await expect(fetchApiBlob('/voice/synthesize', { method: 'POST', body: '{}' })).rejects.toThrow(
+    'Speech service returned an invalid audio response.',
+  );
 });

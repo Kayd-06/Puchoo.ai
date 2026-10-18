@@ -49,13 +49,19 @@ class SessionManager:
         self.save(active_workspace_id=ws_id)
 
     def remove_workspace(self, workspace_id: str) -> None:
-        self.workspaces.pop(workspace_id, None)
+        removed = self.workspaces.pop(workspace_id, None)
         self.workspace_guardrails.pop(workspace_id, None)
         self.query_history.pop(workspace_id, None)
         self.schema_snapshots.pop(f"schema_{workspace_id}", None)
         self.active_proposals.pop(workspace_id, None)
         self._delete_from_database(workspace_id)
         self.save()
+        uri = removed.get("database_uri") if isinstance(removed, dict) else None
+        # Keep the file if another workspace still points at it.
+        if uri and not any(ws.get("database_uri") == uri for ws in self.workspaces.values()):
+            from apps.core.workspaces import delete_workspace_files
+
+            delete_workspace_files(uri)
 
     def save(self, active_workspace_id: str | None = None) -> None:
         """Persist workspace state without writing server credentials to disk.

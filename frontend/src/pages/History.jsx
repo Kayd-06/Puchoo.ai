@@ -34,13 +34,29 @@ function recordCategory(item) {
 function formatTimestamp(value) {
   if (!value) return 'Just now';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Recent' : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(date.getTime())
+    ? 'Recent'
+    : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function StatusBadge({ category }) {
-  if (category === 'blocked') return <span className="history-status history-status-blocked"><ShieldAlert size={14} /> Blocked</span>;
-  if (category === 'verified') return <span className="history-status history-status-verified"><CheckCircle2 size={14} /> Verified</span>;
-  return <span className="history-status history-status-review"><AlertTriangle size={14} /> Needs review</span>;
+  if (category === 'blocked')
+    return (
+      <span className="history-status history-status-blocked">
+        <ShieldAlert size={14} /> Blocked
+      </span>
+    );
+  if (category === 'verified')
+    return (
+      <span className="history-status history-status-verified">
+        <CheckCircle2 size={14} /> Verified
+      </span>
+    );
+  return (
+    <span className="history-status history-status-review">
+      <AlertTriangle size={14} /> Needs review
+    </span>
+  );
 }
 
 export default function History() {
@@ -48,7 +64,9 @@ export default function History() {
   const { activeWorkspaceId, activeWorkspace } = useAppContext();
   const { user } = useAuth();
   const isViewer = user?.workspace_role === 'viewer';
-  const canManageHistory = !isViewer && (user?.workspace_role === 'admin' || (!user?.workspace_owner_id && !user?.institute_owner_id));
+  const canManageHistory =
+    !isViewer &&
+    (user?.workspace_role === 'admin' || (!user?.workspace_owner_id && !user?.institute_owner_id));
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -74,34 +92,50 @@ export default function History() {
       }
     }
     loadHistory();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorkspaceId]);
 
   const visibleHistory = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return history.filter(item => {
+    return history.filter((item) => {
       const matchesFilter = filter === 'all' || recordCategory(item) === filter;
-      const matchesSearch = !needle || `${item.question || ''} ${item.interpreted_request || ''} ${item.sql || ''}`.toLowerCase().includes(needle);
+      const matchesSearch =
+        !needle ||
+        `${item.question || ''} ${item.interpreted_request || ''} ${item.sql || ''}`
+          .toLowerCase()
+          .includes(needle);
       return matchesFilter && matchesSearch;
     });
   }, [history, search, filter]);
 
-  const categoryCounts = useMemo(() => history.reduce((counts, item) => {
-    counts.all += 1;
-    counts[recordCategory(item)] += 1;
-    return counts;
-  }, { all: 0, verified: 0, review: 0, blocked: 0 }), [history]);
+  const categoryCounts = useMemo(
+    () =>
+      history.reduce(
+        (counts, item) => {
+          counts.all += 1;
+          counts[recordCategory(item)] += 1;
+          return counts;
+        },
+        { all: 0, verified: 0, review: 0, blocked: 0 },
+      ),
+    [history],
+  );
 
-  const executed = history.filter(item => item.status === 'executed');
-  const verifiedRate = executed.length ? `${Math.round((categoryCounts.verified / executed.length) * 100)}%` : '—';
-  const timed = executed.filter(item => Number.isFinite(Number(item.elapsed_ms)));
+  const executed = history.filter((item) => item.status === 'executed');
+  const verifiedRate = executed.length
+    ? `${Math.round((categoryCounts.verified / executed.length) * 100)}%`
+    : '—';
+  const timed = executed.filter((item) => Number.isFinite(Number(item.elapsed_ms)));
   const averageLatency = timed.length
     ? `${Math.round(timed.reduce((sum, item) => sum + Number(item.elapsed_ms), 0) / timed.length)}ms`
     : '—';
 
   const clearHistory = async () => {
     if (!activeWorkspaceId || history.length === 0) return;
-    if (!window.confirm(`Clear all query history for ${activeWorkspace?.name || 'this database'}?`)) return;
+    if (!window.confirm(`Clear all query history for ${activeWorkspace?.name || 'this database'}?`))
+      return;
     setClearing(true);
     setError('');
     try {
@@ -129,12 +163,19 @@ export default function History() {
 
   const deleteRecord = async (item) => {
     if (!activeWorkspaceId || !item?.id) return;
-    if (!window.confirm('Delete this question and its saved conversation context? This cannot be undone.')) return;
+    if (
+      !window.confirm(
+        'Delete this question and its saved conversation context? This cannot be undone.',
+      )
+    )
+      return;
     setDeletingId(item.id);
     setError('');
     try {
-      await fetchApi(`/history/${activeWorkspaceId}/records/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-      setHistory(current => current.filter(record => record.id !== item.id));
+      await fetchApi(`/history/${activeWorkspaceId}/records/${encodeURIComponent(item.id)}`, {
+        method: 'DELETE',
+      });
+      setHistory((current) => current.filter((record) => record.id !== item.id));
     } catch (err) {
       setError(err.message || 'Could not delete this history record.');
     } finally {
@@ -147,80 +188,196 @@ export default function History() {
     setSearch('');
   };
 
-  const activeFilter = FILTERS.find(option => option.id === filter);
+  const activeFilter = FILTERS.find((option) => option.id === filter);
 
   return (
     <div className="history-page">
       <section className="history-hero">
         <div className="history-hero-copy">
-          <div className="history-eyebrow"><span className="history-live-dot" /> Query activity <span>Workspace ledger</span></div>
+          <div className="history-eyebrow">
+            <span className="history-live-dot" /> Query activity <span>Workspace ledger</span>
+          </div>
           <h1>History</h1>
-          <p>{activeWorkspace ? isViewer ? `Approved questions for ${activeWorkspace.name}. Your access is view-only.` : `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.` : 'Select a database to view its history.'}</p>
+          <p>
+            {activeWorkspace
+              ? isViewer
+                ? `Approved questions for ${activeWorkspace.name}. Your access is view-only.`
+                : `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.`
+              : 'Select a database to view its history.'}
+          </p>
         </div>
         <div className="history-metrics" aria-label="History summary">
-          <div className="history-metric"><span className="history-metric-icon metric-safe"><ShieldCheck size={18} /></span><div><strong>{verifiedRate}</strong><span>Verified rate</span></div></div>
-          <div className="history-metric"><span className="history-metric-icon metric-time"><Clock3 size={18} /></span><div><strong>{averageLatency}</strong><span>Average response</span></div></div>
+          <div className="history-metric">
+            <span className="history-metric-icon metric-safe">
+              <ShieldCheck size={18} />
+            </span>
+            <div>
+              <strong>{verifiedRate}</strong>
+              <span>Verified rate</span>
+            </div>
+          </div>
+          <div className="history-metric">
+            <span className="history-metric-icon metric-time">
+              <Clock3 size={18} />
+            </span>
+            <div>
+              <strong>{averageLatency}</strong>
+              <span>Average response</span>
+            </div>
+          </div>
         </div>
       </section>
 
-      {error && <div className="history-error" role="alert"><AlertTriangle size={17} />{error}</div>}
+      {error && (
+        <div className="history-error" role="alert">
+          <AlertTriangle size={17} />
+          {error}
+        </div>
+      )}
 
       <section className="history-toolbar" aria-label="Filter history">
         <label className="history-search">
           <Search size={18} aria-hidden="true" />
-          <input value={search} onChange={event => setSearch(event.target.value)} type="search" placeholder="Search questions or SQL" aria-label="Search questions or SQL" />
-          {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={16} /></button>}
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            type="search"
+            placeholder="Search questions or SQL"
+            aria-label="Search questions or SQL"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} aria-label="Clear search">
+              <X size={16} />
+            </button>
+          )}
         </label>
         <div className="history-filters" role="group" aria-label="Filter by status">
-          {FILTERS.map(option => (
-            <button key={option.id} type="button" onClick={() => setFilter(option.id)} aria-pressed={filter === option.id} className={filter === option.id ? 'is-active' : ''}>
-              <span>{option.label}</span><span className="history-filter-count">{categoryCounts[option.id]}</span>
+          {FILTERS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setFilter(option.id)}
+              aria-pressed={filter === option.id}
+              className={filter === option.id ? 'is-active' : ''}
+            >
+              <span>{option.label}</span>
+              <span className="history-filter-count">{categoryCounts[option.id]}</span>
             </button>
           ))}
         </div>
-        {canManageHistory && <button className="btn btn-danger history-clear" onClick={clearHistory} disabled={clearing || history.length === 0}><Trash2 size={16} />{clearing ? 'Clearing…' : 'Clear history'}</button>}
+        {canManageHistory && (
+          <button
+            className="btn btn-danger history-clear"
+            onClick={clearHistory}
+            disabled={clearing || history.length === 0}
+          >
+            <Trash2 size={16} />
+            {clearing ? 'Clearing…' : 'Clear history'}
+          </button>
+        )}
       </section>
 
       <div className="history-list-header">
-        <span>{activeFilter.label}: {visibleHistory.length} {visibleHistory.length === 1 ? 'question' : 'questions'}</span>
+        <span>
+          {activeFilter.label}: {visibleHistory.length}{' '}
+          {visibleHistory.length === 1 ? 'question' : 'questions'}
+        </span>
         <span>Newest first</span>
       </div>
 
       <div className="history-list">
-        {loading ? <div className="history-loading" role="status" aria-live="polite"><span /><span /><span /><p>Loading your workspace history…</p></div> : visibleHistory.length === 0 ? (
+        {loading ? (
+          <div className="history-loading" role="status" aria-live="polite">
+            <span />
+            <span />
+            <span />
+            <p>Loading your workspace history…</p>
+          </div>
+        ) : visibleHistory.length === 0 ? (
           <div className="card history-empty">
             <HistoryIcon size={24} />
-            <h3>{history.length ? `No ${activeFilter.label.toLowerCase()} questions found` : 'No questions yet'}</h3>
-            <p className="text-muted">{history.length ? 'Try a different status, or clear your search.' : isViewer ? 'Approved queries will appear here when a workspace editor runs them.' : 'Ask your first data question and it will appear here.'}</p>
-            {history.length > 0 && <button className="btn btn-secondary" onClick={resetFilters}>Show all history</button>}
+            <h3>
+              {history.length
+                ? `No ${activeFilter.label.toLowerCase()} questions found`
+                : 'No questions yet'}
+            </h3>
+            <p className="text-muted">
+              {history.length
+                ? 'Try a different status, or clear your search.'
+                : isViewer
+                  ? 'Approved queries will appear here when a workspace editor runs them.'
+                  : 'Ask your first data question and it will appear here.'}
+            </p>
+            {history.length > 0 && (
+              <button className="btn btn-secondary" onClick={resetFilters}>
+                Show all history
+              </button>
+            )}
           </div>
-        ) : visibleHistory.map((item, index) => {
-          const category = recordCategory(item);
-          const context = item.interpreted_request && item.interpreted_request !== item.question ? item.interpreted_request : null;
-          return (
-            <article key={item.id} className={`history-card history-card-${category}`} style={{ '--history-index': index }}>
-              <span className="history-card-orbit" aria-hidden="true" />
-              <div className="history-card-main">
-                <div className="history-card-topline">
-                  <span className="history-record"><span>Q-{String(index + 1).padStart(3, '0')}</span>{formatTimestamp(item.executed_at || item.created_at)}</span>
-                  <StatusBadge category={category} />
+        ) : (
+          visibleHistory.map((item, index) => {
+            const category = recordCategory(item);
+            const context =
+              item.interpreted_request && item.interpreted_request !== item.question
+                ? item.interpreted_request
+                : null;
+            return (
+              <article
+                key={item.id}
+                className={`history-card history-card-${category}`}
+                style={{ '--history-index': index }}
+              >
+                <span className="history-card-orbit" aria-hidden="true" />
+                <div className="history-card-main">
+                  <div className="history-card-topline">
+                    <span className="history-record">
+                      <span>Q-{String(index + 1).padStart(3, '0')}</span>
+                      {formatTimestamp(item.executed_at || item.created_at)}
+                    </span>
+                    <StatusBadge category={category} />
+                  </div>
+                  <h2>{item.question}</h2>
+                  {context && <p className="history-context">Interpreted as: {context}</p>}
+                  <div className="history-meta">
+                    <span>
+                      <Rows3 size={15} /> {item.row_count ?? 0} rows returned
+                    </span>
+                    <span>
+                      <Clock3 size={15} /> {item.elapsed_ms ?? 0}ms
+                    </span>
+                    {item.model_attempts > 1 && <span>{item.model_attempts} attempts</span>}
+                  </div>
                 </div>
-                <h2>{item.question}</h2>
-                {context && <p className="history-context">Interpreted as: {context}</p>}
-                <div className="history-meta">
-                  <span><Rows3 size={15} /> {item.row_count ?? 0} rows returned</span>
-                  <span><Clock3 size={15} /> {item.elapsed_ms ?? 0}ms</span>
-                  {item.model_attempts > 1 && <span>{item.model_attempts} attempts</span>}
+                <div className="history-card-actions">
+                  {!isViewer && (
+                    <button className="btn btn-primary" onClick={() => continueConversation(item)}>
+                      <MessageSquarePlus size={16} /> Continue chat
+                    </button>
+                  )}
+                  {item.sql && (
+                    <details className="sql-details">
+                      <summary>
+                        <Code2 size={16} /> View SQL <ChevronDown size={15} />
+                      </summary>
+                      <pre>{item.sql}</pre>
+                    </details>
+                  )}
+                  {canManageHistory && (
+                    <button
+                      className="history-delete-record"
+                      type="button"
+                      onClick={() => deleteRecord(item)}
+                      disabled={deletingId === item.id}
+                    >
+                      <Trash2 size={15} />
+                      {deletingId === item.id ? 'Deleting…' : 'Delete chat'}
+                    </button>
+                  )}
                 </div>
-              </div>
-              <div className="history-card-actions">
-                {!isViewer && <button className="btn btn-primary" onClick={() => continueConversation(item)}><MessageSquarePlus size={16} /> Continue chat</button>}
-                {item.sql && <details className="sql-details"><summary><Code2 size={16} /> View SQL <ChevronDown size={15} /></summary><pre>{item.sql}</pre></details>}
-                {canManageHistory && <button className="history-delete-record" type="button" onClick={() => deleteRecord(item)} disabled={deletingId === item.id}><Trash2 size={15} />{deletingId === item.id ? 'Deleting…' : 'Delete chat'}</button>}
-              </div>
-            </article>
-          );
-        })}
+              </article>
+            );
+          })
+        )}
       </div>
     </div>
   );

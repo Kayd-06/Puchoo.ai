@@ -8,7 +8,11 @@ import ThemeToggle from '../ThemeToggle';
 import Landing from '../../pages/Landing';
 
 function renderWithTheme(component) {
-  return render(<MemoryRouter><ThemeProvider>{component}</ThemeProvider></MemoryRouter>);
+  return render(
+    <MemoryRouter>
+      <ThemeProvider>{component}</ThemeProvider>
+    </MemoryRouter>,
+  );
 }
 
 afterEach(() => {

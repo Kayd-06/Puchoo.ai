@@ -15,8 +15,11 @@ vi.mock('../../context/AuthContext', () => ({
 }));
 vi.mock('../../context/AppContext', () => ({
   useAppContext: () => ({
-    workspaces: [], activeWorkspace: null, activeWorkspaceId: null,
-    setActiveWorkspaceId: vi.fn(), setWorkspaces: vi.fn(),
+    workspaces: [],
+    activeWorkspace: null,
+    activeWorkspaceId: null,
+    setActiveWorkspaceId: vi.fn(),
+    setWorkspaces: vi.fn(),
   }),
 }));
 vi.mock('../../components/workspace/WorkspaceInvitePanel', () => ({
@@ -33,16 +36,49 @@ vi.mock('../../context/ThemeContext', () => ({
 }));
 
 const capabilityMap = {
-  owner: { view_workspaces: true, view_history: true, query_workspace: true, manage_data_sources: true, administer_workspace: true, manage_account: true },
-  admin: { view_workspaces: true, view_history: true, query_workspace: true, manage_data_sources: true, administer_workspace: true, manage_account: true },
-  editor: { view_workspaces: true, view_history: true, query_workspace: true, manage_data_sources: false, administer_workspace: false, manage_account: true },
-  viewer: { view_workspaces: true, view_history: true, query_workspace: false, manage_data_sources: false, administer_workspace: false, manage_account: true },
+  owner: {
+    view_workspaces: true,
+    view_history: true,
+    query_workspace: true,
+    manage_data_sources: true,
+    administer_workspace: true,
+    manage_account: true,
+  },
+  admin: {
+    view_workspaces: true,
+    view_history: true,
+    query_workspace: true,
+    manage_data_sources: true,
+    administer_workspace: true,
+    manage_account: true,
+  },
+  editor: {
+    view_workspaces: true,
+    view_history: true,
+    query_workspace: true,
+    manage_data_sources: false,
+    administer_workspace: false,
+    manage_account: true,
+  },
+  viewer: {
+    view_workspaces: true,
+    view_history: true,
+    query_workspace: false,
+    manage_data_sources: false,
+    administer_workspace: false,
+    manage_account: true,
+  },
 };
 
 function setRole(role) {
   user = {
-    id: `${role}-id`, full_name: 'Ada Lovelace', email: 'ada@example.com',
-    role, workspace_role: role, workspace_type: 'business', workspace_name: 'Acme',
+    id: `${role}-id`,
+    full_name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    role,
+    workspace_role: role,
+    workspace_type: 'business',
+    workspace_name: 'Acme',
     capabilities: capabilityMap[role],
   };
 }
@@ -123,7 +159,10 @@ describe('role-aware product surfaces', () => {
     user.image_url = 'data:image/png;base64,iVBORw0KGgo=';
     const { container } = renderRoute(<TopBar />);
     expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('src', user.image_url);
-    expect(container.querySelector('.topbar-avatar img')).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(container.querySelector('.topbar-avatar img')).toHaveAttribute(
+      'referrerpolicy',
+      'no-referrer',
+    );
   });
 
   it('keeps a long account email on one truncatable line', () => {

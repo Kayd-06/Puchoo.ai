@@ -3,7 +3,9 @@ import { Mark, focusRing } from '../landing/ui';
 
 export default function AuthShell({ title, subtitle, children, footer, dense = false }) {
   return (
-    <div className={`site auth-shell grid bg-[#070b17] lg:grid-cols-[1.08fr_.92fr] ${dense ? 'auth-shell-dense' : ''}`}>
+    <div
+      className={`site auth-shell grid bg-[#070b17] lg:grid-cols-[1.08fr_.92fr] ${dense ? 'auth-shell-dense' : ''}`}
+    >
       <section className="auth-brand-panel relative flex flex-col justify-between overflow-hidden bg-[#0c1830] px-6 py-8 text-white md:px-12 md:py-12">
         <div className="puchoo-noise pointer-events-none absolute inset-0" aria-hidden="true" />
         <div

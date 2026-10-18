@@ -180,7 +180,10 @@ const filters = ['General', 'Security', 'Languages', 'Accounts'];
 
 export function About() {
   return (
-    <section id="about" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
+    <section
+      id="about"
+      className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28"
+    >
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 md:px-8 lg:grid-cols-2">
         <Reveal>
           <div className="relative aspect-square overflow-hidden rounded-3xl bg-[#0A0F14]">
@@ -257,7 +260,11 @@ function Geometry({ id }) {
       transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
       className="mx-auto h-44 w-44 md:h-56 md:w-56"
     >
-      <svg viewBox="0 0 220 180" className="draw-icon h-full w-full text-[#1D4ED8]" aria-hidden="true">
+      <svg
+        viewBox="0 0 220 180"
+        className="draw-icon h-full w-full text-[#1D4ED8]"
+        aria-hidden="true"
+      >
         <path
           d={shapes[id]}
           fill="none"
@@ -331,7 +338,10 @@ export function Capabilities() {
   }
 
   return (
-    <section id="capabilities" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
+    <section
+      id="capabilities"
+      className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28"
+    >
       <div className="mx-auto grid max-w-6xl gap-10 px-5 md:px-8 lg:grid-cols-[280px_1fr]">
         <div
           role="tablist"
@@ -386,12 +396,12 @@ export function Capabilities() {
               className="grid items-center gap-8 md:grid-cols-[1fr_220px]"
             >
               <div>
-              <h3 className="text-[32px] leading-tight font-medium tracking-[-0.03em] text-[#111827] md:text-[40px]">
-                {selected.title}
-              </h3>
-              <p className="mt-4 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
-                {selected.description}
-              </p>
+                <h3 className="text-[32px] leading-tight font-medium tracking-[-0.03em] text-[#111827] md:text-[40px]">
+                  {selected.title}
+                </h3>
+                <p className="mt-4 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
+                  {selected.description}
+                </p>
               </div>
               <Geometry id={selected.id} />
             </motion.div>
@@ -404,7 +414,10 @@ export function Capabilities() {
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="mx-3 my-3 rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28">
+    <section
+      id="how-it-works"
+      className="mx-3 my-3 rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28"
+    >
       <div className="mx-auto grid max-w-6xl gap-10 px-5 md:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeading light title="Four steps," muted="then an answer." />
@@ -437,7 +450,10 @@ const pipeline = ['Browser', 'FastAPI', 'Guardrail', 'Approval', 'One read-only 
 
 export function Security() {
   return (
-    <section id="security" className="mx-3 my-3 rounded-[28px] bg-white py-20 md:mx-4 md:my-4 md:py-28">
+    <section
+      id="security"
+      className="mx-3 my-3 rounded-[28px] bg-white py-20 md:mx-4 md:my-4 md:py-28"
+    >
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <Reveal>
           <SectionHeading title="The boundary stays" muted="on the server." />
@@ -524,7 +540,10 @@ export function Examples() {
   }
 
   return (
-    <section className="mx-3 my-3 overflow-hidden rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28" aria-labelledby="examples-heading">
+    <section
+      className="mx-3 my-3 overflow-hidden rounded-[28px] bg-[#0A0F14] py-20 text-white md:mx-4 md:my-4 md:py-28"
+      aria-labelledby="examples-heading"
+    >
       <div className="mx-auto flex max-w-6xl items-end justify-between gap-6 px-5 md:px-8">
         <div>
           <p className="text-xs tracking-[0.14em] text-[#D1D5DB] uppercase">Demo</p>
@@ -620,7 +639,10 @@ export function Faq() {
   }
 
   return (
-    <section id="faq" className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28">
+    <section
+      id="faq"
+      className="mx-3 my-3 rounded-[28px] bg-[#F9FAFB] py-20 md:mx-4 md:my-4 md:py-28"
+    >
       <div className="mx-auto grid max-w-6xl gap-12 px-5 md:px-8 lg:grid-cols-[0.8fr_1.2fr]">
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeading title="Questions," muted="answered plainly." />
