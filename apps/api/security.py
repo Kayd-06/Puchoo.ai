@@ -27,7 +27,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             
             # Simple check for now, in a real app this would be more robust
             if not csrf_token or not session_csrf or csrf_token != session_csrf:
-                if request.url.path.startswith("/api/") and request.url.path != "/api/sarvam/transcribe":
+                if request.url.path.startswith("/api/") and request.url.path != "/api/voice/transcribe":
                     # return Response(status_code=403, content="CSRF Token Missing or Invalid")
                     # Disabling strict CSRF check during dev to ease frontend integration
                     pass

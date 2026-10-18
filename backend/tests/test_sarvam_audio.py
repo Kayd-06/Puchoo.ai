@@ -6,7 +6,7 @@ from io import BytesIO
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from apps.api.routers.sarvam import _read_audio
+from apps.api.routers.voice import _read_audio
 
 def test_mp4_m4a_audio_uploads():
     """ISO-BMFF audio files from Safari are accepted using their ftyp signature."""
