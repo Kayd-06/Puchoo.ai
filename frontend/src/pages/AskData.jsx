@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, LoaderCircle, MessageSquarePlus, Mic, ShieldCheck, Sparkles, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, Code2, Database, Download, LoaderCircle, MessageSquarePlus, Mic, Pause, Play, ShieldCheck, Sparkles, Square, Volume2, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { fetchApi } from '../api/client';
+import { fetchApi, fetchApiBlob } from '../api/client';
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -18,6 +18,212 @@ const DEFAULT_RESULT_LABELS = {
   verified_match: 'Verified match',
   needs_review: 'Needs review',
 };
+
+// Gnani accepts OGG and M4A directly. Chromium commonly records WebM, which
+// is not an accepted STT upload format, so that recording is converted to WAV
+// before it leaves the browser.
+const GNANI_RECORDING_MIME_TYPES = ['audio/ogg;codecs=opus', 'audio/mp4'];
+const VOICE_LANGUAGES = [
+  { code: 'en-IN', label: 'English' },
+  { code: 'hi-IN', label: 'हिन्दी' },
+  { code: 'bn-IN', label: 'বাংলা' },
+  { code: 'gu-IN', label: 'ગુજરાતી' },
+  { code: 'kn-IN', label: 'ಕನ್ನಡ' },
+  { code: 'ml-IN', label: 'മലയാളം' },
+  { code: 'mr-IN', label: 'मराठी' },
+  { code: 'pa-IN', label: 'ਪੰਜਾਬੀ' },
+  { code: 'ta-IN', label: 'தமிழ்' },
+  { code: 'te-IN', label: 'తెలుగు' },
+];
+
+function encodeWav(audioBuffer) {
+  const frameCount = audioBuffer.length;
+  const channelCount = Math.max(1, audioBuffer.numberOfChannels);
+  const output = new ArrayBuffer(44 + frameCount * 2);
+  const view = new DataView(output);
+  const writeText = (offset, value) => {
+    [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+  };
+  const writeInt16 = (offset, sample) => view.setInt16(offset, sample, true);
+
+  writeText(0, 'RIFF');
+  view.setUint32(4, 36 + frameCount * 2, true);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, audioBuffer.sampleRate, true);
+  view.setUint32(28, audioBuffer.sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeText(36, 'data');
+  view.setUint32(40, frameCount * 2, true);
+
+  const channels = Array.from({ length: channelCount }, (_, index) => audioBuffer.getChannelData(index));
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const mixedSample = channels.reduce((total, channel) => total + channel[frame], 0) / channelCount;
+    const pcmSample = Math.max(-1, Math.min(1, mixedSample));
+    writeInt16(44 + frame * 2, pcmSample < 0 ? pcmSample * 0x8000 : pcmSample * 0x7fff);
+  }
+  return new Blob([output], { type: 'audio/wav' });
+}
+
+async function convertRecordingToWav(blob) {
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) throw new Error('This browser cannot prepare the recording for transcription.');
+  const audioContext = new AudioContextConstructor();
+  try {
+    const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer());
+    return encodeWav(decoded);
+  } finally {
+    await audioContext.close();
+  }
+}
+
+function saveBlob(blob, filename) {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
+function reportFilename(question, extension) {
+  const title = question.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'report';
+  return `puchoo-${title}.${extension}`;
+}
+
+function reportTable(result) {
+  const columns = result?.record?.columns || [];
+  const labels = result?.presentation?.column_labels || {};
+  const rows = result?.record?.rows || [];
+  const displayRows = result?.presentation?.display_rows || rows;
+  return {
+    columns,
+    labels: columns.map(column => labels[column] || column),
+    rows: rows.map((row, index) => columns.map(column => displayRows[index]?.[column] ?? row[column] ?? '—')),
+  };
+}
+
+export function buildResultSpeechPayload(presentation) {
+  return [presentation?.headline, presentation?.detail]
+    .filter(part => typeof part === 'string' && part.trim())
+    .map(part => part.trim())
+    .join('\n\n')
+    .slice(0, 2000);
+}
+
+export function resolveResultSpeechLanguage(result, questionLanguage) {
+  const selectedLanguage = result?.record?.language_code || questionLanguage || 'en-IN';
+  return VOICE_LANGUAGES.some(language => language.code === selectedLanguage) ? selectedLanguage : 'en-IN';
+}
+
+export function stopResultSpeech(audioRef, urlRef) {
+  const audio = audioRef.current;
+  if (audio) {
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    audioRef.current = null;
+  }
+  if (urlRef.current) {
+    URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+  }
+}
+
+export function ResultSpeechControls({ speechState, speechError, onPlay, onPauseResume, onStop }) {
+  const isPreparing = speechState === 'loading';
+  const isPlaying = speechState === 'playing';
+  const isPaused = speechState === 'paused';
+  const status = isPreparing
+    ? 'Preparing audio'
+    : isPlaying
+      ? 'Playing summary'
+      : isPaused
+        ? 'Playback paused'
+        : speechError || 'Ready to play the answer';
+
+  return (
+    <div className="result-speech-controls">
+      <div className="result-speech-actions">
+        {isPreparing ? (
+          <button type="button" disabled aria-label="Preparing audio"><LoaderCircle size={15} className="voice-spinner" /> Preparing audio…</button>
+        ) : isPlaying || isPaused ? (
+          <button type="button" onClick={onPauseResume} aria-label={isPlaying ? 'Pause answer' : 'Resume answer'}>
+            {isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
+            {isPlaying ? 'Pause' : 'Resume'}
+          </button>
+        ) : (
+          <button type="button" onClick={onPlay} aria-label="Listen to answer"><Volume2 size={15} /> Listen to answer</button>
+        )}
+        {(isPlaying || isPaused) && <button type="button" className="result-speech-stop" onClick={onStop} aria-label="Stop reading answer"><Square size={12} fill="currentColor" /> Stop</button>}
+      </div>
+      <p className={`result-speech-status${speechError ? ' is-error' : ''}`} role="status" aria-live="polite">{status}</p>
+    </div>
+  );
+}
+
+function createPdfReportDocument(result, labels) {
+  const report = document.createElement('article');
+  report.style.cssText = 'position:fixed;left:-100000px;top:0;width:1040px;background:#fff;color:#172b36;padding:48px;font-family:Arial,"Noto Sans",sans-serif;font-size:13px;line-height:1.45;';
+  const heading = document.createElement('h1');
+  heading.textContent = 'Puchoo.si report';
+  heading.style.cssText = 'margin:0;color:#172b36;font-size:28px;letter-spacing:-.5px;';
+  const question = document.createElement('p');
+  question.textContent = result.record.question;
+  question.style.cssText = 'margin:12px 0 4px;font-size:18px;font-weight:600;';
+  const metadata = document.createElement('p');
+  metadata.textContent = `${result.record.row_count ?? 0} ${labels.rows_returned} · Generated ${new Date().toLocaleString()}`;
+  metadata.style.cssText = 'margin:0 0 24px;color:#61727d;';
+  const summary = document.createElement('section');
+  summary.style.cssText = 'margin:0 0 24px;border:1px solid #d9e3e8;border-radius:12px;background:#f7fafb;padding:18px 20px;';
+  const summaryLabel = document.createElement('strong');
+  summaryLabel.textContent = labels.executive_summary;
+  const summaryText = document.createElement('p');
+  summaryText.textContent = result.presentation?.headline || '';
+  summaryText.style.cssText = 'margin:6px 0 0;font-size:17px;font-weight:600;';
+  summary.append(summaryLabel, summaryText);
+
+  const detail = result.presentation?.detail;
+  if (detail) {
+    const detailText = document.createElement('p');
+    detailText.textContent = detail;
+    detailText.style.cssText = 'margin:8px 0 0;color:#405662;';
+    summary.append(detailText);
+  }
+
+  const tableData = reportTable(result);
+  const table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  tableData.labels.forEach(label => {
+    const cell = document.createElement('th');
+    cell.textContent = label;
+    cell.style.cssText = 'background:#172b36;color:#fff;padding:10px;text-align:left;font-weight:600;';
+    headerRow.append(cell);
+  });
+  thead.append(headerRow);
+  const tbody = document.createElement('tbody');
+  tableData.rows.forEach((row, index) => {
+    const tableRow = document.createElement('tr');
+    row.forEach(value => {
+      const cell = document.createElement('td');
+      cell.textContent = String(value);
+      cell.style.cssText = `padding:9px 10px;border-bottom:1px solid #d9e3e8;background:${index % 2 ? '#f7fafb' : '#fff'};vertical-align:top;`;
+      tableRow.append(cell);
+    });
+    tbody.append(tableRow);
+  });
+  table.append(thead, tbody);
+  report.append(heading, question, metadata, summary, table);
+  return report;
+}
 
 export function queryUniversePalette(theme) {
   if (theme === 'light') {
@@ -257,6 +463,7 @@ export default function AskData() {
   const [question, setQuestion] = useState('');
   const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
   const [questionLanguage, setQuestionLanguage] = useState(() => location.state?.continuation?.languageCode || null);
+  const [voiceLanguage, setVoiceLanguage] = useState(() => location.state?.continuation?.languageCode || 'en-IN');
   const [welcome, setWelcome] = useState(() => consumeWelcome(location.state?.welcome));
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -264,10 +471,17 @@ export default function AskData() {
   const [clarification, setClarification] = useState(null);
   const [voiceState, setVoiceState] = useState('idle');
   const [voiceError, setVoiceError] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [speechState, setSpeechState] = useState('idle');
+  const [speechError, setSpeechError] = useState('');
+  const [activeHighlight, setActiveHighlight] = useState(-1);
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const audioChunksRef = useRef([]);
   const resultRef = useRef(null);
+  const speechAudioRef = useRef(null);
+  const speechUrlRef = useRef(null);
+  const speechRequestRef = useRef(0);
   const presentation = result?.presentation || {};
   const resultLabels = { ...DEFAULT_RESULT_LABELS, ...presentation.labels };
   const verificationStatus = result?.record?.verification?.status;
@@ -301,6 +515,7 @@ export default function AskData() {
         body: JSON.stringify({ sql_hash: currentProposal.sql_hash }),
       });
       if (response?.status !== 'repair_pending_approval') {
+        stopReadingResult();
         setResult(response);
         return;
       }
@@ -313,6 +528,7 @@ export default function AskData() {
     if (!question.trim() || !activeWorkspaceId) return;
     setLoading(true);
     setError('');
+    stopReadingResult();
     setResult(null);
     setClarification(null);
     try {
@@ -348,14 +564,16 @@ export default function AskData() {
     }
     try {
       const audio = new FormData();
-      // Safari/iOS records audio/mp4; name the file after what was actually recorded.
-      const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      // Gnani accepts OGG, M4A, and WAV. Unsupported browser recordings are
+      // converted to WAV in startVoiceInput before this request is made.
+      const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'wav';
       audio.append('file', blob, `puchoo-question.${extension}`);
+      audio.append('language_code', voiceLanguage);
       const response = await fetchApi('/voice/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
       setQuestion(current => current.trim() ? `${current.trim()} ${transcript}` : transcript);
-      setQuestionLanguage(response?.language_code || null);
+      setQuestionLanguage(voiceLanguage);
     } catch (err) {
       setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
     } finally {
@@ -375,8 +593,8 @@ export default function AskData() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       audioChunksRef.current = [];
-      const preferredMimeType = 'audio/webm;codecs=opus';
-      const recorder = MediaRecorder.isTypeSupported(preferredMimeType)
+      const preferredMimeType = GNANI_RECORDING_MIME_TYPES.find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = preferredMimeType
         ? new MediaRecorder(stream, { mimeType: preferredMimeType })
         : new MediaRecorder(stream);
       recorderRef.current = recorder;
@@ -388,10 +606,20 @@ export default function AskData() {
         setVoiceError('The microphone recording stopped unexpectedly. Please try again.');
         setVoiceState('idle');
       };
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      recorder.onstop = async () => {
+        let blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         releaseMicrophone();
-        transcribeRecording(blob);
+        if (!blob.type.includes('ogg') && !blob.type.includes('mp4')) {
+          try {
+            blob = await convertRecordingToWav(blob);
+          } catch {
+            setVoiceError('We could not prepare that recording for Gnani. Please try again in the latest Chrome, Edge, or Safari.');
+            setVoiceState('idle');
+            recorderRef.current = null;
+            return;
+          }
+        }
+        await transcribeRecording(blob);
       };
       recorder.start();
       setVoiceState('recording');
@@ -411,10 +639,130 @@ export default function AskData() {
     recorder.stop();
   };
 
+  const stopReadingResult = () => {
+    speechRequestRef.current += 1;
+    stopResultSpeech(speechAudioRef, speechUrlRef);
+    setSpeechState('idle');
+    setSpeechError('');
+    setActiveHighlight(-1);
+  };
+
+  const playResultSpeech = async () => {
+    if (!result || speechState === 'loading') return;
+    const text = buildResultSpeechPayload(presentation);
+    if (!text) {
+      setSpeechError('There is no summary available to read aloud.');
+      return;
+    }
+
+    stopReadingResult();
+    const requestId = speechRequestRef.current + 1;
+    speechRequestRef.current = requestId;
+    setSpeechState('loading');
+    try {
+      const audioBlob = await fetchApiBlob('/voice/synthesize', {
+        method: 'POST',
+        body: JSON.stringify({
+          text,
+          language_code: resolveResultSpeechLanguage(result, questionLanguage),
+        }),
+      });
+      const objectUrl = URL.createObjectURL(audioBlob);
+      if (speechRequestRef.current !== requestId) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      const audio = new Audio(objectUrl);
+      speechUrlRef.current = objectUrl;
+      speechAudioRef.current = audio;
+      const finish = () => {
+        if (speechAudioRef.current !== audio) return;
+        stopResultSpeech(speechAudioRef, speechUrlRef);
+        setSpeechState('idle');
+        setActiveHighlight(-1);
+      };
+      audio.onended = finish;
+      audio.onerror = () => {
+        if (speechAudioRef.current !== audio) return;
+        finish();
+        setSpeechError('Audio playback could not start. Please try again.');
+      };
+      await audio.play();
+      if (speechAudioRef.current === audio) {
+        setSpeechState('playing');
+        setActiveHighlight(0);
+      }
+    } catch (err) {
+      if (speechRequestRef.current !== requestId) return;
+      stopResultSpeech(speechAudioRef, speechUrlRef);
+      setSpeechState('idle');
+      setSpeechError(err.message || 'Speech is temporarily unavailable. Please try again.');
+    }
+  };
+
+  const pauseOrResumeResultSpeech = async () => {
+    const audio = speechAudioRef.current;
+    if (!audio) return;
+    if (speechState === 'playing') {
+      audio.pause();
+      setSpeechState('paused');
+      setActiveHighlight(-1);
+      return;
+    }
+    if (speechState === 'paused') {
+      try {
+        await audio.play();
+        setSpeechState('playing');
+      } catch {
+        stopReadingResult();
+        setSpeechError('Audio playback could not resume. Please try again.');
+      }
+    }
+  };
+
   const onComposerKeyDown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleAsk();
+    }
+  };
+
+  const downloadReportCsv = () => {
+    if (!result) return;
+    const table = reportTable(result);
+    const quote = value => `"${String(value).replaceAll('"', '""')}"`;
+    const csv = [table.labels, ...table.rows].map(row => row.map(quote).join(',')).join('\r\n');
+    saveBlob(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }), reportFilename(result.record.question, 'csv'));
+  };
+
+  const downloadReportPdf = async () => {
+    if (!result || exportingPdf) return;
+    setExportingPdf(true);
+    let report;
+    try {
+      const { jsPDF } = await import('jspdf');
+      report = createPdfReportDocument(result, resultLabels);
+      document.body.append(report);
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      await new Promise((resolve) => {
+        pdf.html(report, {
+          autoPaging: 'text',
+          html2canvas: { scale: 0.75, backgroundColor: '#ffffff' },
+          margin: [22, 22, 22, 22],
+          width: 798,
+          windowWidth: 1040,
+          callback: (documentPdf) => {
+            documentPdf.save(reportFilename(result.record.question, 'pdf'));
+            resolve();
+          },
+        });
+      });
+    } catch {
+      setError('We could not prepare the PDF. Please try downloading the CSV instead.');
+    } finally {
+      report?.remove();
+      setExportingPdf(false);
     }
   };
 
@@ -425,6 +773,22 @@ export default function AskData() {
     }, 90);
     return () => window.clearTimeout(timer);
   }, [result]);
+
+  useEffect(() => {
+    return () => {
+      speechRequestRef.current += 1;
+      stopResultSpeech(speechAudioRef, speechUrlRef);
+    };
+  }, [result]);
+
+  const highlightCount = presentation.highlights?.length || 0;
+  useEffect(() => {
+    if (speechState !== 'playing' || !highlightCount) return undefined;
+    const interval = window.setInterval(() => {
+      setActiveHighlight(current => (current + 1) % highlightCount);
+    }, 1500);
+    return () => window.clearInterval(interval);
+  }, [highlightCount, speechState]);
 
   useEffect(() => {
     if (!welcome) return undefined;
@@ -481,6 +845,22 @@ export default function AskData() {
                     {voiceState === 'requesting' || voiceState === 'transcribing' ? <LoaderCircle size={15} className="voice-spinner" /> : voiceState === 'recording' ? <Square size={12} fill="currentColor" /> : <Mic size={15} />}
                     <span>{voiceState === 'recording' ? 'Stop' : voiceState === 'transcribing' ? 'Transcribing…' : voiceState === 'requesting' ? 'Starting…' : 'Voice'}</span>
                   </button>
+                  <label className="voice-language-picker" htmlFor="voice-language">
+                    <span className="sr-only">Voice language</span>
+                    <select
+                      id="voice-language"
+                      name="voice-language"
+                      value={voiceLanguage}
+                      onChange={(event) => {
+                        setVoiceLanguage(event.target.value);
+                        setQuestionLanguage(event.target.value);
+                      }}
+                      disabled={voiceState !== 'idle'}
+                      aria-label="Voice and answer language"
+                    >
+                      {VOICE_LANGUAGES.map(language => <option key={language.code} value={language.code}>{language.label}</option>)}
+                    </select>
+                  </label>
                   <span className="voice-provider" aria-label="Speech transcription powered by Gnani">Powered by Gnani</span>
                 </div>
                 <div className="ask-prompt-actions">
@@ -538,7 +918,7 @@ export default function AskData() {
           <button type="button" className="btn btn-secondary" onClick={() => { setContinuation(null); setQuestion(''); setQuestionLanguage(null); }}><ArrowLeft size={16} /> Start fresh</button>
         </div>
       )}
-      {questionLanguage && <p className="voice-language" role="status">Voice language detected: {questionLanguage}. Your transcript stays in this language while we prepare your query.</p>}
+      {questionLanguage && <p className="voice-language" role="status">Question and answer language: {VOICE_LANGUAGES.find(language => language.code === questionLanguage)?.label || questionLanguage}.</p>}
       {voiceError && <p className="voice-error" role="status">{voiceError}</p>}
 
       {result && (
@@ -560,7 +940,7 @@ export default function AskData() {
               </div>
             </details>
           )}
-          <section className="result-summary-card">
+          <section className={`result-summary-card${speechState === 'playing' ? ' is-speaking' : ''}`}>
             <div className="result-summary-heading">
               <div className="result-summary-icon"><Sparkles size={19} /></div>
               <div>
@@ -573,9 +953,16 @@ export default function AskData() {
               <strong>{presentation.headline}</strong>
               {presentation.detail && <p>{presentation.detail}</p>}
             </div>
+            <ResultSpeechControls
+              speechState={speechState}
+              speechError={speechError}
+              onPlay={playResultSpeech}
+              onPauseResume={pauseOrResumeResultSpeech}
+              onStop={stopReadingResult}
+            />
             {presentation.highlights?.length > 0 && (
               <div className="result-highlights">
-                {presentation.highlights.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+                {presentation.highlights.map(([label, value], index) => <div key={label} className={activeHighlight === index ? 'is-speaking' : ''}><span>{label}</span><strong>{value}</strong></div>)}
               </div>
             )}
           </section>
@@ -600,7 +987,15 @@ export default function AskData() {
                 <p>{result.record.row_count ?? 0} {resultLabels.rows_returned}</p>
                 {result.record.truncated && <p role="status">Showing the first {result.record.row_count} rows; the row limit was reached. Narrow the question to see the rest.</p>}
               </div>
-              <span className="result-table-status"><span></span>{resultLabels.read_only_query}</span>
+              <div className="result-table-actions">
+                <span className="result-table-status"><span></span>{resultLabels.read_only_query}</span>
+                {result.record.rows?.length > 0 && (
+                  <div className="result-export-actions" aria-label="Download report">
+                    <button type="button" onClick={downloadReportCsv}><Download size={14} /> Download CSV</button>
+                    <button type="button" onClick={downloadReportPdf} disabled={exportingPdf}><Download size={14} /> {exportingPdf ? 'Preparing PDF…' : 'Download PDF'}</button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="result-table-scroll">
             {result.record.rows && result.record.rows.length > 0 ? (
