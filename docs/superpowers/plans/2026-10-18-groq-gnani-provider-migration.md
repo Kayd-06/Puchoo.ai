@@ -1,14 +1,21 @@
 # Groq and Gnani Provider Migration Implementation Plan
 
-> **Status update (2026-10-19):** Groq is no longer the planned language model.
-> The team plans to use **DeepSeek** (OpenAI-compatible API) instead; read
-> "Groq" below as "the main LLM". Gnani's public API offers speech-to-text,
-> text-to-speech and voice cloning only — it has **no text-to-text translation
-> endpoint** — so question/answer translation cannot move to Gnani. Until the
-> main LLM takes over translation, `apps/api/routers/query.py` still calls
-> Sarvam for it. Gnani STT also has no `auto` language: the browser sends the
-> language chosen in the voice picker, with `GNANI_STT_LANGUAGE` (default
-> `en-IN`) as the server fallback.
+> **Decided provider flow (2026-10-19) — this supersedes the Groq-only /
+> Sarvam-removal plan below where they differ:**
+>
+> - **Gnani** = speech only. Speech-to-text returns the transcript in the
+>   language the user spoke (picked in the voice-language picker), and
+>   text-to-speech reads the answer summary aloud. Gnani has no text
+>   translation API.
+> - **Sarvam** = text translation only. A non-English question is translated
+>   to English before SQL generation, and the answer summary, labels and text
+>   cells are translated back into the user's language. Sarvam's speech route
+>   (`/api/sarvam/transcribe`) is removed. Gnani and Sarvam both use BCP-47
+>   `xx-IN` codes; `to_sarvam_language()` in `apps/api/routers/query.py` maps
+>   variants (`hi` → `hi-IN`, `or-IN` → `od-IN`, `hi-en` → `hi-IN`, English → none).
+> - **LLM** = SQL planning, generation, repair and verification. **Groq** is the
+>   current provider; **DeepSeek** (OpenAI-compatible) is planned later. It
+>   always works on English text.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

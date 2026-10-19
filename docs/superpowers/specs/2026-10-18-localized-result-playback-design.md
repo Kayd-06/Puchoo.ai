@@ -38,8 +38,10 @@ result rows, connection information, and hidden metadata are excluded.
   "Listen to answer".
 - **Gnani STT:** the voice recording and the selected language code, only when
   the user records a voice question.
-- The main LLM (planned: DeepSeek, not Groq) and the translation provider are
-  covered in the provider-migration spec.
+- The summary is already in the user's language when it reaches TTS: Sarvam
+  translated it back from English (Sarvam is used only for translation).
+- The LLM (Groq now, DeepSeek planned) only sees English text; see the
+  provider-migration spec for the full table.
 
 ## UI behavior
 
