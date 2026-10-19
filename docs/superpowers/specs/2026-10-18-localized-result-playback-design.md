@@ -31,6 +31,16 @@ does not read raw table rows aloud.
 Only the user-visible executive answer is submitted to TTS. SQL, detailed
 result rows, connection information, and hidden metadata are excluded.
 
+### Data sent to outside services
+
+- **Gnani TTS:** the visible answer headline and detail text (at most 2,000
+  characters) and the selected language code, only when the user presses
+  "Listen to answer".
+- **Gnani STT:** the voice recording and the selected language code, only when
+  the user records a voice question.
+- The main LLM (planned: DeepSeek, not Groq) and the translation provider are
+  covered in the provider-migration spec.
+
 ## UI behavior
 
 - The result summary shows `Listen to answer` at rest.

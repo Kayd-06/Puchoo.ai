@@ -1,5 +1,15 @@
 # Groq and Gnani Provider Migration Implementation Plan
 
+> **Status update (2026-10-19):** Groq is no longer the planned language model.
+> The team plans to use **DeepSeek** (OpenAI-compatible API) instead; read
+> "Groq" below as "the main LLM". Gnani's public API offers speech-to-text,
+> text-to-speech and voice cloning only — it has **no text-to-text translation
+> endpoint** — so question/answer translation cannot move to Gnani. Until the
+> main LLM takes over translation, `apps/api/routers/query.py` still calls
+> Sarvam for it. Gnani STT also has no `auto` language: the browser sends the
+> language chosen in the voice picker, with `GNANI_STT_LANGUAGE` (default
+> `en-IN`) as the server fallback.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Groq the only language-model provider and Gnani the only speech-to-text provider while preserving query safety, multilingual input, and voice recording UX.
@@ -13,7 +23,7 @@
 ## Global Constraints
 
 - Never add or log a production `GROQ_API_KEY` or `GNANI_API_KEY`; use only untracked local `.env` configuration.
-- Support Indian English, Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, Kannada, Malayalam, Punjabi, and Odia through Gnani automatic STT detection.
+- Support Indian English, Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, Kannada, Malayalam, and Punjabi through Gnani STT with an explicit, user-selected language code (Gnani STT has no auto-detect option).
 - Translate only non-English question input before SQL planning; summaries, labels, and returned cells remain English.
 - Do not change SQL parsing, read-only execution, query approval, schema reduction, or authorization boundaries.
 - Do not retain Claude, Anthropic, local-MLX, or Sarvam compatibility paths, dependencies, settings, routes, or UI copy.
