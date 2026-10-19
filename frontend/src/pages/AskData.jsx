@@ -21,6 +21,7 @@ import {
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi, fetchApiBlob } from '../api/client';
+import { buildCsv, renderPdfHtml } from '../utils/reportExport';
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -679,7 +680,8 @@ export default function AskData() {
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
       setQuestion((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
-      setQuestionLanguage(voiceLanguage);
+      // Prefer the language Gnani reports; fall back to the picker selection.
+      setQuestionLanguage(response?.language_code || voiceLanguage);
     } catch (err) {
       setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
     } finally {
@@ -849,8 +851,7 @@ export default function AskData() {
   const downloadReportCsv = () => {
     if (!result) return;
     const table = reportTable(result);
-    const quote = (value) => `"${String(value).replaceAll('"', '""')}"`;
-    const csv = [table.labels, ...table.rows].map((row) => row.map(quote).join(',')).join('\r\n');
+    const csv = buildCsv([table.labels, ...table.rows]);
     saveBlob(
       new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }),
       reportFilename(result.record.question, 'csv'),
@@ -866,19 +867,14 @@ export default function AskData() {
       report = createPdfReportDocument(result, resultLabels);
       document.body.append(report);
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      await new Promise((resolve) => {
-        pdf.html(report, {
-          autoPaging: 'text',
-          html2canvas: { scale: 0.75, backgroundColor: '#ffffff' },
-          margin: [22, 22, 22, 22],
-          width: 798,
-          windowWidth: 1040,
-          callback: (documentPdf) => {
-            documentPdf.save(reportFilename(result.record.question, 'pdf'));
-            resolve();
-          },
-        });
+      const documentPdf = await renderPdfHtml(pdf, report, {
+        autoPaging: 'text',
+        html2canvas: { scale: 0.75, backgroundColor: '#ffffff' },
+        margin: [22, 22, 22, 22],
+        width: 798,
+        windowWidth: 1040,
       });
+      documentPdf.save(reportFilename(result.record.question, 'pdf'));
     } catch {
       setError('We could not prepare the PDF. Please try downloading the CSV instead.');
     } finally {
@@ -981,7 +977,11 @@ export default function AskData() {
             <div className={`ask-prompt-shell${loading ? ' is-loading' : ''}`} aria-busy={loading}>
               <textarea
                 value={question}
-                onChange={(event) => setQuestion(event.target.value)}
+                onChange={(event) => {
+                  setQuestion(event.target.value);
+                  // A cleared composer starts a new question that is not tied to an earlier recording.
+                  if (!event.target.value.trim()) setQuestionLanguage(null);
+                }}
                 onKeyDown={onComposerKeyDown}
                 placeholder={
                   continuation
@@ -1031,12 +1031,9 @@ export default function AskData() {
                       id="voice-language"
                       name="voice-language"
                       value={voiceLanguage}
-                      onChange={(event) => {
-                        setVoiceLanguage(event.target.value);
-                        setQuestionLanguage(event.target.value);
-                      }}
+                      onChange={(event) => setVoiceLanguage(event.target.value)}
                       disabled={voiceState !== 'idle'}
-                      aria-label="Voice and answer language"
+                      aria-label="Voice language"
                     >
                       {VOICE_LANGUAGES.map((language) => (
                         <option key={language.code} value={language.code}>
