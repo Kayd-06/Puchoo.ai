@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom';
 import NodeSphere from './NodeSphere';
 import { PillButton, Reveal, SectionHeading, focusRing } from './ui';
 
-const tools = ['FastAPI', 'React', 'Sarvam AI', 'Claude', 'PostgreSQL', 'Redis'];
+const tools = ['FastAPI', 'React', 'Gnani', 'Sarvam AI', 'Groq', 'PostgreSQL', 'Redis'];
 
 const capabilities = [
   {
@@ -24,21 +24,21 @@ const capabilities = [
     title: 'Multilingual questions',
     icon: Languages,
     description:
-      'Ask in English or an Indian language. Sarvam AI detects the language, translates, and transliterates so the question can be understood before any SQL is proposed.',
+      'Ask in English or an Indian language. Sarvam AI translates the question to English before any SQL is proposed, then translates the answer summary back into your language.',
   },
   {
     id: 'voice',
     title: 'Voice input',
     icon: AudioLines,
     description:
-      'Speak the question instead of typing. Sarvam AI turns speech into text, then runs the same language detection, translation, and transliteration path.',
+      'Speak the question instead of typing. Gnani turns your speech into text in the language you spoke, and can read the answer summary aloud.',
   },
   {
     id: 'approve',
     title: 'Approve before execute',
     icon: SquareCheck,
     description:
-      'Claude Sonnet proposes the SQL. Claude Haiku gives an advisory second check. You see the SQL and a plain-language explanation. Nothing runs until you approve it.',
+      'A Groq-hosted model proposes the SQL and a second model gives an advisory check. You see the SQL and a plain-language explanation. Nothing runs until you approve it.',
   },
   {
     id: 'guardrail',
@@ -158,15 +158,15 @@ const faqs = [
   },
   {
     category: 'Languages',
-    question: 'Which languages can I use, and what does Sarvam AI do?',
+    question: 'Which languages can I use, and what do Gnani and Sarvam AI do?',
     answer:
-      'You can type or speak in English or Indian languages. Sarvam AI handles speech-to-text, language detection, translation, and transliteration.',
+      'You can type or speak in English or Indian languages. Gnani handles speech-to-text and reads answers aloud; Sarvam AI only translates the question to English and the answer back.',
   },
   {
     category: 'Languages',
     question: 'Which models propose the SQL?',
     answer:
-      'Claude Sonnet proposes the SQL. Claude Haiku gives an advisory second check before you decide whether to approve it.',
+      'A Groq-hosted model proposes the SQL (DeepSeek is planned next). A second model gives an advisory check before you decide whether to approve it.',
   },
   {
     category: 'Accounts',
@@ -216,7 +216,7 @@ export function BuiltWith() {
   return (
     <section
       className="mx-3 overflow-hidden rounded-[28px] bg-white py-14 md:mx-4"
-      aria-label="Built with FastAPI, React, Sarvam AI, Claude, PostgreSQL, and Redis"
+      aria-label="Built with FastAPI, React, Gnani, Sarvam AI, Groq, PostgreSQL, and Redis"
     >
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <p className="text-sm font-medium text-[#6B7280]">Built with</p>

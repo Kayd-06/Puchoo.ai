@@ -1,25 +1,21 @@
-"""Sarvam language adapter router."""
+"""Sarvam text-translation router.
+
+Sarvam is used only for translation. Speech-to-text and text-to-speech go
+through Gnani (see apps/api/routers/voice.py).
+"""
 
 import logging
 import re
-from pathlib import Path
 from typing import Dict
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
 from apps.api.security import require_capability
-from backend.config import settings
 
 router = APIRouter(prefix="/sarvam", tags=["sarvam"])
 logger = logging.getLogger(__name__)
-MAX_AUDIO_BYTES = settings.upload_max_bytes
-_AUDIO_SIGNATURES = {
-    ".webm": (b"\x1a\x45\xdf\xa3",),
-    ".wav": (b"RIFF",),
-    ".ogg": (b"OggS",),
-    ".mp3": (b"ID3",),
-}
+
 
 class TranslationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -35,46 +31,6 @@ class TranslationRequest(BaseModel):
             raise ValueError("Use a BCP-47 language code such as hi-IN.")
         return value
 
-
-async def _read_audio(file: UploadFile) -> bytes:
-    contents = await file.read(MAX_AUDIO_BYTES + 1)
-    if not contents:
-        raise HTTPException(status_code=400, detail="Empty audio file provided.")
-    if len(contents) > MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=413, detail="The audio file is too large.")
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix in {".mp4", ".m4a"}:
-        # ISO-BMFF (Safari/iOS MediaRecorder output) carries "ftyp" at byte 4.
-        valid = len(contents) >= 8 and contents[4:8] == b"ftyp"
-    else:
-        signatures = _AUDIO_SIGNATURES.get(suffix)
-        valid = signatures is not None and any(contents.startswith(signature) for signature in signatures)
-        # MP3 frame-sync is valid when no ID3 metadata is present.
-        valid = valid or (suffix == ".mp3" and len(contents) >= 2 and contents[0] == 0xFF and contents[1] & 0xE0 == 0xE0)
-    if not valid:
-        raise HTTPException(status_code=400, detail="The audio file content does not match its declared format.")
-    if suffix == ".wav" and contents[8:12] != b"WAVE":
-        raise HTTPException(status_code=400, detail="The audio file content does not match its declared format.")
-    return contents
-
-@router.post("/transcribe")
-async def transcribe(file: UploadFile = File(...), user=Depends(require_capability("query_workspace"))) -> Dict[str, str | None]:
-    contents = await _read_audio(file)
-    try:
-        client = SarvamClient()
-        # Keep the transcript in the language spoken. Sarvam auto-detects its
-        # supported languages when no language is specified.
-        transcription = client.transcribe_with_metadata(
-            contents,
-            filename=file.filename or "audio.webm",
-            translate_to_english=False,
-        )
-        return {"transcript": transcription.transcript, "language_code": transcription.language_code}
-    except SarvamConfigurationError:
-        raise HTTPException(status_code=503, detail="Speech transcription is not configured.") from None
-    except Exception as exc:
-        logger.exception("Sarvam transcription failed: %s", type(exc).__name__)
-        raise HTTPException(status_code=502, detail="Transcription is temporarily unavailable.") from None
 
 @router.post("/translate")
 def translate(request: TranslationRequest, user=Depends(require_capability("query_workspace"))) -> Dict[str, str]:

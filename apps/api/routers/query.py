@@ -109,15 +109,41 @@ def _autonomous_mode() -> bool:
     return os.getenv("PUCHOO_AUTONOMOUS_MODE", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _spoken_language(language_code: str | None) -> str | None:
-    """Only pass a detected, non-English BCP-47 code to the language adapter."""
+# Gnani (speech) and Sarvam (translation) both use BCP-47 "xx-IN" codes, so
+# most codes pass straight through. These aliases cover the variants either
+# side, or the browser, may send.
+_LANGUAGE_ALIASES = {
+    "or": "od",  # Odia: ISO 639-1 "or", Sarvam uses "od-IN"
+}
+
+
+def to_sarvam_language(language_code: str | None) -> str | None:
+    """Map a Gnani/browser language code to the code Sarvam translation expects.
+
+    Returns None for English or anything that is not a usable language code, so
+    callers skip translation instead of sending Sarvam a code it rejects.
+    """
 
     if not isinstance(language_code, str):
         return None
-    normalized = language_code.strip()
-    if not re.fullmatch(r"[a-z]{2,3}-[A-Z]{2}", normalized) or normalized == "en-IN":
+    raw = language_code.strip().replace("_", "-")
+    if not raw:
+        return None
+    parts = raw.split("-")
+    language = _LANGUAGE_ALIASES.get(parts[0].lower(), parts[0].lower())
+    region = parts[1].upper() if len(parts) > 1 else "IN"
+    if region == "EN":  # Gnani "hi-en" (Hinglish) -> translate as Hindi
+        region = "IN"
+    normalized = f"{language}-{region}"
+    if len(parts) > 2 or not re.fullmatch(r"[a-z]{2,3}-[A-Z]{2}", normalized) or language == "en":
         return None
     return normalized
+
+
+def _spoken_language(language_code: str | None) -> str | None:
+    """Only pass a detected, non-English BCP-47 code to the language adapter."""
+
+    return to_sarvam_language(language_code)
 
 
 def _infer_indic_language(question: str) -> str | None:

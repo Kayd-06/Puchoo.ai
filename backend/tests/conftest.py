@@ -32,6 +32,16 @@ def block_outbound_smtp(monkeypatch):
     monkeypatch.setattr("backend.emailer.smtplib.SMTP_SSL", refuse)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiters_after_each_test():
+    """Rate-limit counters are process global, so no test may leak them onward."""
+    yield
+    limiter.reset()
+    connection_limiter.reset()
+    public_limiter.reset()
+    authenticated_limiter.reset()
+
+
 @pytest.fixture
 def app(tmp_path):
     configure_database("sqlite:///" + (tmp_path / "auth.db").as_posix())
