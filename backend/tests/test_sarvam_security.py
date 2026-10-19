@@ -50,3 +50,12 @@ def test_translation_schema_rejects_unknown_fields_and_oversized_text():
         pass
     else:
         raise AssertionError("oversized translation input must be rejected")
+
+
+def test_sarvam_speech_route_is_removed_and_voice_route_remains():
+    """Speech goes through Gnani; Sarvam keeps only its translation route."""
+    paths = set(create_app(include_product=True).openapi()["paths"])
+    assert "/api/sarvam/transcribe" not in paths
+    assert "/api/sarvam/translate" in paths
+    assert "/api/voice/transcribe" in paths
+    assert "/api/voice/synthesize" in paths
