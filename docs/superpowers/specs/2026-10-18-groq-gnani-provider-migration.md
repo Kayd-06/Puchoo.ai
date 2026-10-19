@@ -108,7 +108,7 @@ non-provider application settings in `.env.example` remain unchanged.
 | Visible answer headline + detail (≤2,000 chars) + language code | Gnani TTS (`api.vachana.ai/api/v1/tts/inference`) | User presses "Listen to answer" |
 | Non-English question text | Sarvam translation | Question language is not English |
 | Answer summary, labels, column names and text cells of the result | Sarvam translation | Question language is not English |
-| English question (translated if needed), schema summary, sample values | LLM: Groq now, DeepSeek planned | Every query |
+| English question and schema summary; for answer verification, the SQL plus up to 50 result rows | LLM: Groq now, DeepSeek planned | Every query |
 
 SQL, connection details and credentials are never sent to Gnani or Sarvam.
 Numeric result values are not translated or sent to Sarvam.
