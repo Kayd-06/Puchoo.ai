@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 from struct import unpack_from
 
 
@@ -20,6 +21,25 @@ SUPPORTED_LANGUAGE_CODES = frozenset({
     "bn-IN", "en-IN", "gu-IN", "hi-IN", "kn-IN",
     "ml-IN", "mr-IN", "pa-IN", "ta-IN", "te-IN",
 })
+
+
+_SAFE_AUDIO_SUFFIXES = frozenset({".wav", ".ogg", ".mp3", ".m4a", ".mp4", ".flac", ".aac"})
+
+
+@lru_cache(maxsize=1)
+def _load_env_once() -> None:
+    """Read the local .env a single time per process, not on every request."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv()
+
+
+def _safe_upload_name(filename: str) -> str:
+    """Never forward a client-supplied filename: keep only a known audio suffix."""
+    suffix = os.path.splitext(os.path.basename(filename or ""))[1].lower()
+    return f"audio{suffix}" if suffix in _SAFE_AUDIO_SUFFIXES else "audio.wav"
 
 
 class GnaniConfigurationError(RuntimeError):
@@ -42,11 +62,7 @@ class GnaniClient:
         timeout_seconds: int = 45,
     ) -> None:
         if api_key is None:
-            try:
-                from dotenv import load_dotenv
-                load_dotenv()
-            except ImportError:
-                pass
+            _load_env_once()
         self.api_key = api_key or os.getenv("GNANI_API_KEY")
         if not self.api_key:
             raise GnaniConfigurationError("GNANI_API_KEY is not configured.")
@@ -63,7 +79,7 @@ class GnaniClient:
         chunks: list[bytes] = []
         for key, value in fields:
             chunks.extend((f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(), value.encode(), b"\r\n"))
-        safe_name = os.path.basename(filename) or "audio.webm"
+        safe_name = _safe_upload_name(filename)
         chunks.extend((
             f"--{boundary}\r\n".encode(),
             f'Content-Disposition: form-data; name="audio_file"; filename="{safe_name}"\r\n'.encode(),

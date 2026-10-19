@@ -57,7 +57,7 @@ def test_transcribe_uses_gnani_multipart_contract_with_a_supported_default_langu
     request = request_open.call_args.args[0]
     body = request.data.decode("utf-8")
     assert request.headers["X-api-key-id"] == "secret"
-    assert 'name="audio_file"; filename="voice.ogg"' in body
+    assert 'name="audio_file"; filename="audio.ogg"' in body
     assert 'name="language_code"' in body and "en-IN" in body
     assert 'name="preferred_language"' not in body
     assert 'name="format"' in body and "transcribe" in body
@@ -166,3 +166,37 @@ def test_synthesize_maps_upstream_errors_to_a_safe_message():
     with patch("apps.core.gnani_client.urllib.request.urlopen", side_effect=upstream_error):
         with pytest.raises(GnaniConfigurationError, match="speech is temporarily unavailable"):
             GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("voice.OGG", "audio.ogg"),
+        ("../../etc/passwd", "audio.wav"),
+        ('evil".wav\r\nX-Injected: 1', "audio.wav"),
+        ("", "audio.wav"),
+    ],
+)
+def test_multipart_filename_is_never_client_controlled(filename, expected):
+    body, _boundary = GnaniClient._multipart(b"OggS", filename, "en-IN")
+    assert f'filename="{expected}"'.encode() in body
+    assert b"X-Injected" not in body
+
+
+def test_transcribe_uses_env_language_when_none_is_given(monkeypatch):
+    monkeypatch.setenv("GNANI_STT_LANGUAGE", "ta-IN")
+    with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_Response()) as request_open:
+        GnaniClient(api_key="secret").transcribe(b"OggS audio", "voice.ogg")
+    assert "ta-IN" in request_open.call_args.args[0].data.decode("utf-8")
+
+
+def test_dotenv_is_loaded_once_per_process(monkeypatch):
+    from apps.core import gnani_client
+
+    gnani_client._load_env_once.cache_clear()
+    calls = []
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: calls.append(1))
+    monkeypatch.setenv("GNANI_API_KEY", "secret")
+    GnaniClient()
+    GnaniClient()
+    assert calls == [1]
