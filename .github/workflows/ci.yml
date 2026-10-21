@@ -35,7 +35,7 @@ jobs:
       - run: npm --prefix frontend run build
       - run: npm --prefix frontend run format:check
       - run: npm --prefix frontend audit --omit=dev --audit-level=high
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: verification-reports
