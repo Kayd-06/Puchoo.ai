@@ -174,8 +174,8 @@ def _translate_for_sql(question: str, language_code: str | None) -> str:
         raise ValueError("Could not translate the spoken question for SQL generation. Please try again.") from exc
 
 
-def _translate_for_display(text: str, language_code: str | None, *, required: bool = False) -> str:
-    """Translate display text; final answers require the requested language."""
+def _translate_for_display(text: str, language_code: str | None, *, failures: list[str] | None = None) -> str:
+    """Translate display text. On failure keep English and record it in ``failures``."""
 
     if not language_code or not text:
         return text
@@ -188,35 +188,45 @@ def _translate_for_display(text: str, language_code: str | None, *, required: bo
         return translated
     except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
         logger.warning("result_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
-        if required:
-            raise HTTPException(status_code=503, detail="The answer could not be translated into your language. Please try again.") from None
+        if failures is not None:
+            failures.append(text)
         return text
 
 
-def _localize_rows(rows: list[dict[str, Any]], language_code: str | None, *, required: bool = False) -> list[dict[str, Any]]:
-    """Translate visible text values, but preserve numeric facts and untranslatable data exactly."""
+def _localize_rows(
+    rows: list[dict[str, Any]], language_code: str | None, *, failures: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Translate visible text values, but preserve numeric facts and untranslatable data exactly.
+
+    Values the first batch misses are retried once in a single batch call (never
+    one call per value); anything still missing stays in English and is recorded.
+    """
 
     if not language_code:
         return rows
-    texts = [
+    texts = list(dict.fromkeys(
         value.strip()
         for row in rows
         for value in row.values()
         if isinstance(value, str) and value.strip() and any(character.isalpha() for character in value)
-    ]
+    ))
     if not texts:
         return rows
-    try:
-        translations = SarvamClient().translate_many(texts, language_code, source_language="en-IN")
-    except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
-        logger.warning("table_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
-        if required:
-            raise HTTPException(status_code=503, detail="The table could not be translated into your language. Please try again.") from None
-        return rows
-    if required:
-        for text in dict.fromkeys(texts):
-            if not translations.get(text):
-                translations[text] = _translate_for_display(text, language_code, required=True)
+    client = SarvamClient()
+    translations: dict[str, str] = {}
+    pending = texts
+    for _attempt in range(2):
+        try:
+            batch = client.translate_many(pending, language_code, source_language="en-IN")
+        except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
+            logger.warning("table_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
+            break
+        translations.update({key: value for key, value in batch.items() if value})
+        pending = [text for text in pending if not translations.get(text)]
+        if not pending:
+            break
+    if pending and failures is not None:
+        failures.extend(pending)
     return [
         {
             key: translations.get(value.strip(), value) if isinstance(value, str) else value
@@ -693,8 +703,11 @@ def approve_pending_query(
             record.get("processing_question", record["question"]), record["columns"], record["rows"]
         )
         output_language = _spoken_language(record.get("language_code"))
+        translation_failures: list[str] = []
+
         def localize(text: str) -> str:
-            return _translate_for_display(text, output_language, required=True)
+            # A translation outage must not hide a valid answer: fall back to English.
+            return _translate_for_display(text, output_language, failures=translation_failures)
 
         headline = localize(presentation.headline)
         detail = localize(presentation.detail)
@@ -719,7 +732,7 @@ def approve_pending_query(
             column: localize(humanize_column(column))
             for column in record["columns"]
         }
-        display_rows = _localize_rows(record["rows"], output_language, required=True)
+        display_rows = _localize_rows(record["rows"], output_language, failures=translation_failures)
         
         return {
             "record": record,
@@ -732,6 +745,7 @@ def approve_pending_query(
                 "labels": labels,
                 "column_labels": column_labels,
                 "display_rows": display_rows,
+                "translation_unavailable": bool(translation_failures),
             }
         }
         

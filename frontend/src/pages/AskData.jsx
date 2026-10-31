@@ -1270,6 +1270,11 @@ export default function AskData() {
               <div className="result-summary-copy">
                 <strong>{presentation.headline}</strong>
                 {presentation.detail && <p>{presentation.detail}</p>}
+                {presentation.translation_unavailable && (
+                  <p className="result-translation-note" role="status">
+                    Translation is unavailable right now, so this answer is shown in English.
+                  </p>
+                )}
               </div>
               <ResultSpeechControls
                 speechState={speechState}

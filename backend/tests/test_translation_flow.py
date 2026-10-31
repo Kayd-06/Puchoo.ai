@@ -102,8 +102,7 @@ def test_hindi_question_answer_and_cells_keep_hindi(fake_sarvam):
     assert query_router._localize_rows([{'status': 'Paid', 'amount': 0}], language) == [{'status': '[hi-IN] Paid', 'amount': 0}]
 
 
-def test_required_result_translation_does_not_silently_return_english(monkeypatch):
-    from fastapi import HTTPException
+def test_translation_outage_falls_back_to_english_and_records_failure(monkeypatch):
     class BrokenSarvam:
         def translate(self, *_args, **_kwargs):
             raise RuntimeError('down')
@@ -111,9 +110,37 @@ def test_required_result_translation_does_not_silently_return_english(monkeypatc
             raise RuntimeError('down')
     monkeypatch.setattr(query_router, 'SarvamClient', BrokenSarvam)
     monkeypatch.setattr(query_router, '_translation_cache', {})
-    with pytest.raises(HTTPException) as exc:
-        query_router._translate_for_display('Total expenses', 'hi-IN', required=True)
-    assert exc.value.status_code == 503
-    with pytest.raises(HTTPException) as exc:
-        query_router._localize_rows([{'status': 'Paid'}], 'hi-IN', required=True)
-    assert exc.value.status_code == 503
+    failures = []
+    assert query_router._translate_for_display('Total expenses', 'hi-IN', failures=failures) == 'Total expenses'
+    assert query_router._localize_rows([{'status': 'Paid', 'amount': 3}], 'hi-IN', failures=failures) == [{'status': 'Paid', 'amount': 3}]
+    assert failures == ['Total expenses', 'Paid']
+
+
+def test_missing_row_translations_are_retried_in_one_batch(monkeypatch):
+    calls = []
+    class PartialSarvam:
+        def translate(self, *_args, **_kwargs):
+            raise AssertionError('per-value translate must not be used for rows')
+        def translate_many(self, texts, language, **_kwargs):
+            calls.append(list(texts))
+            if len(calls) == 1:
+                return {texts[0]: f'[{language}] {texts[0]}'}
+            return {text: f'[{language}] {text}' for text in texts}
+    monkeypatch.setattr(query_router, 'SarvamClient', PartialSarvam)
+    rows = [{'status': 'Paid'}, {'status': 'Due'}, {'status': 'Late'}, {'status': 'Paid'}]
+    failures = []
+    result = query_router._localize_rows(rows, 'hi-IN', failures=failures)
+    assert calls == [['Paid', 'Due', 'Late'], ['Due', 'Late']]
+    assert [row['status'] for row in result] == ['[hi-IN] Paid', '[hi-IN] Due', '[hi-IN] Late', '[hi-IN] Paid']
+    assert failures == []
+
+
+def test_row_translations_still_missing_after_retry_stay_english(monkeypatch):
+    class StubbornSarvam:
+        def translate_many(self, texts, language, **_kwargs):
+            return {'Paid': '[hi] Paid'} if 'Paid' in texts else {}
+    monkeypatch.setattr(query_router, 'SarvamClient', StubbornSarvam)
+    failures = []
+    result = query_router._localize_rows([{'s': 'Paid'}, {'s': 'Due'}], 'hi-IN', failures=failures)
+    assert result == [{'s': '[hi] Paid'}, {'s': 'Due'}]
+    assert failures == ['Due']
