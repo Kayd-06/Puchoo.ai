@@ -166,7 +166,7 @@ export default function ChangeEmailPanel() {
                 <button
                   type="button"
                   onClick={close}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#0c1830] px-5 py-3 text-sm font-medium text-white"
+                  className="ui-action ui-action-primary inline-flex items-center gap-2 rounded-full bg-[#0c1830] px-5 py-3 text-sm font-medium text-white"
                 >
                   <Check size={16} />
                   Done

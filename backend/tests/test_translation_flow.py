@@ -88,3 +88,32 @@ def test_translation_failure_blocks_the_question_but_not_the_answer(monkeypatch)
     with pytest.raises(ValueError):
         query_router._translate_for_sql("मेरे खर्चे", "hi-IN")
     assert query_router._translate_for_display("Total is 200.", "hi-IN") == "Total is 200."
+
+
+@pytest.mark.parametrize('question,language', [('पिछले महीने का खर्च बताओ', 'hi-IN'), ('Show total expenses', None)])
+def test_typed_question_language_is_detected(question, language):
+    assert query_router._infer_indic_language(question) == language
+
+
+def test_hindi_question_answer_and_cells_keep_hindi(fake_sarvam):
+    language = query_router._infer_indic_language('पिछले महीने का खर्च बताओ')
+    assert query_router._translate_for_sql('पिछले महीने का खर्च बताओ', language).startswith('[en-IN]')
+    assert query_router._translate_for_display('Total expenses', language).startswith('[hi-IN]')
+    assert query_router._localize_rows([{'status': 'Paid', 'amount': 0}], language) == [{'status': '[hi-IN] Paid', 'amount': 0}]
+
+
+def test_required_result_translation_does_not_silently_return_english(monkeypatch):
+    from fastapi import HTTPException
+    class BrokenSarvam:
+        def translate(self, *_args, **_kwargs):
+            raise RuntimeError('down')
+        def translate_many(self, *_args, **_kwargs):
+            raise RuntimeError('down')
+    monkeypatch.setattr(query_router, 'SarvamClient', BrokenSarvam)
+    monkeypatch.setattr(query_router, '_translation_cache', {})
+    with pytest.raises(HTTPException) as exc:
+        query_router._translate_for_display('Total expenses', 'hi-IN', required=True)
+    assert exc.value.status_code == 503
+    with pytest.raises(HTTPException) as exc:
+        query_router._localize_rows([{'status': 'Paid'}], 'hi-IN', required=True)
+    assert exc.value.status_code == 503

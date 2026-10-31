@@ -28,7 +28,7 @@ export function PillButton({
   className = '',
 }) {
   const classes = [
-    'group inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[15px] font-medium transition-colors',
+    'ui-action ui-action-primary group inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[15px] font-medium transition-colors',
     focusRing,
     variant === 'light'
       ? 'bg-white text-[#111827] hover:bg-[#F3F4F6]'

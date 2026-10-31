@@ -199,7 +199,7 @@ export default function ConnectData() {
               <span>Workspace ready</span>
               <h1>{createdWorkspace.name}</h1>
               <p>Your source is now isolated and available for verified, read-only analysis.</p>
-              <Link to="/ask">
+              <Link to="/ask" className="ui-action ui-action-primary">
                 Ask your data <ArrowUpRight size={17} />
               </Link>
               <button type="button" onClick={() => setCreatedWorkspace(null)}>

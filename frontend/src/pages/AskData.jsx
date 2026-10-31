@@ -20,8 +20,10 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { useChatState } from '../hooks/useChatState';
 import { fetchApi, fetchApiBlob } from '../api/client';
 import { buildCsv, renderPdfHtml } from '../utils/reportExport';
+import { playAnswerAudio, requestMicrophone } from '../utils/voice';
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -139,16 +141,39 @@ function reportTable(result) {
   };
 }
 
-export function buildResultSpeechPayload(presentation) {
-  return [presentation?.headline, presentation?.detail]
+export function buildResultSpeechPayload(presentation, record = {}) {
+  const parts = [presentation?.headline, presentation?.detail]
     .filter((part) => typeof part === 'string' && part.trim())
-    .map((part) => part.trim())
-    .join('\n\n')
-    .slice(0, 2000);
+    .map((part) => part.trim());
+  const table = reportTable({ presentation, record });
+  for (const row of table.rows) {
+    parts.push(
+      row.map((value, index) => `${table.labels[index]}: ${String(value)}`).join('; ') + '.',
+    );
+  }
+  return parts.join('\n\n');
+}
+
+export function splitResultSpeech(text) {
+  const clips = [];
+  let remaining = text;
+  while (remaining.length > 2000) {
+    let end = Math.max(remaining.lastIndexOf('\n', 1999), remaining.lastIndexOf(' ', 1999));
+    end = end > 1000 ? end + 1 : 2000;
+    if (/[\uD800-\uDBFF]/.test(remaining[end - 1])) end -= 1;
+    clips.push(remaining.slice(0, end));
+    remaining = remaining.slice(end);
+  }
+  if (remaining.trim()) clips.push(remaining);
+  return clips;
 }
 
 export function resolveResultSpeechLanguage(result, questionLanguage) {
-  const selectedLanguage = result?.record?.language_code || questionLanguage || 'en-IN';
+  const selectedLanguage =
+    result?.presentation?.language_code ||
+    result?.record?.language_code ||
+    questionLanguage ||
+    'en-IN';
   return VOICE_LANGUAGES.some((language) => language.code === selectedLanguage)
     ? selectedLanguage
     : 'en-IN';
@@ -181,9 +206,9 @@ export function ResultSpeechControls({ speechState, speechError, onPlay, onPause
   const status = isPreparing
     ? 'Preparing audio'
     : isPlaying
-      ? 'Playing summary'
+      ? 'Playing full report'
       : isPaused
-        ? 'Playback paused'
+        ? 'Playback paused — tap Resume to continue'
         : speechError || 'Ready to play the answer';
 
   return (
@@ -211,7 +236,7 @@ export function ResultSpeechControls({ speechState, speechError, onPlay, onPause
             <Volume2 size={15} /> Listen to answer
           </button>
         )}
-        {(isPlaying || isPaused) && (
+        {(isPreparing || isPlaying || isPaused) && (
           <button
             type="button"
             className="result-speech-stop"
@@ -553,19 +578,48 @@ export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
   const { user } = useAuth();
-  const [question, setQuestion] = useState('');
-  const [continuation, setContinuation] = useState(() => location.state?.continuation || null);
-  const [questionLanguage, setQuestionLanguage] = useState(
-    () => location.state?.continuation?.languageCode || null,
+  const [question, setQuestion] = useChatState(user?.id, activeWorkspaceId, 'question', '');
+  const [continuation, setContinuation] = useChatState(
+    user?.id,
+    activeWorkspaceId,
+    'continuation',
+    location.state?.continuation || null,
   );
-  const [voiceLanguage, setVoiceLanguage] = useState(
-    () => location.state?.continuation?.languageCode || 'en-IN',
+  const [questionLanguage, setQuestionLanguage] = useChatState(
+    user?.id,
+    activeWorkspaceId,
+    'questionLanguage',
+    location.state?.continuation?.languageCode || null,
   );
   const [welcome, setWelcome] = useState(() => consumeWelcome(location.state?.welcome));
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useChatState(user?.id, activeWorkspaceId, 'loading', false, false);
+  const [result, setResult] = useChatState(user?.id, activeWorkspaceId, 'result', null);
   const [error, setError] = useState('');
-  const [clarification, setClarification] = useState(null);
+  const [clarification, setClarification] = useChatState(
+    user?.id,
+    activeWorkspaceId,
+    'clarification',
+    null,
+  );
+  useEffect(() => {
+    const next = location.state?.continuation;
+    if (!next || continuation?._routeKey === location.key) return;
+    setContinuation({ ...next, _routeKey: location.key });
+    setQuestion('');
+    setQuestionLanguage(next.languageCode || null);
+    setResult(null);
+    setClarification(null);
+  }, [
+    location.key,
+    location.state?.continuation,
+    continuation?._routeKey,
+    setContinuation,
+    setQuestion,
+    setQuestionLanguage,
+    setResult,
+    setClarification,
+  ]);
+
   const [voiceState, setVoiceState] = useState('idle');
   const [voiceError, setVoiceError] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -675,13 +729,12 @@ export default function AskData() {
           ? 'ogg'
           : 'wav';
       audio.append('file', blob, `puchoo-question.${extension}`);
-      audio.append('language_code', voiceLanguage);
       const response = await fetchApi('/voice/transcribe', { method: 'POST', body: audio });
       const transcript = response?.transcript?.trim();
       if (!transcript) throw new Error('No speech was detected. Please try again.');
       setQuestion((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
-      // Prefer the language Gnani reports; fall back to the picker selection.
-      setQuestionLanguage(response?.language_code || voiceLanguage);
+      // Follow the language detected from the recording, never a browser default.
+      setQuestionLanguage(response?.language_code || null);
     } catch (err) {
       setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
     } finally {
@@ -700,7 +753,7 @@ export default function AskData() {
     }
     setVoiceState('requesting');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await requestMicrophone();
       streamRef.current = stream;
       audioChunksRef.current = [];
       const preferredMimeType = GNANI_RECORDING_MIME_TYPES.find((type) =>
@@ -719,6 +772,7 @@ export default function AskData() {
         setVoiceState('idle');
       };
       recorder.onstop = async () => {
+        setVoiceState('transcribing');
         let blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         releaseMicrophone();
         if (!blob.type.includes('ogg') && !blob.type.includes('mp4')) {
@@ -743,7 +797,7 @@ export default function AskData() {
       setVoiceError(
         err.name === 'NotAllowedError'
           ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
-          : 'We could not start the microphone. Please try again.',
+          : err.message || 'We could not start the microphone. Please try again.',
       );
     }
   };
@@ -765,56 +819,59 @@ export default function AskData() {
 
   const playResultSpeech = async () => {
     if (!result || speechState === 'loading') return;
-    const text = buildResultSpeechPayload(presentation);
-    if (!text) {
-      setSpeechError('There is no summary available to read aloud.');
+    const clips = splitResultSpeech(buildResultSpeechPayload(presentation, result.record));
+    if (!clips.length) {
+      setSpeechError('There is no report available to read aloud.');
       return;
     }
 
     stopReadingResult();
     const requestId = speechRequestRef.current + 1;
     speechRequestRef.current = requestId;
-    setSpeechState('loading');
-    try {
-      const audioBlob = await fetchApiBlob('/voice/synthesize', {
-        method: 'POST',
-        body: JSON.stringify({
-          text,
-          language_code: resolveResultSpeechLanguage(result, questionLanguage),
-        }),
-      });
-      const objectUrl = URL.createObjectURL(audioBlob);
-      if (speechRequestRef.current !== requestId) {
-        URL.revokeObjectURL(objectUrl);
-        return;
-      }
-
-      const audio = new Audio(objectUrl);
-      speechUrlRef.current = objectUrl;
-      speechAudioRef.current = audio;
-      const finish = () => {
-        if (speechAudioRef.current !== audio) return;
-        stopResultSpeech(speechAudioRef, speechUrlRef);
-        setSpeechState('idle');
-        setActiveHighlight(-1);
-      };
-      audio.onended = finish;
-      audio.onerror = () => {
-        if (speechAudioRef.current !== audio) return;
-        finish();
-        setSpeechError('Audio playback could not start. Please try again.');
-      };
-      await audio.play();
-      if (isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) {
-        setSpeechState('playing');
-        setActiveHighlight(0);
-      }
-    } catch (err) {
+    const language = resolveResultSpeechLanguage(result, questionLanguage);
+    const playClip = async (index) => {
       if (speechRequestRef.current !== requestId) return;
       stopResultSpeech(speechAudioRef, speechUrlRef);
-      setSpeechState('idle');
-      setSpeechError(err.message || 'Speech is temporarily unavailable. Please try again.');
-    }
+      setActiveHighlight(-1);
+      if (index >= clips.length) {
+        setSpeechState('idle');
+        return;
+      }
+      setSpeechState('loading');
+      try {
+        const audioBlob = await fetchApiBlob('/voice/synthesize', {
+          method: 'POST',
+          body: JSON.stringify({ text: clips[index], language_code: language }),
+        });
+        if (speechRequestRef.current !== requestId) return;
+        const objectUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(objectUrl);
+        speechUrlRef.current = objectUrl;
+        speechAudioRef.current = audio;
+        audio.onended = () => {
+          if (isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) {
+            void playClip(index + 1);
+          }
+        };
+        audio.onerror = () => {
+          if (!isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) return;
+          stopResultSpeech(speechAudioRef, speechUrlRef);
+          setSpeechState('idle');
+          setSpeechError('Audio playback could not start. Please try again.');
+        };
+        const playbackState = await playAnswerAudio(audio);
+        if (isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) {
+          setSpeechState(playbackState);
+          setActiveHighlight(playbackState === 'playing' ? 0 : -1);
+        }
+      } catch (err) {
+        if (speechRequestRef.current !== requestId) return;
+        stopResultSpeech(speechAudioRef, speechUrlRef);
+        setSpeechState('idle');
+        setSpeechError(err.message || 'Speech is temporarily unavailable. Please try again.');
+      }
+    };
+    await playClip(0);
   };
 
   const pauseOrResumeResultSpeech = async () => {
@@ -979,8 +1036,8 @@ export default function AskData() {
                 value={question}
                 onChange={(event) => {
                   setQuestion(event.target.value);
-                  // A cleared composer starts a new question that is not tied to an earlier recording.
-                  if (!event.target.value.trim()) setQuestionLanguage(null);
+                  // Typed edits must not inherit a previous recording's language.
+                  setQuestionLanguage(null);
                 }}
                 onKeyDown={onComposerKeyDown}
                 placeholder={
@@ -1025,23 +1082,6 @@ export default function AskData() {
                             : 'Voice'}
                     </span>
                   </button>
-                  <label className="voice-language-picker" htmlFor="voice-language">
-                    <span className="sr-only">Voice language</span>
-                    <select
-                      id="voice-language"
-                      name="voice-language"
-                      value={voiceLanguage}
-                      onChange={(event) => setVoiceLanguage(event.target.value)}
-                      disabled={voiceState !== 'idle'}
-                      aria-label="Voice language"
-                    >
-                      {VOICE_LANGUAGES.map((language) => (
-                        <option key={language.code} value={language.code}>
-                          {language.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                   <span
                     className="voice-provider"
                     aria-label="Speech transcription powered by Gnani"

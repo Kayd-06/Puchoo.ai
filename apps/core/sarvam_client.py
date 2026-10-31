@@ -8,6 +8,8 @@ import os
 import re
 from typing import Any
 
+from httpx import HTTPError
+
 
 DEFAULT_STT_MODEL = "saaras:v3"
 DEFAULT_TRANSLATION_MODEL = "sarvam-translate:v1"
@@ -89,10 +91,13 @@ class SarvamClient:
     def translate(self, text: str, target_language: str, *, source_language: str = "en-IN") -> str:
         if not text.strip():
             raise ValueError("Text is required for translation.")
-        response = self._client.text.translate(
-            input=text[:2000], source_language_code=source_language, target_language_code=target_language,
-            model=self.translation_model,
-        )
+        try:
+            response = self._client.text.translate(
+                input=text[:2000], source_language_code=source_language, target_language_code=target_language,
+                model=self.translation_model,
+            )
+        except HTTPError as exc:
+            raise RuntimeError("Translation service is unavailable. Please try again.") from exc
         return _value(response, "translated_text")
 
     def translate_many(self, texts: list[str], target_language: str, *, source_language: str = "en-IN") -> dict[str, str]:

@@ -1,0 +1,292 @@
+/* Shared action system. Imported after legacy page styles so each action has
+   an explicit surface/foreground pair rather than inheriting page text. */
+/* dark palette */
+:root {
+  --control-secondary-bg: #17232c;
+  --control-secondary-fg: #e7eef3;
+  --control-hover-bg: #263944;
+  --control-hover-fg: #ffffff;
+  --control-primary-bg: #dfc6a6;
+  --control-primary-fg: #241e17;
+  --control-primary-hover-bg: #efdbbf;
+  --control-primary-hover-fg: #241e17;
+  --control-danger-bg: #3b222b;
+  --control-danger-fg: #ffc3c7;
+  --control-disabled-bg: #242d34;
+  --control-disabled-fg: #aebbc4;
+  --control-line: #607683;
+  --control-focus: #e8cba5;
+  --control-sheen: rgba(255, 255, 255, 0.07);
+  --control-shadow: rgba(0, 0, 0, 0.2);
+}
+/* light palette */
+html[data-theme='light'],
+.auth-form-panel {
+  --control-secondary-bg: #f3f6f8;
+  --control-secondary-fg: #25404f;
+  --control-hover-bg: #e1ebef;
+  --control-hover-fg: #183746;
+  --control-primary-bg: #284e60;
+  --control-primary-fg: #ffffff;
+  --control-primary-hover-bg: #1c3c4d;
+  --control-primary-hover-fg: #ffffff;
+  --control-danger-bg: #fff0f0;
+  --control-danger-fg: #92263b;
+  --control-disabled-bg: #e8edf0;
+  --control-disabled-fg: #576771;
+  --control-line: #8399a5;
+  --control-focus: #285b73;
+  --control-sheen: rgba(255, 255, 255, 0.75);
+  --control-shadow: rgba(40, 59, 69, 0.09);
+}
+
+/* A root-scoped specificity boundary keeps historical page overrides from
+   separating the text color from the surface color again. */
+#root :is(.app-container, .auth-form-panel) button {
+  color: var(--control-secondary-fg);
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+#root
+  :is(.app-container, .auth-form-panel)
+  :where(
+    .btn,
+    .settings-action,
+    .connect-submit,
+    .connect-complete button,
+    .voice-button,
+    .result-speech-actions button,
+    .result-export-actions button,
+    .workspace-picker-trigger,
+    .theme-toggle,
+    .topbar-icon-button,
+    .history-delete-record,
+    .workspace-member-remove,
+    .ask-submit-button,
+    .ui-action
+  ) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 0.58rem 0.9rem;
+  border: 1px solid var(--control-line);
+  border-radius: 12px 8px 12px 8px;
+  background:
+    linear-gradient(180deg, var(--control-sheen), transparent 65%), var(--control-secondary-bg);
+  color: var(--control-secondary-fg);
+  font: 600 0.81rem/1.25 var(--font-sans, system-ui);
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 var(--control-sheen),
+    0 3px 9px var(--control-shadow);
+  cursor: pointer;
+}
+
+#root
+  :is(.app-container, .auth-form-panel)
+  :where(
+    .btn,
+    .settings-action,
+    .connect-submit,
+    .connect-complete button,
+    .voice-button,
+    .result-speech-actions button,
+    .result-export-actions button,
+    .workspace-picker-trigger,
+    .theme-toggle,
+    .topbar-icon-button,
+    .history-delete-record,
+    .workspace-member-remove,
+    .ask-submit-button,
+    .ui-action
+  ):hover:not(:disabled) {
+  background: var(--control-hover-bg);
+  color: var(--control-hover-fg);
+  border-color: var(--control-focus);
+  box-shadow:
+    inset 0 1px 0 var(--control-sheen),
+    0 4px 12px var(--control-shadow);
+}
+
+#root
+  :is(.app-container, .auth-form-panel)
+  :is(
+    .btn-primary,
+    .settings-action-primary,
+    .connect-submit,
+    .ask-submit-button,
+    .ui-action-primary
+  ) {
+  background: var(--control-primary-bg);
+  color: var(--control-primary-fg);
+  border-color: transparent;
+  border-radius: 12px;
+}
+#root
+  :is(.app-container, .auth-form-panel)
+  :is(
+    .btn-primary,
+    .settings-action-primary,
+    .connect-submit,
+    .ask-submit-button,
+    .ui-action-primary
+  ):hover:not(:disabled) {
+  background: var(--control-primary-hover-bg);
+  color: var(--control-primary-hover-fg);
+}
+
+#root
+  .app-container
+  :is(
+    .btn-danger,
+    .history-delete-record,
+    .workspace-member-remove,
+    .settings-action-danger,
+    .topbar-logout-button,
+    .voice-button.is-recording
+  ) {
+  background: var(--control-danger-bg);
+  color: var(--control-danger-fg);
+  border: 1px solid currentColor;
+  border-radius: 9px;
+}
+#root
+  .app-container
+  :is(
+    .btn-danger,
+    .history-delete-record,
+    .workspace-member-remove,
+    .settings-action-danger,
+    .topbar-logout-button,
+    .voice-button.is-recording
+  ):hover:not(:disabled) {
+  background: var(--control-danger-bg);
+  color: var(--control-danger-fg);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* Icon actions are compact squarcles; submit remains an unmistakable circle. */
+#root
+  .app-container
+  :is(.theme-toggle, .topbar-icon-button, .history-delete-record, .workspace-member-remove) {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  border-radius: 13px;
+}
+#root .app-container .workspace-member-remove {
+  width: 34px;
+  min-width: 34px;
+  min-height: 36px;
+  border-radius: 10px;
+}
+#root .app-container .ask-submit-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+#root .app-container .voice-button {
+  min-height: 36px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px 6px 10px 6px;
+}
+#root .app-container .voice-button.is-recording {
+  animation: none;
+}
+#root .app-container .result-speech-actions .result-speech-stop {
+  background: var(--control-secondary-bg);
+  color: var(--control-secondary-fg);
+}
+
+/* Tabs, text actions, and clickable list items retain their own structure. */
+#root
+  .app-container
+  :is(.history-filters, .workspace-role-tabs, .settings-photo-tabs, .connect-tablist)
+  button {
+  min-height: 36px;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  color: var(--control-secondary-fg);
+  background: transparent;
+}
+#root
+  .app-container
+  :is(.history-filters, .workspace-role-tabs, .settings-photo-tabs, .connect-tablist)
+  button:is(.is-active, [aria-selected='true']) {
+  background: var(--control-primary-bg);
+  color: var(--control-primary-fg);
+  box-shadow: inset 0 1px 0 var(--control-sheen);
+}
+#root
+  .app-container
+  :is(
+    .ask-clear-button,
+    .topbar-text-button,
+    .history-search button,
+    .ask-welcome button,
+    .ask-error button,
+    .settings-dialog-close
+  ) {
+  color: var(--control-secondary-fg);
+  border-radius: 8px;
+}
+#root :is(.app-container, .auth-form-panel) :is(button, .btn):focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: 3px;
+}
+#root :is(.app-container, .auth-form-panel) :is(button, .btn):disabled {
+  color: var(--control-disabled-fg);
+  background: var(--control-disabled-bg);
+  border-color: var(--control-line);
+  border-style: dashed;
+  opacity: 1;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+#root :is(.app-container, .auth-form-panel) button svg {
+  flex-shrink: 0;
+  opacity: 1;
+}
+#root .app-container .ask-prompt-meta {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* Marketing uses a deliberately dark surface even when the app is light. */
+#root .puchoo-reference-nav > button,
+#root .puchoo-voice-footer button {
+  color: #f3eadc;
+  background: #202a31;
+  border: 1px solid #718491;
+  border-radius: 13px;
+  min-width: 40px;
+  min-height: 40px;
+}
+#root .puchoo-demo-tabs button {
+  color: #cbd8e1;
+  border-radius: 8px;
+}
+#root .puchoo-demo-tabs button.is-active {
+  color: #211c16;
+  background: #dfc6a6;
+}
+#root .site :is(button, a.puchoo-reference-cta, .ui-action):focus-visible {
+  outline: 2px solid #9ccae0;
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  #root :is(.app-container, .auth-form-panel) :is(button, .btn) {
+    transition: none;
+  }
+}

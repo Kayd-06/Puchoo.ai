@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -69,6 +70,9 @@ class FakeMismatchVerifier:
 
 
 class FakeMemory:
+    def search_approved_conversations(self, **_kwargs):
+        return []
+
     def save_approved_conversation(self, **_kwargs):
         return None
 
@@ -260,6 +264,12 @@ def test_translated_question_with_synonym_is_not_rejected(env, monkeypatch):
     """A Hindi question translated to English may use words the schema lacks
     (e.g. 'income' instead of 'amount'); it must reach review, not a 400."""
 
+    def unavailable_translation(_self, _request, **_kwargs):
+        raise httpx.ConnectError("Translation service unavailable")
+
+    monkeypatch.setenv("SARVAM_API_KEY", "test-key")
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", unavailable_translation)
+    query_router._translation_cache.clear()
     monkeypatch.setattr(query_router, "_translate_for_sql", lambda _q, _lang: "What is the total income for each area?")
     response = env.generate(question="हर क्षेत्र की कुल आय कितनी है?")
 
@@ -634,3 +644,19 @@ def test_expense_template_passes_guardrail_and_still_needs_approval(env, monkeyp
     record = approved.json()["record"]
     assert record["row_count"] == (3 if monthly else 2)
     assert "expense_category" in record["columns"]
+
+
+def test_rag_context_reaches_generation_with_owner_and_workspace_scope(env, monkeypatch):
+    calls = []
+    class RelatedMemory:
+        def search_approved_conversations(self, **kwargs):
+            calls.append(kwargs)
+            return [{'id': 'prior-question', 'content': 'Question: amount by region', 'distance': 0.2}]
+    monkeypatch.setattr(query_router, 'get_chat_memory', lambda: RelatedMemory())
+    body = env.generate(question='Show total amount per region').json()
+    assert body['status'] == 'pending_approval'
+    assert calls[0]['tenant_id'] == _user_id('owner@approvalco.com')
+    assert calls[0]['workspace_id'] == WORKSPACE_ID
+    assert env.fake.retrieved_context == [{'id': 'prior-question', 'content': 'Question: amount by region'}]
+    assert body['retrieval']['source_ids'] == ['prior-question']
+    assert env.executions == []

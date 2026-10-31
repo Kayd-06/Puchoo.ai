@@ -11,7 +11,6 @@ import {
   Rows3,
   Search,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react';
@@ -123,15 +122,6 @@ export default function History() {
     [history],
   );
 
-  const executed = history.filter((item) => item.status === 'executed');
-  const verifiedRate = executed.length
-    ? `${Math.round((categoryCounts.verified / executed.length) * 100)}%`
-    : '—';
-  const timed = executed.filter((item) => Number.isFinite(Number(item.elapsed_ms)));
-  const averageLatency = timed.length
-    ? `${Math.round(timed.reduce((sum, item) => sum + Number(item.elapsed_ms), 0) / timed.length)}ms`
-    : '—';
-
   const clearHistory = async () => {
     if (!activeWorkspaceId || history.length === 0) return;
     if (!window.confirm(`Clear all query history for ${activeWorkspace?.name || 'this database'}?`))
@@ -191,12 +181,9 @@ export default function History() {
   const activeFilter = FILTERS.find((option) => option.id === filter);
 
   return (
-    <div className="history-page">
+    <div className="history-page history-page-clean">
       <section className="history-hero">
         <div className="history-hero-copy">
-          <div className="history-eyebrow">
-            <span className="history-live-dot" /> Query activity <span>Workspace ledger</span>
-          </div>
           <h1>History</h1>
           <p>
             {activeWorkspace
@@ -205,26 +192,6 @@ export default function History() {
                 : `Your recent questions for ${activeWorkspace.name}. Pick one to ask a follow-up.`
               : 'Select a database to view its history.'}
           </p>
-        </div>
-        <div className="history-metrics" aria-label="History summary">
-          <div className="history-metric">
-            <span className="history-metric-icon metric-safe">
-              <ShieldCheck size={18} />
-            </span>
-            <div>
-              <strong>{verifiedRate}</strong>
-              <span>Verified rate</span>
-            </div>
-          </div>
-          <div className="history-metric">
-            <span className="history-metric-icon metric-time">
-              <Clock3 size={18} />
-            </span>
-            <div>
-              <strong>{averageLatency}</strong>
-              <span>Average response</span>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -327,11 +294,9 @@ export default function History() {
                 className={`history-card history-card-${category}`}
                 style={{ '--history-index': index }}
               >
-                <span className="history-card-orbit" aria-hidden="true" />
                 <div className="history-card-main">
                   <div className="history-card-topline">
                     <span className="history-record">
-                      <span>Q-{String(index + 1).padStart(3, '0')}</span>
                       {formatTimestamp(item.executed_at || item.created_at)}
                     </span>
                     <StatusBadge category={category} />

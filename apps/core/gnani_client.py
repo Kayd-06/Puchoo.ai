@@ -75,7 +75,7 @@ class GnaniClient:
     @staticmethod
     def _multipart(audio: bytes, filename: str, language_code: str) -> tuple[bytes, str]:
         boundary = f"----PuchooGnani{uuid.uuid4().hex}"
-        fields = [("language_code", language_code), ("format", "transcribe")]
+        fields = [("model", "prisma-v3.0"), ("language_code", language_code), ("format", "transcribe")]
         chunks: list[bytes] = []
         for key, value in fields:
             chunks.extend((f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(), value.encode(), b"\r\n"))
@@ -93,10 +93,10 @@ class GnaniClient:
     def transcribe(self, audio: bytes, filename: str, *, language_code: str | None = None) -> TranscriptionResult:
         if not audio:
             raise ValueError("audio must not be empty")
-        selected_language = language_code or os.getenv("GNANI_STT_LANGUAGE", DEFAULT_LANGUAGE_CODE)
-        selected_language = selected_language.strip() if isinstance(selected_language, str) and selected_language.strip() else DEFAULT_LANGUAGE_CODE
-        if selected_language not in SUPPORTED_LANGUAGE_CODES:
-            raise GnaniConfigurationError("GNANI_STT_LANGUAGE must be a supported Gnani BCP-47 language code.")
+        selected_language = language_code or "indic-auto"
+        selected_language = selected_language.strip() if isinstance(selected_language, str) and selected_language.strip() else "indic-auto"
+        if selected_language != "indic-auto" and selected_language not in SUPPORTED_LANGUAGE_CODES:
+            raise GnaniConfigurationError("language_code must be a supported Gnani BCP-47 language code.")
         body, boundary = self._multipart(audio, filename, selected_language)
         request = urllib.request.Request(
             self.endpoint,
@@ -117,9 +117,38 @@ class GnaniClient:
         transcript = parsed.get("transcript") if isinstance(parsed, dict) else None
         if not isinstance(transcript, str) or not transcript.strip():
             raise GnaniConfigurationError("Gnani returned an invalid transcription response.")
-        language = parsed.get("language_code") or parsed.get("language")
+        language = parsed.get("detected_language_code") or parsed.get("language_code") or parsed.get("language")
         normalized = language.strip() if isinstance(language, str) and re.fullmatch(r"[a-z]{2,3}-[A-Z]{2}", language.strip()) else None
         return TranscriptionResult(transcript.strip(), normalized)
+
+    @staticmethod
+    def _finalize_streaming_wav(audio: bytes) -> bytes:
+        """Replace streaming length sentinels only after receiving complete PCM."""
+        if len(audio) < 44 or audio[:8] != b"RIFF\xff\xff\xff\xff" or audio[8:12] != b"WAVE":
+            return audio
+        cursor = 12
+        block_align = None
+        while cursor + 8 <= len(audio):
+            chunk_id = audio[cursor:cursor + 4]
+            size = unpack_from("<I", audio, cursor + 4)[0]
+            start = cursor + 8
+            if chunk_id == b"data" and size == 0xFFFFFFFF:
+                data_size = len(audio) - start
+                if not block_align or not data_size or data_size % block_align:
+                    return audio
+                finalized = bytearray(audio)
+                finalized[4:8] = (len(audio) - 8).to_bytes(4, "little")
+                finalized[cursor + 4:cursor + 8] = data_size.to_bytes(4, "little")
+                return bytes(finalized)
+            if start + size > len(audio):
+                return audio
+            if chunk_id == b"fmt " and size >= 16:
+                encoding, channels, sample_rate, byte_rate, alignment, bits = unpack_from("<HHIIHH", audio, start)
+                if encoding != 1 or not channels or not sample_rate or bits != 16 or alignment != channels * 2 or byte_rate != sample_rate * alignment:
+                    return audio
+                block_align = alignment
+            cursor = start + size + size % 2
+        return audio
 
     @staticmethod
     def _is_valid_wav(audio: bytes) -> bool:
@@ -193,6 +222,7 @@ class GnaniClient:
             raise GnaniConfigurationError("Gnani speech is temporarily unavailable.") from exc
         if not isinstance(content_type, str) or not content_type.lower().startswith("audio/wav"):
             raise GnaniConfigurationError("Gnani returned an invalid speech response.")
+        audio = self._finalize_streaming_wav(audio)
         if not self._is_valid_wav(audio):
             raise GnaniConfigurationError("Gnani returned an invalid speech response.")
         return audio
