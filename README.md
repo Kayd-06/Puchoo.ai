@@ -179,3 +179,25 @@ Start Puchoo with the two commands in [Run the app (frontend + backend)](#run-th
 ## Plan-aware training data
 
 `model_training/data_v7_complex_plans/` documents the JSONL contract for QLoRA training examples. Each record contains a complex question, strict plan JSON, relevant schema, expected SQLite SQL or clarification, and optional failed-SQL repair context. Keep adapters, model weights, downloaded corpora, and generated outputs outside Git. Evaluate on at least 100 held-out real hard questions using execution success, result correctness, constraint coverage, clarification accuracy, and safety.
+
+### Retrieval-augmented generation (RAG)
+
+Model-based SQL generation retrieves up to three relevant approved conversation
+snippets from the current tenant and workspace's persistent ChromaDB memory.
+The original question and live schema stay separate from `retrieved_context`
+in the model's JSON request. This context reaches both complex-query planning
+and SQL generation for the configured local, Groq, or Claude provider.
+
+Retrieval uses the existing lightweight local token-hash embeddings, not a
+hosted or neural embedding model. Results must also overlap the current
+question's meaningful terms and pass a distance threshold. Context is limited
+to 4,000 characters and proposal metadata records the retrieved source IDs.
+New memories include the English planning question, allowing translated
+questions to be retrieved alongside their original wording. Existing memories
+remain searchable without a migration.
+
+Historical context is untrusted background, not instructions, current facts,
+or database schema. SQL and result rows are excluded from vector memory;
+answers still come from fresh, guarded read-only database queries. If ChromaDB
+is unavailable or there are no relevant matches, generation continues without
+memory. Deterministic schema-based queries do not need the retrieval step.

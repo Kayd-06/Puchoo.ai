@@ -58,6 +58,7 @@ from apps.api.pending_queries import (
 from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
 from apps.core.chat_memory import ChatMemoryError, get_chat_memory
+from apps.core.rag import retrieve_context
 from backend.routers.auth import current_user
 from backend.database import get_db
 from backend.notifications import create_notification
@@ -173,8 +174,8 @@ def _translate_for_sql(question: str, language_code: str | None) -> str:
         raise ValueError("Could not translate the spoken question for SQL generation. Please try again.") from exc
 
 
-def _translate_for_display(text: str, language_code: str | None) -> str:
-    """Localisation should never hide an otherwise valid query result."""
+def _translate_for_display(text: str, language_code: str | None, *, failures: list[str] | None = None) -> str:
+    """Translate display text. On failure keep English and record it in ``failures``."""
 
     if not language_code or not text:
         return text
@@ -186,28 +187,46 @@ def _translate_for_display(text: str, language_code: str | None) -> str:
         _translation_cache[cache_key] = translated
         return translated
     except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
-        logger.warning("result_translation_unavailable language=%s error=%s", language_code, exc)
+        logger.warning("result_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
+        if failures is not None:
+            failures.append(text)
         return text
 
 
-def _localize_rows(rows: list[dict[str, Any]], language_code: str | None) -> list[dict[str, Any]]:
-    """Translate visible text values, but preserve numeric facts and untranslatable data exactly."""
+def _localize_rows(
+    rows: list[dict[str, Any]], language_code: str | None, *, failures: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """Translate visible text values, but preserve numeric facts and untranslatable data exactly.
+
+    Values the first batch misses are retried once in a single batch call (never
+    one call per value); anything still missing stays in English and is recorded.
+    """
 
     if not language_code:
         return rows
-    texts = [
+    texts = list(dict.fromkeys(
         value.strip()
         for row in rows
         for value in row.values()
         if isinstance(value, str) and value.strip() and any(character.isalpha() for character in value)
-    ]
+    ))
     if not texts:
         return rows
-    try:
-        translations = SarvamClient().translate_many(texts, language_code, source_language="en-IN")
-    except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
-        logger.warning("table_translation_unavailable language=%s error=%s", language_code, exc)
-        return rows
+    client = SarvamClient()
+    translations: dict[str, str] = {}
+    pending = texts
+    for _attempt in range(2):
+        try:
+            batch = client.translate_many(pending, language_code, source_language="en-IN")
+        except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
+            logger.warning("table_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
+            break
+        translations.update({key: value for key, value in batch.items() if value})
+        pending = [text for text in pending if not translations.get(text)]
+        if not pending:
+            break
+    if pending and failures is not None:
+        failures.extend(pending)
     return [
         {
             key: translations.get(value.strip(), value) if isinstance(value, str) else value
@@ -281,6 +300,16 @@ def generate_query(
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
         decision = classify_complexity(planning_question, schema)
         client = get_sql_client()
+        retrieved_context = []
+        if not deterministic_sql:
+            try:
+                retrieved_context = retrieve_context(
+                    get_chat_memory(), tenant_id=tenant_owner_id(user),
+                    workspace_id=workspace_id, question=planning_question,
+                )
+            except ChatMemoryError:
+                logger.warning("rag_memory_initialization_unavailable")
+        client.retrieved_context = retrieved_context
         if deterministic_sql:
             intent_plan = build_query_plan(schema, planning_question)
             focused_schema = select_relevant_schema(schema, intent_plan)
@@ -407,6 +436,7 @@ def generate_query(
             "workspace_id": workspace_id, 
             "question": question,
             "processing_question": planning_question,
+            "retrieval": {"source_ids": [item["id"] for item in retrieved_context]},
             "language_code": language_code,
             "sql": guarded.sql, 
             "limit": guarded.limit, 
@@ -673,30 +703,36 @@ def approve_pending_query(
             record.get("processing_question", record["question"]), record["columns"], record["rows"]
         )
         output_language = _spoken_language(record.get("language_code"))
-        headline = _translate_for_display(presentation.headline, output_language)
-        detail = _translate_for_display(presentation.detail, output_language)
+        translation_failures: list[str] = []
+
+        def localize(text: str) -> str:
+            # A translation outage must not hide a valid answer: fall back to English.
+            return _translate_for_display(text, output_language, failures=translation_failures)
+
+        headline = localize(presentation.headline)
+        detail = localize(presentation.detail)
         highlights = [
-            (_translate_for_display(label, output_language), value)
+            (localize(label), value)
             for label, value in presentation.highlights
         ]
         labels = {
-            "executive_summary": _translate_for_display("Executive summary", output_language),
-            "validated_answer": _translate_for_display("Validated against the returned data", output_language),
-            "detailed_results": _translate_for_display("Detailed results", output_language),
-            "rows_returned": _translate_for_display("rows returned", output_language),
-            "no_rows": _translate_for_display("No rows returned.", output_language),
-            "view_sql": _translate_for_display("View generated SQL", output_language),
-            "read_only_query": _translate_for_display("Read-only query", output_language),
-            "interpretation": _translate_for_display("How Pucho interpreted this request", output_language),
-            "view_details": _translate_for_display("View details", output_language),
-            "verified_match": _translate_for_display("Verified match", output_language),
-            "needs_review": _translate_for_display("Needs review", output_language),
+            "executive_summary": localize("Executive summary"),
+            "validated_answer": localize("Validated against the returned data"),
+            "detailed_results": localize("Detailed results"),
+            "rows_returned": localize("rows returned"),
+            "no_rows": localize("No rows returned."),
+            "view_sql": localize("View generated SQL"),
+            "read_only_query": localize("Read-only query"),
+            "interpretation": localize("How Pucho interpreted this request"),
+            "view_details": localize("View details"),
+            "verified_match": localize("Verified match"),
+            "needs_review": localize("Needs review"),
         }
         column_labels = {
-            column: _translate_for_display(humanize_column(column), output_language)
+            column: localize(humanize_column(column))
             for column in record["columns"]
         }
-        display_rows = _localize_rows(record["rows"], output_language)
+        display_rows = _localize_rows(record["rows"], output_language, failures=translation_failures)
         
         return {
             "record": record,
@@ -709,6 +745,7 @@ def approve_pending_query(
                 "labels": labels,
                 "column_labels": column_labels,
                 "display_rows": display_rows,
+                "translation_unavailable": bool(translation_failures),
             }
         }
         

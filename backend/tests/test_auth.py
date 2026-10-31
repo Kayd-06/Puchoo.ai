@@ -263,8 +263,17 @@ def test_tampered_jwt_cookie_is_rejected(client: TestClient, otp_codes):
     token = client.cookies.get("puchoo_session")
     assert token is not None
 
-    client.cookies.set("puchoo_session", token[:-1] + ("a" if token[-1] != "a" else "b"))
+    header, payload, signature = token.split(".")
+    signature_bytes = bytearray(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4)))
+    signature_bytes[0] ^= 1
+    tampered_signature = base64.urlsafe_b64encode(signature_bytes).rstrip(b"=").decode("ascii")
+    tampered_token = f"{header}.{payload}.{tampered_signature}"
+
+    # Remove the scoped cookie so HTTP clients cannot send the valid token too.
+    client.cookies.clear()
+    client.cookies.set("puchoo_session", tampered_token)
     response = client.get("/api/v1/auth/me")
+    assert response.request.headers["cookie"] == f"puchoo_session={tampered_token}"
     assert response.status_code == 401
 
 

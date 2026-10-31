@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   ResultSpeechControls,
   buildResultSpeechPayload,
+  splitResultSpeech,
   isActiveResultSpeech,
   resolveResultSpeechLanguage,
   stopResultSpeech,
@@ -13,7 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('builds a bounded speech payload from only the visible executive answer', () => {
+it('builds speech from the visible answer without speaking hidden SQL or question', () => {
   const result = {
     presentation: {
       headline: 'आपका कुल खर्च 2,000 है।',
@@ -32,7 +33,7 @@ it('builds a bounded speech payload from only the visible executive answer', () 
   expect(payload).not.toContain(result.record.question);
   expect(payload).not.toContain(result.record.sql);
   expect(payload).not.toContain(result.record.rows[0].secret_column);
-  expect(buildResultSpeechPayload({ headline: 'x'.repeat(2001) })).toHaveLength(2000);
+  expect(buildResultSpeechPayload({ headline: 'x'.repeat(2001) })).toHaveLength(2001);
 });
 
 it('prefers the result language before the current composer language', () => {
@@ -103,7 +104,7 @@ it('exposes user-controlled listen, pause or resume, and stop actions with a pol
   fireEvent.click(screen.getByRole('button', { name: 'Stop reading answer' }));
   expect(onPauseResume).toHaveBeenCalledOnce();
   expect(onStop).toHaveBeenCalledOnce();
-  expect(screen.getByRole('status')).toHaveTextContent('Playing summary');
+  expect(screen.getByRole('status')).toHaveTextContent('Playing full report');
 
   rerender(
     <ResultSpeechControls
@@ -115,4 +116,45 @@ it('exposes user-controlled listen, pause or resume, and stop actions with a pol
     />,
   );
   expect(screen.getByRole('button', { name: 'Resume answer' })).toBeInTheDocument();
+});
+
+it('reads every localized row including zero and false without hidden raw text', () => {
+  const result = {
+    presentation: {
+      headline: 'दो परिणाम',
+      detail: 'विवरण',
+      language_code: 'hi-IN',
+      column_labels: { status: 'स्थिति', amount: 'राशि', active: 'सक्रिय' },
+      display_rows: [
+        { status: 'भुगतान हुआ', amount: 0, active: false },
+        { status: 'बाकी', amount: 200, active: true },
+      ],
+    },
+    record: {
+      columns: ['status', 'amount', 'active'],
+      rows: [
+        { status: 'Paid', amount: 0, active: false },
+        { status: 'Pending', amount: 200, active: true },
+      ],
+      sql: 'hidden SQL',
+    },
+  };
+  const text = buildResultSpeechPayload(result.presentation, result.record);
+  expect(text).toContain('स्थिति: भुगतान हुआ');
+  expect(text).toContain('राशि: 0');
+  expect(text).toContain('सक्रिय: false');
+  expect(text).toContain('स्थिति: बाकी');
+  expect(text).toContain('राशि: 200');
+  expect(text).not.toContain('Paid');
+  expect(text).not.toContain('hidden SQL');
+  expect(resolveResultSpeechLanguage(result, 'en-IN')).toBe('hi-IN');
+});
+
+it('splits long reports without dropping any cells or breaking Unicode characters', () => {
+  const text = 'राशि: 200। '.repeat(500) + '😀'.repeat(1500);
+  const clips = splitResultSpeech(text);
+  expect(clips.length).toBeGreaterThan(1);
+  expect(clips.every((clip) => clip.length <= 2000 && clip.length > 0)).toBe(true);
+  expect(clips.join('')).toBe(text);
+  expect(clips.every((clip) => !/[\uD800-\uDBFF]$/.test(clip))).toBe(true);
 });

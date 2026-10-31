@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { applyStoredTheme, ThemeProvider } from './context/ThemeContext';
 import './index.css';
 import './styles/site.css';
+import './styles/buttons.css';
+import './styles/history.css';
 
 applyStoredTheme();
 

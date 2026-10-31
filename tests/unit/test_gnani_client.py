@@ -48,7 +48,7 @@ class _AudioResponse:
         return None
 
 
-def test_transcribe_uses_gnani_multipart_contract_with_a_supported_default_language(monkeypatch):
+def test_transcribe_uses_gnani_multipart_contract_with_automatic_language_detection(monkeypatch):
     monkeypatch.delenv("GNANI_STT_LANGUAGE", raising=False)
     with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_Response()) as request_open:
         result = GnaniClient(api_key="secret", endpoint="https://stt.example").transcribe(
@@ -58,7 +58,7 @@ def test_transcribe_uses_gnani_multipart_contract_with_a_supported_default_langu
     body = request.data.decode("utf-8")
     assert request.headers["X-api-key-id"] == "secret"
     assert 'name="audio_file"; filename="audio.ogg"' in body
-    assert 'name="language_code"' in body and "en-IN" in body
+    assert 'name="language_code"' in body and "indic-auto" in body
     assert 'name="preferred_language"' not in body
     assert 'name="format"' in body and "transcribe" in body
     assert result.transcript == "नमस्ते"
@@ -183,11 +183,11 @@ def test_multipart_filename_is_never_client_controlled(filename, expected):
     assert b"X-Injected" not in body
 
 
-def test_transcribe_uses_env_language_when_none_is_given(monkeypatch):
+def test_transcribe_auto_detection_is_not_overridden_by_legacy_env_language(monkeypatch):
     monkeypatch.setenv("GNANI_STT_LANGUAGE", "ta-IN")
     with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_Response()) as request_open:
         GnaniClient(api_key="secret").transcribe(b"OggS audio", "voice.ogg")
-    assert "ta-IN" in request_open.call_args.args[0].data.decode("utf-8")
+    assert "indic-auto" in request_open.call_args.args[0].data.decode("utf-8")
 
 
 def test_dotenv_is_loaded_once_per_process(monkeypatch):
@@ -200,3 +200,34 @@ def test_dotenv_is_loaded_once_per_process(monkeypatch):
     GnaniClient()
     GnaniClient()
     assert calls == [1]
+
+
+def test_synthesize_finalizes_streaming_wav_lengths():
+    streaming = bytearray(VALID_WAV)
+    streaming[4:8] = b"\xff" * 4
+    streaming[40:44] = b"\xff" * 4
+    with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_AudioResponse(bytes(streaming))):
+        audio = GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
+    assert audio == VALID_WAV
+
+
+def test_synthesize_rejects_streaming_wav_with_partial_pcm_frame():
+    streaming = bytearray(VALID_WAV[:-1])
+    streaming[4:8] = b"\xff" * 4
+    streaming[40:44] = b"\xff" * 4
+    with patch("apps.core.gnani_client.urllib.request.urlopen", return_value=_AudioResponse(bytes(streaming))):
+        with pytest.raises(GnaniConfigurationError, match="invalid speech"):
+            GnaniClient(api_key="secret").synthesize("Hello", language_code="en-IN")
+
+
+def test_transcribe_detects_language_without_a_user_hint(monkeypatch):
+    monkeypatch.setenv('GNANI_STT_LANGUAGE', 'en-IN')
+    class DetectedResponse(_Response):
+        def read(self):
+            return json.dumps({'transcript': 'मेरे खर्चे बताओ', 'detected_language_code': 'hi-IN'}).encode()
+    with patch('apps.core.gnani_client.urllib.request.urlopen', return_value=DetectedResponse()) as request_open:
+        result = GnaniClient(api_key='secret').transcribe(b'OggS audio', 'voice.ogg')
+    body = request_open.call_args.args[0].data.decode()
+    assert 'prisma-v3.0' in body
+    assert 'indic-auto' in body
+    assert result.language_code == 'hi-IN'

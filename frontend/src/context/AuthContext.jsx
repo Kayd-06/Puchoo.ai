@@ -11,6 +11,8 @@ import {
   updateProfileImage as updateProfileImageRequest,
 } from '../api/auth';
 
+import { clearChatSessions } from '../hooks/useChatState';
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children, loadSession = true }) {
@@ -40,6 +42,7 @@ export function AuthProvider({ children, loadSession = true }) {
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      clearChatSessions();
       setUser(null);
     };
     window.addEventListener('puchoo:unauthorized', handleUnauthorized);
@@ -79,6 +82,7 @@ export function AuthProvider({ children, loadSession = true }) {
       },
       async logout() {
         await logoutRequest();
+        clearChatSessions();
         setUser(null);
       },
     }),

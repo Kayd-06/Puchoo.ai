@@ -57,6 +57,13 @@ it('renders query errors as a compact dark-theme alert', () => {
   expect(css).toMatch(/\.ask-error\s*\{[^}]*background:\s*#[0-9a-f]{6}/s);
 });
 
+it('records voice input in a Gnani-supported browser audio format', () => {
+  const markup = source('src/pages/AskData.jsx');
+  expect(markup).toMatch(/audio\/ogg;codecs=opus/);
+  expect(markup).toMatch(/audio\/mp4/);
+  expect(markup).not.toMatch(/const preferredMimeType = 'audio\/webm;codecs=opus'/);
+});
+
 it('defines separate authenticated palettes for both theme states', () => {
   const css = source('src/index.css');
   expect(css).toMatch(/html\[data-theme=["']dark["']\]\s*\.app-container/s);
@@ -72,6 +79,43 @@ it('renders query results as a light surface when the app uses light mode', () =
   );
   expect(css).toMatch(
     /html\[data-theme=["']light["']\]\s+\.ask-page\s+\.result-table-card[^}]*background:/s,
+  );
+});
+
+it('keeps history filters and record actions readable in light mode', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/html\[data-theme=['"]light['"]\]\s+\.history-toolbar\s*\{[^}]*background:/s);
+  expect(css).toMatch(/html\[data-theme=['"]light['"]\]\s+\.history-search\s*\{[^}]*background:/s);
+  expect(css).toMatch(/html\[data-theme=['"]light['"]\]\s+\.history-filters\s*\{[^}]*background:/s);
+  expect(css).toMatch(
+    /html\[data-theme=['"]light['"]\]\s+\.history-card-actions\s+\.btn\s*\{[^}]*color:/s,
+  );
+  expect(css).toMatch(
+    /html\[data-theme=['"]light['"]\]\s+\.history-delete-record\s*\{[^}]*background:/s,
+  );
+});
+
+it('gives Settings a compact responsive hierarchy in both themes', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(/\.settings-page\.settings-page-refined\s*\{[^}]*padding:/s);
+  expect(css).toMatch(
+    /\.settings-page-refined\s+\.settings-hero\s*\{[^}]*width:\s*min\(100%,\s*1120px\)/s,
+  );
+  expect(css).toMatch(
+    /html\[data-theme=['"]light['"]\]\s+\.settings-page-refined\s+\.settings-section\s*\{[^}]*background:/s,
+  );
+  expect(css).toMatch(
+    /html\[data-theme=['"]dark['"]\]\s+\.settings-page-refined\s+\.settings-section\s*\{[^}]*background:/s,
+  );
+});
+
+it('keeps workspace-member labels legible on the light Settings surface', () => {
+  const css = source('src/index.css');
+  expect(css).toMatch(
+    /html\[data-theme=['"]light['"]\]\s+\.settings-page-refined\s+\.workspace-members-heading\s*\{[^}]*color:/s,
+  );
+  expect(css).toMatch(
+    /html\[data-theme=['"]light['"]\]\s+\.settings-page-refined\s+\.workspace-member-owner\s*\{[^}]*color:/s,
   );
 });
 

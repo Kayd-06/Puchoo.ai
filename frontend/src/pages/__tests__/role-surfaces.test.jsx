@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { can } from '../../auth/capabilities';
 import Sidebar from '../../components/layout/Sidebar';
@@ -9,18 +9,13 @@ import ConnectData from '../ConnectData';
 import Settings from '../Settings';
 
 let user;
+let workspaceState;
 
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user, updateProfileImage: vi.fn() }),
 }));
 vi.mock('../../context/AppContext', () => ({
-  useAppContext: () => ({
-    workspaces: [],
-    activeWorkspace: null,
-    activeWorkspaceId: null,
-    setActiveWorkspaceId: vi.fn(),
-    setWorkspaces: vi.fn(),
-  }),
+  useAppContext: () => workspaceState,
 }));
 vi.mock('../../components/workspace/WorkspaceInvitePanel', () => ({
   default: () => <div>Invite management</div>,
@@ -88,7 +83,18 @@ function renderRoute(component) {
 }
 
 describe('role-aware product surfaces', () => {
-  beforeEach(() => setRole('owner'));
+  afterEach(() => vi.useRealTimers());
+
+  beforeEach(() => {
+    setRole('owner');
+    workspaceState = {
+      workspaces: [],
+      activeWorkspace: null,
+      activeWorkspaceId: null,
+      setActiveWorkspaceId: vi.fn(),
+      setWorkspaces: vi.fn(),
+    };
+  });
 
   it.each(['owner', 'admin'])('%s sees data-source and admin surfaces', (role) => {
     setRole(role);
@@ -174,5 +180,44 @@ describe('role-aware product surfaces', () => {
     expect(email).toHaveClass('topbar-account-email');
     expect(email).toHaveAttribute('title', user.email);
     expect(email.parentElement).toHaveClass('topbar-account-copy');
+  });
+
+  it('selects an active data source from the keyboard-accessible sidebar menu', () => {
+    const setActiveWorkspaceId = vi.fn();
+    workspaceState = {
+      ...workspaceState,
+      workspaces: [
+        { id: 'source-a', name: 'Revenue data' },
+        { id: 'source-b', name: 'Expense data' },
+      ],
+      activeWorkspace: { id: 'source-a', name: 'Revenue data' },
+      activeWorkspaceId: 'source-a',
+      setActiveWorkspaceId,
+    };
+    renderRoute(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /select active data source/i }));
+    expect(screen.getByRole('listbox', { name: 'Active data sources' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'Expense data' }));
+    expect(setActiveWorkspaceId).toHaveBeenCalledWith('source-b');
+    expect(screen.getByRole('listbox', { name: 'Active data sources' })).toHaveClass('is-closing');
+  });
+
+  it('keeps the active-source menu mounted while its close animation plays', () => {
+    vi.useFakeTimers();
+    workspaceState = {
+      ...workspaceState,
+      workspaces: [{ id: 'source-a', name: 'Revenue data' }],
+      activeWorkspace: { id: 'source-a', name: 'Revenue data' },
+      activeWorkspaceId: 'source-a',
+    };
+    renderRoute(<Sidebar />);
+    const trigger = screen.getByRole('button', { name: /select active data source/i });
+
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('listbox', { name: 'Active data sources' })).toHaveClass('is-closing');
+    act(() => vi.advanceTimersByTime(180));
+    expect(screen.queryByRole('listbox', { name: 'Active data sources' })).not.toBeInTheDocument();
   });
 });

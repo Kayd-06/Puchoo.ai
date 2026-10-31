@@ -87,6 +87,7 @@ class ApprovedConversationMemory:
             raise ChatMemoryError("Approved conversation requires a record id.")
         question = _compact_text(record.get("question"))
         interpreted = _compact_text(record.get("interpreted_request"))
+        planning_question = _compact_text(record.get("processing_question"))
         verification = record.get("verification") if isinstance(record.get("verification"), dict) else {}
         verification_summary = _compact_text(verification.get("summary"), 1_000)
         document = "\n".join(
@@ -94,6 +95,7 @@ class ApprovedConversationMemory:
             for item in (
                 f"Question: {question}" if question else "",
                 f"Interpretation: {interpreted}" if interpreted else "",
+                f"Planning question: {planning_question}" if planning_question else "",
                 f"Verification: {verification_summary}" if verification_summary else "",
             )
             if item

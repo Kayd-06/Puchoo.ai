@@ -90,7 +90,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -844,9 +844,47 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 1.2rem 1.5rem 1rem;
   border-bottom: 1px solid var(--border-color);
+}
+.result-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.result-export-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.result-export-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 0.43rem 0.56rem;
+  color: var(--text-primary);
+  font: 600 0.72rem var(--font-sans);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.result-export-actions button:hover:not(:disabled) {
+  border-color: var(--accent-blue);
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue);
+}
+.result-export-actions button:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 .result-table-status {
   display: inline-flex;
@@ -944,6 +982,23 @@ body {
   letter-spacing: 0.01em;
   opacity: 0.72;
   user-select: none;
+}
+.voice-language-picker {
+  display: inline-flex;
+  min-width: 0;
+}
+.voice-language-picker select {
+  max-width: 96px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: 500 0.72rem var(--font-sans);
+  cursor: pointer;
+}
+.voice-language-picker select:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 .voice-button.is-recording {
   border-color: rgba(220, 38, 38, 0.3);
@@ -2585,6 +2640,9 @@ body {
 
 /* Result state stays in the same calm, nocturnal system as the query stage. */
 .ask-results {
+  /* Keep answer painting independent of the animated composer above it. */
+  position: relative;
+  isolation: isolate;
   scroll-margin-top: 78px;
   min-height: 100svh;
   padding: clamp(46px, 7vw, 100px) clamp(22px, 6vw, 96px) 100px;
@@ -2616,7 +2674,8 @@ body {
   margin: 0 auto;
 }
 .ask-results .result-stack > * {
-  animation: ask-result-in 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* Do not retain a composited transform while scrolling or changing theme. */
+  animation: ask-result-in 0.52s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 .ask-results .result-stack > *:nth-child(2) {
   animation-delay: 0.06s;
@@ -2789,7 +2848,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -8821,4 +8880,10 @@ html[data-theme='dark'] .workspace-picker {
   .settings-page-refined .settings-history {
     padding: 22px;
   }
+}
+
+/* Avoid backdrop re-rasterization over the scrolling answer on theme changes. */
+.app-container .app-topbar {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }

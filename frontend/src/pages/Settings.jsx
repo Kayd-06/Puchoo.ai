@@ -78,7 +78,7 @@ export default function Settings() {
   }
 
   return (
-    <div className="settings-page">
+    <div className="settings-page settings-page-refined">
       <header className="settings-hero">
         <div className="settings-eyebrow">
           <ShieldCheck size={20} />
