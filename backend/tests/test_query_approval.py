@@ -733,3 +733,30 @@ def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
     response = env.approve(proposal.json())
     assert response.status_code == 200, response.text
     assert response.json()['record']['rows'] == [{'student_id': 1, 'full_name': 'Part paid', 'outstanding_fee_amount': 60.0}]
+
+
+def test_translation_outage_returns_english_answer_with_flag(env, monkeypatch):
+    pending = env.generate().json()
+
+    class BrokenSarvam:
+        def translate(self, *_args, **_kwargs):
+            raise RuntimeError("down")
+
+        def translate_many(self, *_args, **_kwargs):
+            raise RuntimeError("down")
+
+    monkeypatch.setattr(query_router, "_spoken_language", lambda _code: "hi-IN")
+    monkeypatch.setattr(query_router, "SarvamClient", BrokenSarvam)
+    monkeypatch.setattr(query_router, "_translation_cache", {})
+    response = env.approve(pending)
+    assert response.status_code == 200, response.text
+    presentation = response.json()["presentation"]
+    assert presentation["translation_unavailable"] is True
+    assert presentation["labels"]["executive_summary"] == "Executive summary"
+    assert presentation["display_rows"] == [{"region": "north", "total": 15}, {"region": "south", "total": 20}]
+
+
+def test_english_answer_is_not_flagged_as_translation_failure(env):
+    pending = env.generate().json()
+    response = env.approve(pending)
+    assert response.json()["presentation"]["translation_unavailable"] is False

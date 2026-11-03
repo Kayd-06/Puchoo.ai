@@ -290,3 +290,9 @@ html[data-theme='light'],
     transition: none;
   }
 }
+
+.result-translation-note {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
