@@ -66,6 +66,21 @@ function StatusBadge({ category }) {
   );
 }
 
+const DEFAULT_PDF_LABELS = {
+  rows_returned: 'rows returned',
+  executive_summary: 'Executive summary',
+};
+
+// Use the saved answer's translated labels so a Hindi or Tamil report stays in
+// that language; fall back to English for older records without them.
+export function historyPdfLabels(item) {
+  const saved = item?.presentation?.labels || {};
+  return {
+    rows_returned: saved.rows_returned || DEFAULT_PDF_LABELS.rows_returned,
+    executive_summary: saved.executive_summary || DEFAULT_PDF_LABELS.executive_summary,
+  };
+}
+
 export default function History() {
   const navigate = useNavigate();
   const { activeWorkspaceId, activeWorkspace } = useAppContext();
@@ -210,10 +225,7 @@ export default function History() {
         import('jspdf'),
         import('html2canvas'),
       ]);
-      report = createPdfReportDocument(result, {
-        rows_returned: 'rows returned',
-        executive_summary: 'Executive summary',
-      });
+      report = createPdfReportDocument(result, historyPdfLabels(item));
       document.body.append(report);
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       await renderReportPdf(pdf, report, html2canvas);

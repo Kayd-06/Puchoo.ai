@@ -72,3 +72,20 @@ it('downloads saved results as CSV without running the query again', async () =>
   expect(within(blocked).queryByRole('button', { name: 'Download CSV' })).not.toBeInTheDocument();
   vi.restoreAllMocks();
 });
+
+it('uses saved translated PDF labels and falls back to English', async () => {
+  const { historyPdfLabels } = await import('../pages/History');
+  expect(
+    historyPdfLabels({
+      presentation: { labels: { rows_returned: 'पंक्तियाँ', executive_summary: 'सारांश' } },
+    }),
+  ).toEqual({ rows_returned: 'पंक्तियाँ', executive_summary: 'सारांश' });
+  expect(historyPdfLabels({ presentation: { labels: { rows_returned: 'पंक्तियाँ' } } })).toEqual({
+    rows_returned: 'पंक्तियाँ',
+    executive_summary: 'Executive summary',
+  });
+  expect(historyPdfLabels({})).toEqual({
+    rows_returned: 'rows returned',
+    executive_summary: 'Executive summary',
+  });
+});
