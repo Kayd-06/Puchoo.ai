@@ -1,0 +1,105 @@
+.session-history-refined {
+  --history-card-bg: #111110;
+  --history-card-line: #3c3b36;
+  --history-card-text: #f3f0e8;
+  --history-card-muted: #b7b3a9;
+  --history-card-accent: #ece6d9;
+  --history-card-tint: #2c2b26;
+}
+html[data-theme='light'] .session-history-refined {
+  --history-card-bg: #faf8f2;
+  --history-card-line: #e3e0d9;
+  --history-card-text: #322f28;
+  --history-card-muted: #6c6962;
+  --history-card-accent: #5d5a53;
+  --history-card-tint: #f4f1ea;
+}
+#root .session-history-refined.settings-history {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  min-height: 0;
+  padding: 24px;
+  background: var(--history-card-bg);
+  border: 1px solid var(--history-card-line);
+  border-radius: 18px;
+  box-shadow: none;
+}
+#root .session-history-refined::before,
+#root .session-history-refined::after {
+  display: none;
+}
+#root .session-history-refined:hover {
+  transform: none;
+}
+#root .session-history-refined .settings-history-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  color: var(--history-card-accent);
+  background: var(--history-card-tint);
+  border: 1px solid var(--history-card-line);
+  border-radius: 14px;
+  box-shadow: none;
+}
+#root .session-history-refined.settings-history > div:nth-child(2) {
+  margin: 0;
+  min-width: 0;
+}
+#root .session-history-refined .settings-section-kicker {
+  color: var(--history-card-accent);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+}
+#root .session-history-refined h2 {
+  margin: 6px 0;
+  color: var(--history-card-text);
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+#root .session-history-refined p {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--history-card-muted);
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+#root .session-history-refined .settings-action {
+  width: auto;
+  min-height: 40px;
+  padding: 10px 16px;
+  margin: 0;
+  border: 1px solid var(--history-card-line);
+  border-radius: 10px;
+  background: var(--history-card-tint);
+  color: var(--history-card-accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+}
+#root .session-history-refined .settings-action:hover {
+  border-color: var(--history-card-accent);
+}
+#root .session-history-refined .settings-action:focus-visible {
+  outline: 2px solid var(--history-card-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  #root .session-history-refined.settings-history {
+    grid-template-columns: 40px minmax(0, 1fr);
+    padding: 18px;
+    gap: 14px;
+  }
+  #root .session-history-refined .settings-history-icon {
+    width: 40px;
+    height: 40px;
+  }
+  #root .session-history-refined .settings-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildCsv, csvCell, renderPdfHtml } from '../reportExport';
+import { buildCsv, csvCell, renderPdfHtml, renderReportPdf } from '../reportExport';
 
 describe('csvCell', () => {
   it.each(['=SUM(A1:A9)', '+1+1', '-2+3', '@cmd', '\t=1', '\r=1'])(
@@ -56,4 +56,36 @@ describe('renderPdfHtml', () => {
     vi.advanceTimersByTime(1000);
     await expect(pending).rejects.toThrow('PDF export timed out.');
   });
+});
+
+it('captures an on-screen clone and writes visible paginated content with footers', async () => {
+  const clone = document.createElement('article');
+  clone.style.left = '-100000px';
+  const canvas = { width: 1000, height: 1600 };
+  const capture = vi.fn(async (_element, options) => {
+    options.onclone(null, clone);
+    expect(clone.style.left).toBe('0px');
+    expect(clone.style.position).toBe('absolute');
+    return canvas;
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    fillRect: vi.fn(),
+    drawImage: vi.fn(),
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+    'data:image/png;base64,content',
+  );
+  const pdf = {
+    internal: { pageSize: { getWidth: () => 842, getHeight: () => 595 } },
+    addPage: vi.fn(),
+    addImage: vi.fn(),
+    setFontSize: vi.fn(),
+    setTextColor: vi.fn(),
+    text: vi.fn(),
+  };
+  await renderReportPdf(pdf, document.createElement('article'), capture);
+  expect(pdf.addImage).toHaveBeenCalledTimes(3);
+  expect(pdf.addPage).toHaveBeenCalledTimes(2);
+  expect(pdf.text).toHaveBeenCalledWith('Page 1 of 3', 814, 577, { align: 'right' });
+  vi.restoreAllMocks();
 });

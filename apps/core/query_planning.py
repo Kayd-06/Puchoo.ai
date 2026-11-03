@@ -128,12 +128,13 @@ def classify_complexity(question: str, schema: str = "") -> ComplexityDecision:
 
 PLANNER_SYSTEM_PROMPT = """You are a query planner for a read-only SQLite analytics application.
 Return exactly one JSON object and no SQL, Markdown, or commentary. Preserve every explicit user constraint.
-Use only tables and columns present in the supplied schema. This is an autonomous, single-prompt workflow:
-never ask the user a follow-up question. Resolve ambiguity using the closest explicit schema field and record
-every resolution in assumptions. Prefer stored categorical status fields over inferred definitions (for example,
-loan_status='Overdue' defines overdue when that value exists). For relative dates use the current date. Use
-conventional calendar periods and schema-backed averages when no business definition is supplied. Never invent
-tables, columns, or unavailable facts. Always set needs_clarification false and clarification_question null.
+Use only tables and columns present in the supplied schema. Never invent business facts, definitions,
+relationships, thresholds, or missing data. A valid JSON plan is not proof of a correct interpretation.
+If a metric, policy, comparison period, join relationship, or essential filter is ambiguous or unavailable,
+set needs_clarification true and ask one concise, specific clarification_question. Do not silently choose
+an interpretation that changes the answer. Explain missing inputs when the data cannot answer the request.
+For well-defined questions, set needs_clarification false and clarification_question null. Record only
+non-material conventions in assumptions. Keep all requested metrics, time periods, groups and ranking.
 The object must contain: normalized_question, relevant_tables, metrics, filters, time_range, group_by,
 ranking, joins, assumptions, needs_clarification, clarification_question."""
 
@@ -223,6 +224,8 @@ def select_plan_schema(schema: str, plan: StructuredQueryPlan) -> tuple[str, lis
     tables = parse_schema(schema)
     max_tables = _configured_int("LOCAL_SQL_SCHEMA_MAX_TABLES", DEFAULT_MAX_RELEVANT_TABLES, 1, 12)
     max_chars = _configured_int("LOCAL_SQL_SCHEMA_MAX_CHARS", DEFAULT_SCHEMA_CONTEXT_CHARS, 1_000, 50_000)
+    if len(plan.relevant_tables) > max_tables:
+        raise QueryPlanError("The complete plan requires more tables than the configured context supports.")
     selected_names = plan.relevant_tables[:max_tables]
     if not selected_names:
         # Safe lexical fallback: choose the closest table blocks, never the full schema.
@@ -245,6 +248,8 @@ def select_plan_schema(schema: str, plan: StructuredQueryPlan) -> tuple[str, lis
         actual_names.append(table.name)
     if not blocks:
         raise QueryPlanError("No relevant schema fits within the configured context limit.")
+    if plan.relevant_tables and set(actual_names) != set(plan.relevant_tables):
+        raise QueryPlanError("The full planned schema does not fit; refusing to omit required tables.")
     return "\n\n".join(blocks), actual_names
 
 

@@ -1,0 +1,199 @@
+.workspace-invite-refined {
+  --invite-bg: #111110;
+  --invite-card: #1b1b19;
+  --invite-line: #3c3b36;
+  --invite-text: #f3f0e8;
+  --invite-muted: #b7b3a9;
+  --invite-accent: #ece6d9;
+  --invite-tint: #2c2b26;
+  --invite-button: #e8e1d3;
+  --invite-button-text: #24231f;
+}
+html[data-theme='light'] .workspace-invite-refined {
+  --invite-bg: #faf8f2;
+  --invite-card: #faf8f1;
+  --invite-line: #e3e0d9;
+  --invite-text: #322f28;
+  --invite-muted: #6c6962;
+  --invite-accent: #5d5a53;
+  --invite-tint: #f4f1ea;
+  --invite-button: #5d5a53;
+  --invite-button-text: #faf8f2;
+}
+#root .workspace-invite-refined.workspace-invite-panel {
+  background: var(--invite-bg);
+  border: 1px solid var(--invite-line);
+  border-radius: 20px;
+  padding: 24px;
+  color: var(--invite-text);
+  box-shadow: none;
+}
+#root .workspace-invite-refined::before,
+#root .workspace-invite-refined::after {
+  display: none;
+}
+#root .workspace-invite-refined:hover {
+  transform: none;
+}
+#root .workspace-invite-refined .workspace-invite-heading {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+#root .workspace-invite-refined .settings-section-kicker {
+  color: var(--invite-accent);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+}
+#root .workspace-invite-refined .workspace-invite-heading h2 {
+  color: var(--invite-text);
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+}
+#root .workspace-invite-refined .workspace-invite-heading p {
+  color: var(--invite-muted);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  margin: 10px 0 0;
+  max-width: 62ch;
+}
+#root .workspace-invite-refined .workspace-role-tabs {
+  display: flex;
+  width: 100%;
+  padding: 5px;
+  margin: 24px 0 0;
+  gap: 5px;
+  background: var(--invite-card);
+  border: 1px solid var(--invite-line);
+  border-radius: 12px;
+}
+#root .workspace-invite-refined .workspace-role-tabs button {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--invite-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  box-shadow: none;
+}
+#root .workspace-invite-refined .workspace-role-tabs button:hover {
+  background: var(--invite-tint);
+  color: var(--invite-accent);
+}
+#root .workspace-invite-refined .workspace-role-tabs button.is-active {
+  background: var(--invite-tint);
+  color: var(--invite-accent);
+  border-color: var(--invite-accent);
+  box-shadow: none;
+}
+#root .workspace-invite-refined .workspace-role-copy {
+  color: var(--invite-muted);
+  background: var(--invite-card);
+  border: 1px solid var(--invite-line);
+  border-left: 3px solid var(--invite-accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 0.79rem;
+  line-height: 1.7;
+  margin: 14px 0 20px;
+}
+#root .workspace-invite-refined .workspace-role-copy strong {
+  color: var(--invite-text);
+}
+#root .workspace-invite-refined .workspace-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--invite-card);
+  border: 1px dashed var(--invite-line);
+  border-radius: 12px;
+  margin: 0;
+}
+#root .workspace-invite-refined .workspace-code-empty {
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--invite-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+#root .workspace-invite-refined .workspace-code-empty svg {
+  color: var(--invite-accent);
+  flex-shrink: 0;
+}
+#root .workspace-invite-refined .workspace-code-row code {
+  flex: 1 1 150px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 10px 14px;
+  color: var(--invite-accent);
+  background: var(--invite-bg);
+  border: 1px solid var(--invite-line);
+  border-radius: 8px;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+#root .workspace-invite-refined .workspace-code-row .settings-action {
+  min-height: 40px;
+  border: 1px solid var(--invite-line);
+  border-radius: 9px;
+  background: var(--invite-bg);
+  color: var(--invite-text);
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  box-shadow: none;
+}
+#root .workspace-invite-refined .workspace-code-row .settings-action-primary {
+  background: var(--invite-button);
+  color: var(--invite-button-text);
+  border-color: var(--invite-button);
+}
+#root .workspace-invite-refined .workspace-code-row button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+#root .workspace-invite-refined .workspace-code-row button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+#root .workspace-invite-refined .workspace-security-note {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  color: var(--invite-muted);
+  font-size: 0.72rem;
+  line-height: 1.7;
+  margin: 16px 0 0;
+}
+#root .workspace-invite-refined .workspace-security-note svg {
+  color: var(--invite-accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+#root .workspace-invite-refined :is(button, select):focus-visible {
+  outline: 2px solid var(--invite-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  #root .workspace-invite-refined.workspace-invite-panel {
+    padding: 18px;
+  }
+  #root .workspace-invite-refined .workspace-role-tabs button {
+    padding: 10px 6px;
+  }
+  #root .workspace-invite-refined .workspace-code-row .settings-action-primary {
+    width: 100%;
+    justify-content: center;
+  }
+}

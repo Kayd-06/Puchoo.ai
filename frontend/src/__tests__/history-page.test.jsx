@@ -45,3 +45,47 @@ it('keeps search, status filters, SQL details, and continuation available in the
   );
   expect(screen.getByRole('button', { name: 'Delete chat' })).toBeInTheDocument();
 });
+
+it('downloads saved results as CSV without running the query again', async () => {
+  fetchApi.mockResolvedValueOnce([
+    {
+      id: 'saved',
+      question: 'Sales report',
+      status: 'executed',
+      columns: ['total'],
+      rows: [{ total: 42 }],
+      row_count: 1,
+    },
+    { id: 'blocked', question: 'Blocked query', status: 'blocked' },
+  ]);
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:export');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  render(<History />);
+  const card = (await screen.findByRole('heading', { name: 'Sales report' })).closest('article');
+  expect(within(card).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+  fireEvent.click(within(card).getByRole('button', { name: 'Download CSV' }));
+  expect(create).toHaveBeenCalledWith(expect.any(Blob));
+  expect(click).toHaveBeenCalledOnce();
+  expect(fetchApi).toHaveBeenCalledTimes(1);
+  const blocked = screen.getByRole('heading', { name: 'Blocked query' }).closest('article');
+  expect(within(blocked).queryByRole('button', { name: 'Download CSV' })).not.toBeInTheDocument();
+  vi.restoreAllMocks();
+});
+
+it('uses saved translated PDF labels and falls back to English', async () => {
+  const { historyPdfLabels } = await import('../pages/History');
+  expect(
+    historyPdfLabels({
+      presentation: { labels: { rows_returned: 'पंक्तियाँ', executive_summary: 'सारांश' } },
+    }),
+  ).toEqual({ rows_returned: 'पंक्तियाँ', executive_summary: 'सारांश' });
+  expect(historyPdfLabels({ presentation: { labels: { rows_returned: 'पंक्तियाँ' } } })).toEqual({
+    rows_returned: 'पंक्तियाँ',
+    executive_summary: 'Executive summary',
+  });
+  expect(historyPdfLabels({})).toEqual({
+    rows_returned: 'rows returned',
+    executive_summary: 'Executive summary',
+  });
+});

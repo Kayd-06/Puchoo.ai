@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Download,
   Code2,
   History as HistoryIcon,
   MessageSquarePlus,
@@ -17,6 +18,13 @@ import {
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
+import { buildCsv, renderReportPdf } from '../utils/reportExport';
+import {
+  saveBlob,
+  reportFilename,
+  reportTable,
+  createPdfReportDocument,
+} from '../utils/reportDocument';
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -58,6 +66,21 @@ function StatusBadge({ category }) {
   );
 }
 
+const DEFAULT_PDF_LABELS = {
+  rows_returned: 'rows returned',
+  executive_summary: 'Executive summary',
+};
+
+// Use the saved answer's translated labels so a Hindi or Tamil report stays in
+// that language; fall back to English for older records without them.
+export function historyPdfLabels(item) {
+  const saved = item?.presentation?.labels || {};
+  return {
+    rows_returned: saved.rows_returned || DEFAULT_PDF_LABELS.rows_returned,
+    executive_summary: saved.executive_summary || DEFAULT_PDF_LABELS.executive_summary,
+  };
+}
+
 export default function History() {
   const navigate = useNavigate();
   const { activeWorkspaceId, activeWorkspace } = useAppContext();
@@ -73,6 +96,7 @@ export default function History() {
   const [filter, setFilter] = useState('all');
   const [clearing, setClearing] = useState(false);
   const [deletingId, setDeletingId] = useState('');
+  const [exportingId, setExportingId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +166,7 @@ export default function History() {
     navigate('/ask', {
       state: {
         continuation: {
+          recordId: item.id,
           question: item.question,
           interpretedRequest: item.interpreted_request,
           rowCount: item.row_count,
@@ -170,6 +195,46 @@ export default function History() {
       setError(err.message || 'Could not delete this history record.');
     } finally {
       setDeletingId('');
+    }
+  };
+
+  const downloadRecord = async (item, format) => {
+    const result = {
+      record: item,
+      presentation: item.presentation || {
+        headline: `${item.row_count ?? item.rows.length} results returned`,
+        detail: item.interpreted_request || '',
+      },
+    };
+    setError('');
+    if (format === 'csv') {
+      const table = reportTable(result);
+      saveBlob(
+        new Blob([`\ufeff${buildCsv([table.labels, ...table.rows])}`], {
+          type: 'text/csv;charset=utf-8',
+        }),
+        reportFilename(item.question, 'csv'),
+      );
+      return;
+    }
+    if (exportingId) return;
+    setExportingId(item.id);
+    let report;
+    try {
+      const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ]);
+      report = createPdfReportDocument(result, historyPdfLabels(item));
+      document.body.append(report);
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      await renderReportPdf(pdf, report, html2canvas);
+      pdf.save(reportFilename(item.question, 'pdf'));
+    } catch (err) {
+      setError(err.message || 'Could not download this report. Please try again.');
+    } finally {
+      report?.remove();
+      setExportingId('');
     }
   };
 
@@ -319,6 +384,28 @@ export default function History() {
                       <MessageSquarePlus size={16} /> Continue chat
                     </button>
                   )}
+                  {category !== 'blocked' &&
+                    Array.isArray(item.rows) &&
+                    Array.isArray(item.columns) && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => downloadRecord(item, 'csv')}
+                        >
+                          <Download size={16} /> Download CSV
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={Boolean(exportingId)}
+                          onClick={() => downloadRecord(item, 'pdf')}
+                        >
+                          <Download size={16} />{' '}
+                          {exportingId === item.id ? 'Preparing PDF…' : 'Download PDF'}
+                        </button>
+                      </>
+                    )}
                   {item.sql && (
                     <details className="sql-details">
                       <summary>

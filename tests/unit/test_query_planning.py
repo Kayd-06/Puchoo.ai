@@ -130,3 +130,10 @@ class QueryPlanningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CompletePlanContextTests(unittest.TestCase):
+    def test_required_tables_are_not_silently_dropped(self):
+        plan = StructuredQueryPlan(**valid_payload())
+        with patch.dict('os.environ', {'LOCAL_SQL_SCHEMA_MAX_TABLES': '2'}):
+            with self.assertRaises(QueryPlanError):
+                select_plan_schema(SCHEMA, plan)

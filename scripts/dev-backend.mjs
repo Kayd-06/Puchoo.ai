@@ -8,7 +8,7 @@ const virtualenvPython = isWindows
 
 const server = spawn(
   virtualenvPython,
-  ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload'],
+  ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload', '--timeout-graceful-shutdown', '5'],
   { stdio: 'inherit' },
 );
 

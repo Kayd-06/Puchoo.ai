@@ -662,6 +662,79 @@ def test_rag_context_reaches_generation_with_owner_and_workspace_scope(env, monk
     assert env.executions == []
 
 
+def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
+    monkeypatch.setenv('PUCHOO_AUTONOMOUS_MODE', 'true')
+    monkeypatch.setattr(query_router, 'question_clarification', lambda *_: {'reason': 'ambiguous_metric', 'message': 'Which metric?', 'suggestions': ['Revenue', 'Quantity']})
+    response = env.generate(question='Show the best region')
+    assert response.status_code == 200
+    assert response.json()['status'] == 'clarification_required'
+    assert env.executions == []
+
+
+def test_deterministic_query_does_not_require_a_provider(env, monkeypatch):
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: 'SELECT id, region, amount FROM orders ORDER BY id')
+    def unavailable():
+        raise query_router.LocalMLXConfigurationError('Groq unavailable')
+    monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
+    response = env.generate(question='List all orders')
+    assert response.status_code == 200, response.text
+    approved = env.approve(response.json())
+    assert approved.status_code == 200
+    assert approved.json()['record']['row_count'] == 3
+
+
+def test_constant_false_model_query_cannot_be_presented_as_no_matching_data(env):
+    env.fake.sql = 'SELECT id FROM orders WHERE 0 = 1'
+    response = env.generate(question='List all orders')
+    assert response.status_code != 200
+    assert env.executions == []
+
+
+def _order_plan(**overrides):
+    plan = dict(normalized_question='Show total amount per region', relevant_tables=['orders'], metrics=['SUM(amount)'], filters=[], time_range=None, group_by=['region'], ranking=None, joins=[], assumptions=[], needs_clarification=False, clarification_question=None)
+    return {**plan, **overrides}
+
+
+def test_complex_planner_clarification_must_not_become_an_assumption(env, monkeypatch):
+    import json
+    monkeypatch.setenv('PUCHOO_AUTONOMOUS_MODE', 'true')
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(needs_clarification=True, clarification_question='Which comparison period?')), raising=False)
+    response = env.generate(question='Compare regional amounts')
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'clarification_required'
+    assert response.json()['message'] == 'Which comparison period?'
+    assert not env.executions
+
+
+def test_complex_planned_aggregate_returns_known_database_results(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('grouping',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan()), raising=False)
+    proposal = env.generate()
+    assert proposal.status_code == 200, proposal.text
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    assert response.json()['record']['rows'] == [{'region': 'north', 'total': 15}, {'region': 'south', 'total': 20}]
+
+
+def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    connection = sqlite3.connect(env.source)
+    connection.executescript("CREATE TABLE pupils(student_id INTEGER,full_name TEXT); CREATE TABLE charges(student_id INTEGER,amount_due REAL,amount_paid REAL); INSERT INTO pupils VALUES(1,'Part paid'),(2,'Fully paid'); INSERT INTO charges VALUES(1,100,40),(2,100,100);")
+    connection.close()
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', schema_guided_fallback_sql)
+    def unavailable():
+        raise query_router.LocalMLXConfigurationError('Provider unavailable')
+    monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
+    proposal = env.generate(question='give me the list of students with unpaid fee')
+    assert proposal.status_code == 200, proposal.text
+    assert not env.executions
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    assert response.json()['record']['rows'] == [{'student_id': 1, 'full_name': 'Part paid', 'outstanding_fee_amount': 60.0}]
+
+
 def test_translation_outage_returns_english_answer_with_flag(env, monkeypatch):
     pending = env.generate().json()
 
@@ -687,3 +760,22 @@ def test_english_answer_is_not_flagged_as_translation_failure(env):
     pending = env.generate().json()
     response = env.approve(pending)
     assert response.json()["presentation"]["translation_unavailable"] is False
+
+
+def test_fee_shortcut_with_extra_filter_goes_to_the_model(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    connection = sqlite3.connect(env.source)
+    connection.executescript("CREATE TABLE pupils(student_id INTEGER,full_name TEXT,class TEXT); CREATE TABLE charges(student_id INTEGER,amount_due REAL,amount_paid REAL);")
+    connection.close()
+    schema = "Table: pupils\nColumns: student_id (INTEGER), full_name (TEXT), class (TEXT)\n\nTable: charges\nColumns: student_id (INTEGER), amount_due (REAL), amount_paid (REAL)"
+    assert schema_guided_fallback_sql(schema, 'students with unpaid fees in class 10') is None
+    assert schema_guided_fallback_sql(schema, 'give me the list of students with unpaid fees in class 10') is None
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', schema_guided_fallback_sql)
+    calls = []
+    original = env.fake.generate_sql
+    def spy(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
+    monkeypatch.setattr(env.fake, 'generate_sql', spy)
+    env.generate(question='give me the list of students with unpaid fees in class 10')
+    assert calls, 'a filtered fee question must reach the SQL model'

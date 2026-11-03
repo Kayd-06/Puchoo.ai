@@ -106,9 +106,6 @@ def _schema_for_tables(schema: str, selected_tables: list[str]) -> str:
     return "\n\n".join(blocks) if blocks else schema
 
 
-def _autonomous_mode() -> bool:
-    return os.getenv("PUCHOO_AUTONOMOUS_MODE", "true").strip().lower() not in {"0", "false", "no", "off"}
-
 
 # Gnani (speech) and Sarvam (translation) both use BCP-47 "xx-IN" codes, so
 # most codes pass straight through. These aliases cover the variants either
@@ -277,7 +274,7 @@ def generate_query(
         raise HTTPException(status_code=400, detail="The question could not be processed.") from None
 
     controls = session_manager.get_guardrails(workspace_id)
-    
+
     try:
         schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
             workspace["database_uri"], connect_args=workspace.get("connect_args")
@@ -288,8 +285,7 @@ def generate_query(
         # Keyword misses (synonyms, translated wording) are advisory only: the
         # guardrail and the user's approval still gate every query.
         scope_warning = scope.warning
-        autonomous = _autonomous_mode()
-        clarification = None if autonomous else question_clarification(schema, planning_question)
+        clarification = question_clarification(schema, planning_question)
         if clarification:
             return {
                 "status": "clarification_required",
@@ -299,7 +295,7 @@ def generate_query(
             }
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
         decision = classify_complexity(planning_question, schema)
-        client = get_sql_client()
+        client = None if deterministic_sql else get_sql_client()
         retrieved_context = []
         if not deterministic_sql:
             try:
@@ -309,12 +305,15 @@ def generate_query(
                 )
             except ChatMemoryError:
                 logger.warning("rag_memory_initialization_unavailable")
-        client.retrieved_context = retrieved_context
+        if client is not None:
+            client.retrieved_context = retrieved_context
         if deterministic_sql:
             intent_plan = build_query_plan(schema, planning_question)
             focused_schema = select_relevant_schema(schema, intent_plan)
             planned_question = render_planned_question(intent_plan)
             selected_tables = sorted(set(re.findall(r'(?:from|join)\s+["`\[]?([a-z_][\w]*)', deterministic_sql.lower())))
+            selected_tables = [name for name in selected_tables if name in {table.name for table in parse_schema(schema)}]
+            intent_plan.tables = selected_tables
             public_plan = intent_plan.as_dict()
             structured_plan = None
             decision = type(decision)("deterministic_complex", decision.score, decision.reasons)
@@ -323,30 +322,21 @@ def generate_query(
                 raise SQLGenerationError("Complex-query planning requires a planner-capable model provider.")
             structured_plan = plan_complex_query(client, schema=schema, question=planning_question)
             if structured_plan.needs_clarification:
-                if autonomous:
-                    if structured_plan.clarification_question:
-                        structured_plan.assumptions.append(
-                            "Autonomous default applied instead of asking: "
-                            + structured_plan.clarification_question
-                        )
-                    structured_plan.needs_clarification = False
-                    structured_plan.clarification_question = None
-                else:
-                    _log_trace({
-                        "route": decision.route, "plan_valid": True,
-                        "plan": _plan_trace(structured_plan.as_dict()),
-                        "selected_tables": structured_plan.relevant_tables, "validation_outcome": "clarification",
-                        "retry_count": 0, "latency_ms": round((perf_counter() - started) * 1000),
-                    })
-                    return {
-                        "status": "clarification_required",
-                        "question": question,
-                        "reason": "planner_clarification",
-                        "message": _translate_for_display(structured_plan.clarification_question or "", language_code),
-                        "suggestions": [],
-                        "assumptions": [_translate_for_display(item, language_code) for item in structured_plan.assumptions],
-                        "interpreted_request": _translate_for_display(structured_plan.normalized_question, language_code),
-                    }
+                _log_trace({
+                    "route": decision.route, "plan_valid": True,
+                    "plan": _plan_trace(structured_plan.as_dict()),
+                    "selected_tables": structured_plan.relevant_tables, "validation_outcome": "clarification",
+                    "retry_count": 0, "latency_ms": round((perf_counter() - started) * 1000),
+                })
+                return {
+                    "status": "clarification_required",
+                    "question": question,
+                    "reason": "planner_clarification",
+                    "message": _translate_for_display(structured_plan.clarification_question or "", language_code),
+                    "suggestions": [],
+                    "assumptions": [_translate_for_display(item, language_code) for item in structured_plan.assumptions],
+                    "interpreted_request": _translate_for_display(structured_plan.normalized_question, language_code),
+                }
             focused_schema, selected_tables = select_plan_schema(schema, structured_plan)
             planned_question = build_plan_sql_request(planning_question, structured_plan)
             public_plan = structured_plan.as_dict()
@@ -359,51 +349,53 @@ def generate_query(
             structured_plan = None
         executor = _workspace_executor(workspace, controls)
         max_attempts = 1
-        
-        if isinstance(client, LocalMLXSQLClient):
+
+        if deterministic_sql:
+            generated_sql = deterministic_sql
+            guarded = executor.validate_query_plan(generated_sql)
+            feedback = local_semantic_feedback(planning_question, generated_sql, schema)
+            feedback.extend(plan_semantic_feedback(intent_plan, generated_sql))
+            if feedback:
+                raise SQLGenerationError("The schema-based query does not preserve the requested meaning.")
+            attempt = 0
+        elif isinstance(client, LocalMLXSQLClient):
             try:
                 max_attempts = max(1, min(int(os.getenv("LOCAL_SQL_MAX_ATTEMPTS", "2")), 3))
             except ValueError:
                 max_attempts = 2
-                
+
             feedback: List[str] = []
             previous_sql: Optional[str] = None
             guarded = None
             generated_sql = ""
             attempt = 1
-            if deterministic_sql:
-                generated_sql = deterministic_sql
-                guarded = executor.validate_query_plan(generated_sql)
+            for attempt in range(1, max_attempts + 1):
+                generated_sql = client.generate_sql(
+                    schema=focused_schema,
+                    question=planned_question,
+                    feedback=feedback if feedback else None,
+                    previous_sql=previous_sql,
+                )
                 feedback = local_semantic_feedback(planning_question, generated_sql, schema)
-                attempt = 0
-            else:
-                for attempt in range(1, max_attempts + 1):
-                    generated_sql = client.generate_sql(
-                        schema=focused_schema,
-                        question=planned_question,
-                        feedback=feedback if feedback else None,
-                        previous_sql=previous_sql,
-                    )
-                    feedback = local_semantic_feedback(planning_question, generated_sql, schema)
-                    if structured_plan is not None:
-                        feedback.extend(plan_constraint_feedback(structured_plan, generated_sql))
-                    else:
-                        feedback.extend(plan_semantic_feedback(intent_plan, generated_sql))
-                    try:
-                        guarded = executor.validate_query_plan(generated_sql)
-                    except SQLParseError as exc:
-                        feedback.insert(0, str(exc) + " Return one complete, concise SQLite SELECT statement only.")
-                    except SQLGuardrailError:
-                        # Never send unsafe SQL back through a repair loop.
-                        raise
-                    except QueryExecutionError as exc:
-                        feedback.insert(0, f"Exact database error: {exc.database_error}")
-                        feedback.insert(0, compact_plan_feedback(Exception(exc.database_error), generated_sql))
+                if structured_plan is not None:
+                    feedback.extend(plan_constraint_feedback(structured_plan, generated_sql))
+                else:
+                    feedback.extend(plan_semantic_feedback(intent_plan, generated_sql))
+                try:
+                    guarded = executor.validate_query_plan(generated_sql)
+                except SQLParseError as exc:
+                    feedback.insert(0, str(exc) + " Return one complete, concise SQLite SELECT statement only.")
+                except SQLGuardrailError:
+                    # Never send unsafe SQL back through a repair loop.
+                    raise
+                except QueryExecutionError as exc:
+                    feedback.insert(0, f"Exact database error: {exc.database_error}")
+                    feedback.insert(0, compact_plan_feedback(Exception(exc.database_error), generated_sql))
 
-                    if not feedback:
-                        break
-                    previous_sql = generated_sql
-                
+                if not feedback:
+                    break
+                previous_sql = generated_sql
+
             if guarded is None or feedback:
                 fallback_sql = schema_guided_fallback_sql(schema, planning_question)
                 if fallback_sql:
@@ -430,16 +422,21 @@ def generate_query(
             attempt = 1
             generated_sql = client.generate_sql(schema=focused_schema, question=planned_question)
             guarded = executor.validate_query_plan(generated_sql)
+            feedback = local_semantic_feedback(planning_question, generated_sql, schema)
+            if structured_plan is not None:
+                feedback.extend(plan_constraint_feedback(structured_plan, generated_sql))
+            if feedback:
+                raise SQLGenerationError("The generated query does not preserve the requested meaning.")
 
         proposal = {
-            "id": f"qry_{uuid4().hex[:12]}", 
-            "workspace_id": workspace_id, 
+            "id": f"qry_{uuid4().hex[:12]}",
+            "workspace_id": workspace_id,
             "question": question,
             "processing_question": planning_question,
             "retrieval": {"source_ids": [item["id"] for item in retrieved_context]},
             "language_code": language_code,
-            "sql": guarded.sql, 
-            "limit": guarded.limit, 
+            "sql": guarded.sql,
+            "limit": guarded.limit,
             "created_at": utc_now(),
             "model_attempts": attempt,
             "generation_method": "schema-guided fallback" if attempt == 0 or attempt > max_attempts else getattr(client, "provider_name", "local model"),
@@ -475,7 +472,7 @@ def generate_query(
             context=proposal,
         )
         return {**proposal, **public_pending(pending)}
-        
+
     except SQLGuardrailError as exc:
         logger.warning("query blocked by safety policy: %s", type(exc).__name__, exc_info=True)
         blocked_record = {
@@ -487,10 +484,24 @@ def generate_query(
         session_manager.query_history.setdefault(workspace_id, []).insert(0, blocked_record)
         session_manager.save(active_workspace_id=workspace_id)
         raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
-        
-    except (AnthropicConfigurationError, LocalMLXConfigurationError, QueryExecutionError, QueryPlanError, SQLGenerationError, ValueError) as exc:
+
+    except (AnthropicConfigurationError, LocalMLXConfigurationError) as exc:
+        provider_status = getattr(exc.__cause__, "code", None)
+        logger.warning("query provider unavailable: %s status=%s code=%s", type(exc).__name__, provider_status, getattr(exc, "provider_error_code", "unknown"))
+        messages = {
+            401: "The SQL model provider rejected its API credentials. Ask your administrator to update the configured key.",
+            403: "The SQL model provider denied this request. Ask your administrator to check model and account access.",
+            429: "The SQL model provider is temporarily rate limited. Please wait briefly and retry.",
+            400: "The SQL model provider rejected the configured model request. Ask your administrator to check the SQL and planner model settings.",
+        }
+        detail = messages.get(provider_status, "The SQL model service is unavailable or not configured. Please retry later or ask your workspace administrator to check the model service.")
+        raise HTTPException(status_code=503, detail=detail) from None
+    except QueryPlanError:
+        logger.warning("query plan could not be completed")
+        raise HTTPException(status_code=422, detail="I could not build a complete, grounded plan for that question. Please specify the metric, filters and comparison period, or split it into smaller questions. No query was run.") from None
+    except (QueryExecutionError, SQLGenerationError, ValueError) as exc:
         logger.exception("query generation failed: %s", type(exc).__name__)
-        raise HTTPException(status_code=400, detail="The query could not be generated.") from None
+        raise HTTPException(status_code=400, detail="I could not produce a complete query grounded in this workspace. Please clarify the requested metric or filters. No query was run.") from None
 
 class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -667,7 +678,7 @@ def approve_pending_query(
             "verification": verification_dict,
             "executed_at": utc_now(),
         }
-        
+
         for transient in ("pending_id", "sql_hash", "expires_at", "repair_of"):
             record.pop(transient, None)
         session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
@@ -696,7 +707,7 @@ def approve_pending_query(
         except ChatMemoryError:
             memory_saved = False
             logger.exception("approved_conversation_memory_write_failed workspace=%s", workspace_id)
-        
+
         # Build presentation data to match the UI behavior
         from apps.core.result_presentation import build_result_presentation, humanize_column
         presentation = build_result_presentation(
@@ -733,7 +744,7 @@ def approve_pending_query(
             for column in record["columns"]
         }
         display_rows = _localize_rows(record["rows"], output_language, failures=translation_failures)
-        
+
         return {
             "record": record,
             "approved_memory_saved": memory_saved,
@@ -748,7 +759,7 @@ def approve_pending_query(
                 "translation_unavailable": bool(translation_failures),
             }
         }
-        
+
     except SQLGuardrailError as exc:
         finish_pending(db, pending, "blocked")
         logger.warning("approved query blocked on re-validation: %s", type(exc).__name__)

@@ -1,0 +1,209 @@
+#root .topbar-account-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  min-height: 36px;
+  max-width: 210px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid #354454;
+  border-radius: 11px;
+  background: #192430;
+  color: #e7eff8;
+  box-shadow: none;
+}
+#root .topbar-account-button:hover,
+#root .topbar-account-button.is-active {
+  background: #243344;
+  border-color: #6e879c;
+}
+#root .topbar-account-button .topbar-avatar {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+#root .topbar-avatar {
+  background: #dce4ef;
+  color: #243d57;
+  border: 0;
+  box-shadow: inset 1px 1px 2px #ffffff70;
+}
+#root .account-trigger-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+#root .topbar-account-button > svg {
+  display: block;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+#root .account-chevron-open {
+  transform: rotate(180deg);
+}
+#root .topbar-account-panel {
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  padding: 8px;
+  border: 1px solid #334454;
+  border-radius: 15px;
+  background: #17212c;
+  color: #eaf1f8;
+  box-shadow: 0 16px 40px #00000045;
+}
+#root .topbar-account-summary {
+  padding: 14px 10px 16px;
+  margin: 0 2px 6px;
+  gap: 12px;
+  border-bottom: 1px solid #334454;
+  background: transparent;
+}
+#root .topbar-account-summary .topbar-avatar {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 13px;
+  font-size: 1.05rem;
+}
+#root .topbar-account-summary strong {
+  color: #edf4fb;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+#root .topbar-account-summary .topbar-account-email {
+  color: #a4b5c6;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+#root .account-menu-links {
+  display: grid;
+  gap: 3px;
+  padding: 2px 0 8px;
+}
+#root .account-menu-links button,
+#root .topbar-account-panel .topbar-logout-button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #dce8f4;
+  text-align: left;
+  font-size: 0.8rem;
+  cursor: pointer;
+  box-shadow: none;
+}
+#root .account-menu-links button:hover {
+  background: #263749;
+}
+#root .topbar-account-panel .topbar-logout-button {
+  color: #ffb3c0;
+  border-top: 1px solid #334454;
+  border-radius: 0 0 8px 8px;
+  padding-top: 14px;
+}
+#root .topbar-account-panel .topbar-logout-button:hover {
+  background: #382530;
+}
+html[data-theme='light'] #root .topbar-account-button {
+  background: #faf7f0;
+  border-color: #e2dfd8;
+  color: #3a3730;
+}
+html[data-theme='light'] #root .topbar-account-button:hover,
+html[data-theme='light'] #root .topbar-account-button.is-active {
+  background: #f3f0e9;
+  border-color: #b1aea7;
+}
+html[data-theme='light'] #root .topbar-account-panel {
+  background: #faf8f2;
+  border-color: #e7e4dd;
+  color: #3a3730;
+  box-shadow: 0 16px 40px #20304020;
+}
+html[data-theme='light'] #root .topbar-account-summary {
+  border-color: #eae7e0;
+}
+html[data-theme='light'] #root .topbar-account-summary strong {
+  color: #36332c;
+}
+html[data-theme='light'] #root .topbar-account-summary .topbar-account-email {
+  color: #77746d;
+}
+html[data-theme='light'] #root .account-menu-links button {
+  color: #423f38;
+}
+html[data-theme='light'] #root .account-menu-links button:hover {
+  background: #f8f5ee;
+}
+html[data-theme='light'] #root .topbar-account-panel .topbar-logout-button {
+  color: #a72c44;
+  border-color: #eae7e0;
+}
+html[data-theme='light'] #root .topbar-account-panel .topbar-logout-button:hover {
+  background: #fff0f3;
+}
+#root .topbar-account-panel button:focus-visible {
+  outline: 2px solid #6e9dcc;
+  outline-offset: -2px;
+}
+@media (max-width: 600px) {
+  #root .account-trigger-name {
+    display: none;
+  }
+  #root .topbar-account-button {
+    max-width: 70px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #root .topbar-account-button > svg {
+    transition: none;
+  }
+}
+
+/* Keep long account identifiers inside the menu and center the avatar glyph. */
+#root .topbar-account-summary {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: auto;
+  min-width: 0;
+}
+#root .topbar-account-summary > .topbar-avatar,
+#root .topbar-account-button > .topbar-avatar {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  text-align: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+#root .topbar-account-summary .topbar-account-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+#root .topbar-account-summary .topbar-account-copy > strong,
+#root .topbar-account-summary .topbar-account-email {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  line-height: 1.45;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
