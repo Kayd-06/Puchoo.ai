@@ -551,8 +551,11 @@ def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
     def find_table(required: set[str]) -> str | None:
         return next((table for table, columns in table_columns.items() if required <= columns), None)
 
-    # Only this complete, unconstrained intent is deterministic. Requests with
-    # dates, class filters, ranking, etc. must use the general planning pipeline.
+    # Deliberate shortcut for the demo school dataset (student_id, full_name,
+    # amount_due, amount_paid): these exact fee questions get fixed SQL so they
+    # work even when the model provider is down. Only the complete, unconstrained
+    # sentence matches; anything with dates, class filters, ranking, etc. falls
+    # through to the general model planning pipeline.
     unpaid_students = re.fullmatch(
         r"(?:please\s+)?(?:give\s+me\s+(?:the\s+)?(?:list\s+of\s+)?|show\s+(?:me\s+)?|list\s+|find\s+)"
         r"(?:the\s+)?(?:names?\s+of\s+)?students?\s+(?:with|having|who\s+have)\s+"
@@ -1115,7 +1118,8 @@ class GroqSQLClient(LocalMLXSQLClient):
         }
         if selected_model.startswith("openai/gpt-oss-"):
             body["reasoning_effort"] = "low"
-        elif selected_model == "qwen/qwen3.8-27b":
+        elif selected_model.startswith("qwen/qwen3"):
+            # Qwen3 models on Groq think by default; SQL needs a direct answer.
             body["reasoning_effort"] = "none"
         if response_format is not None:
             body["response_format"] = response_format

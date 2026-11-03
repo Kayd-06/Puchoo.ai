@@ -661,3 +661,28 @@ class GroundedStudentQueries(unittest.TestCase):
         schema = 'Table: learners\nColumns: id (INTEGER), name (TEXT)\nTable: dues\nColumns: learner_id (INTEGER), billed (REAL), received (REAL)'
         feedback = local_semantic_feedback('List students with unpaid fees', 'SELECT l.name FROM learners l JOIN dues d ON d.learner_id=l.id WHERE d.billed > d.received', schema)
         self.assertFalse(any('amount_due' in item for item in feedback))
+
+
+class GroqReasoningEffortTests(unittest.TestCase):
+    def _payload(self, model: str) -> dict:
+        class _Response:
+            def read(self) -> bytes:
+                return b'{"choices":[{"message":{"content":"SELECT 1"}}]}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+        with patch("apps.core.llm_client.urllib.request.urlopen", return_value=_Response()) as urlopen:
+            GroqSQLClient(api_key="k", model=model)._chat(system="s", user="u")
+        return __import__("json").loads(urlopen.call_args.args[0].data.decode("utf-8"))
+
+    def test_any_qwen3_model_disables_reasoning(self):
+        for model in ("qwen/qwen3.8-27b", "qwen/qwen3-32b"):
+            self.assertEqual("none", self._payload(model)["reasoning_effort"])
+
+    def test_gpt_oss_uses_low_and_others_send_nothing(self):
+        self.assertEqual("low", self._payload("openai/gpt-oss-120b")["reasoning_effort"])
+        self.assertNotIn("reasoning_effort", self._payload("llama-3.3-70b-versatile"))

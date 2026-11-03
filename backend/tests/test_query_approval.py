@@ -760,3 +760,22 @@ def test_english_answer_is_not_flagged_as_translation_failure(env):
     pending = env.generate().json()
     response = env.approve(pending)
     assert response.json()["presentation"]["translation_unavailable"] is False
+
+
+def test_fee_shortcut_with_extra_filter_goes_to_the_model(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    connection = sqlite3.connect(env.source)
+    connection.executescript("CREATE TABLE pupils(student_id INTEGER,full_name TEXT,class TEXT); CREATE TABLE charges(student_id INTEGER,amount_due REAL,amount_paid REAL);")
+    connection.close()
+    schema = "Table: pupils\nColumns: student_id (INTEGER), full_name (TEXT), class (TEXT)\n\nTable: charges\nColumns: student_id (INTEGER), amount_due (REAL), amount_paid (REAL)"
+    assert schema_guided_fallback_sql(schema, 'students with unpaid fees in class 10') is None
+    assert schema_guided_fallback_sql(schema, 'give me the list of students with unpaid fees in class 10') is None
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', schema_guided_fallback_sql)
+    calls = []
+    original = env.fake.generate_sql
+    def spy(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
+    monkeypatch.setattr(env.fake, 'generate_sql', spy)
+    env.generate(question='give me the list of students with unpaid fees in class 10')
+    assert calls, 'a filtered fee question must reach the SQL model'
