@@ -59,6 +59,37 @@ class LLMClientTests(unittest.TestCase):
         self.assertEqual("PuchooAI/1.0", request.headers["User-agent"])
         self.assertNotIn("test-secret", request.data.decode("utf-8"))
 
+    def test_groq_retries_only_transient_generation_rejection(self):
+        import io
+        import urllib.error
+        response = __import__('contextlib').nullcontext(SimpleNamespace(read=lambda: b'{"choices":[{"message":{"content":"SELECT 1"}}]}'))
+        error = urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"json_validate_failed","message":"private schema must not be logged"}}'))
+        with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=[error, response]) as send:
+            answer = GroqSQLClient(api_key='test-secret')._chat(system='JSON', user='synthetic request')
+        self.assertEqual(answer, 'SELECT 1')
+        self.assertEqual(send.call_count, 2)
+
+    def test_groq_generation_retry_is_bounded_and_never_uses_failed_output(self):
+        import io
+        import urllib.error
+        errors = [urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"structured_generation_failed","failed_generation":"SELECT private_data"}}')) for _ in range(2)]
+        with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=errors) as send:
+            with self.assertRaises(SQLGenerationError):
+                GroqSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
+        self.assertEqual(send.call_count, 2)
+
+    def test_groq_invalid_settings_are_not_retried_or_exposed(self):
+        import io
+        import urllib.error
+        from apps.core.llm_client import LocalMLXConfigurationError
+        error = urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"invalid_request_error","message":"secret-private-content"}}'))
+        with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=error) as send:
+            with self.assertRaises(LocalMLXConfigurationError) as raised:
+                GroqSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(raised.exception.provider_error_code, 'invalid_request_error')
+        self.assertNotIn('secret-private-content', str(raised.exception))
+
     def test_student_trend_classification_requests_rules_and_periods(self) -> None:
         result = question_clarification(
             "Table: students\nColumns: student_id\n\nTable: grades\nColumns: student_id, marks_obtained",
@@ -218,6 +249,42 @@ Columns: student_id (INTEGER), full_name (TEXT)
 Table: _06_attendance_attendance
 Columns: attendance_id (INTEGER), student_id (INTEGER), attendance_date (TEXT), attendance_percentage (REAL)"""
         question = "Give me the list of students having overall attendance greater than 70 percent"
+
+        sql = schema_guided_fallback_sql(schema, question)
+
+        self.assertIsNotNone(sql)
+        assert sql is not None
+        connection = sqlite3.connect(":memory:")
+        connection.executescript(
+            """
+            CREATE TABLE _02_students_students (student_id INTEGER, full_name TEXT);
+            CREATE TABLE _06_attendance_attendance (
+                attendance_id INTEGER,
+                student_id INTEGER,
+                attendance_date TEXT,
+                attendance_percentage REAL
+            );
+            INSERT INTO _02_students_students VALUES (1, 'Asha'), (2, 'Rohan');
+            INSERT INTO _06_attendance_attendance VALUES
+                (1, 1, '2026-01-01', 80),
+                (2, 1, '2026-01-02', 70),
+                (3, 2, '2026-01-01', 69),
+                (4, 2, '2026-01-02', 70);
+            """
+        )
+        rows = connection.execute(sql).fetchall()
+        connection.close()
+
+        self.assertEqual([(1, "Asha", 75.0)], rows)
+        self.assertEqual([], local_semantic_feedback(question, sql, schema))
+
+    def test_attendence_threshold_without_overall_has_executable_fallback(self) -> None:
+        schema = """Table: _02_students_students
+Columns: student_id (INTEGER), full_name (TEXT)
+
+Table: _06_attendance_attendance
+Columns: attendance_id (INTEGER), student_id (INTEGER), attendance_date (TEXT), attendance_percentage (REAL)"""
+        question = "give me the list of students having attendence greater than 70 percent"
 
         sql = schema_guided_fallback_sql(schema, question)
 
@@ -536,3 +603,61 @@ Columns: expense_id (INTEGER), expense_date (TEXT), expense_category (TEXT), amo
         self.assertIn("SELECT missing FROM orders", prompt)
         self.assertIn("no such column: missing", prompt)
         self.assertNotIn("prompt", payload)
+
+class GroundedStudentQueries(unittest.TestCase):
+    def test_unpaid_fees_uses_actual_balances_and_excludes_paid_students(self):
+        schema = 'Table: pupils\nColumns: student_id (INTEGER), full_name (TEXT)\n\nTable: charges\nColumns: student_id (INTEGER), amount_due (REAL), amount_paid (REAL)'
+        sql = schema_guided_fallback_sql(schema, 'give me the list of students with unpaid fee')
+        self.assertIsNotNone(sql)
+        db = sqlite3.connect(':memory:')
+        db.executescript("CREATE TABLE pupils(student_id,full_name); CREATE TABLE charges(student_id,amount_due,amount_paid); INSERT INTO pupils VALUES(1,'Partial'),(2,'Paid'),(3,'Credit and debt'); INSERT INTO charges VALUES(1,100,40),(2,100,100),(3,100,120),(3,100,50);")
+        self.assertEqual(db.execute(sql).fetchall(), [(1, 'Partial', 60), (3, 'Credit and debt', 50)])
+        db.close()
+
+    def test_unpaid_fees_fallback_does_not_discard_extra_constraints(self):
+        schema = 'Table: pupils\nColumns: student_id (INTEGER), full_name (TEXT)\n\nTable: charges\nColumns: student_id (INTEGER), amount_due (REAL), amount_paid (REAL)'
+        self.assertIsNone(schema_guided_fallback_sql(schema, 'list students with unpaid fees in class 10 last month'))
+
+    def test_constant_false_query_is_not_treated_as_an_answer(self):
+        feedback = local_semantic_feedback('list students with unpaid fee', 'SELECT full_name FROM pupils WHERE 0 = 1', 'Table: pupils\nColumns: full_name (TEXT)')
+        self.assertTrue(any('constant' in item.lower() for item in feedback))
+
+    def test_attendance_fallback_does_not_ignore_class_or_date_filters(self):
+        schema = 'Table: pupils\nColumns: student_id (INTEGER), full_name (TEXT), class_name (TEXT)\n\nTable: presence\nColumns: student_id (INTEGER), attendance_percentage (REAL), attendance_date (TEXT)'
+        self.assertIsNone(schema_guided_fallback_sql(schema, 'List students in class 10 with attendance above 75 percent last month'))
+
+    def test_paid_fees_uses_disclosed_full_payment_default(self):
+        schema = 'Table: students\nColumns: student_id,full_name\nTable: fees\nColumns: student_id,amount_due,amount_paid'
+        question = canonicalize_analytics_question('give me the list of students with paid fee')
+        self.assertIn('fully paid all recorded fees', question)
+        self.assertIsNone(question_clarification(schema, question))
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIn('f.amount_due > COALESCE(f.amount_paid, 0)', sql)
+        self.assertIn('f.amount_due IS NULL', sql)
+        import sqlite3
+        connection = sqlite3.connect(':memory:')
+        connection.executescript("""
+            CREATE TABLE students(student_id INTEGER, full_name TEXT);
+            CREATE TABLE fees(student_id INTEGER, amount_due REAL, amount_paid REAL);
+            INSERT INTO students VALUES (1,'Settled'),(2,'Partial'),(3,'Overpaid elsewhere'),(4,'Unknown'),(5,'No fees');
+            INSERT INTO fees VALUES (1,100,100),(2,100,50),(3,100,200),(3,100,0),(4,NULL,100);
+        """)
+        self.assertEqual(connection.execute(sql).fetchall(), [(1, 'Settled')])
+        connection.close()
+        self.assertEqual(canonicalize_analytics_question('list students with paid fees in class 10'), 'list students with paid fees in class 10')
+
+    def test_explicit_partial_payment_lookup_is_grounded_without_model(self):
+        question = canonicalize_analytics_question('give me the list of student with paid fee. . Students who have made any payment, including partial payments')
+        schema = 'Table: students\nColumns: student_id,full_name\nTable: fees\nColumns: student_id,amount_due,amount_paid'
+        sql = schema_guided_fallback_sql(schema, question)
+        self.assertIsNotNone(sql)
+        connection = sqlite3.connect(':memory:')
+        connection.executescript("CREATE TABLE students(student_id, full_name); CREATE TABLE fees(student_id,amount_due,amount_paid); INSERT INTO students VALUES (1,'Paid'),(2,'Partial'),(3,'Unpaid'); INSERT INTO fees VALUES (1,100,100),(2,100,30),(3,100,0);")
+        self.assertEqual(connection.execute(sql).fetchall(), [(1,'Paid'),(2,'Partial')])
+        connection.close()
+        self.assertIsNone(schema_guided_fallback_sql(schema, 'List students who have made any payment, including partial payments last month'))
+
+    def test_unpaid_feedback_does_not_invent_different_schema_columns(self):
+        schema = 'Table: learners\nColumns: id (INTEGER), name (TEXT)\nTable: dues\nColumns: learner_id (INTEGER), billed (REAL), received (REAL)'
+        feedback = local_semantic_feedback('List students with unpaid fees', 'SELECT l.name FROM learners l JOIN dues d ON d.learner_id=l.id WHERE d.billed > d.received', schema)
+        self.assertFalse(any('amount_due' in item for item in feedback))

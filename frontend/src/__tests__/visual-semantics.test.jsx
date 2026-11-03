@@ -127,7 +127,7 @@ it('keeps the data-source background word outline-only and highlights it only on
   expect(css).toMatch(/\.connect-word:hover/s);
   expect(css).toMatch(/\.connect-word text\s*\{[^}]*pointer-events:\s*stroke/s);
   expect(css).toMatch(/html\[data-theme=["']dark["']\][^{]*\{[^}]*stroke:\s*#fff/s);
-  expect(css).toMatch(/html\[data-theme=["']light["']\][^{]*\{[^}]*stroke:\s*#111/s);
+  expect(css).toMatch(/html\[data-theme=["']light["']\][^{]*\{[^}]*stroke:\s*#16130c/s);
   expect(css).toMatch(/\.connect-word\s*\{[^}]*color:\s*transparent/s);
   expect(css).toMatch(/\.connect-stage-content\s*\{[^}]*z-index:\s*5[^}]*pointer-events:\s*none/s);
   expect(css).toMatch(

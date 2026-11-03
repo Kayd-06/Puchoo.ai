@@ -22,8 +22,15 @@ import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useChatState } from '../hooks/useChatState';
 import { fetchApi, fetchApiBlob } from '../api/client';
-import { buildCsv, renderPdfHtml } from '../utils/reportExport';
+import { buildCsv, renderReportPdf } from '../utils/reportExport';
+import {
+  saveBlob,
+  reportFilename,
+  reportTable,
+  createPdfReportDocument,
+} from '../utils/reportDocument';
 import { playAnswerAudio, requestMicrophone } from '../utils/voice';
+import '../styles/chatActions.css';
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -107,40 +114,6 @@ async function convertRecordingToWav(blob) {
   }
 }
 
-function saveBlob(blob, filename) {
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = href;
-  link.download = filename;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(href), 0);
-}
-
-function reportFilename(question, extension) {
-  const title =
-    question
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 48) || 'report';
-  return `puchoo-${title}.${extension}`;
-}
-
-function reportTable(result) {
-  const columns = result?.record?.columns || [];
-  const labels = result?.presentation?.column_labels || {};
-  const rows = result?.record?.rows || [];
-  const displayRows = result?.presentation?.display_rows || rows;
-  return {
-    columns,
-    labels: columns.map((column) => labels[column] || column),
-    rows: rows.map((row, index) =>
-      columns.map((column) => displayRows[index]?.[column] ?? row[column] ?? '—'),
-    ),
-  };
-}
-
 export function buildResultSpeechPayload(presentation, record = {}) {
   const parts = [presentation?.headline, presentation?.detail]
     .filter((part) => typeof part === 'string' && part.trim())
@@ -157,9 +130,13 @@ export function buildResultSpeechPayload(presentation, record = {}) {
 export function splitResultSpeech(text) {
   const clips = [];
   let remaining = text;
-  while (remaining.length > 2000) {
-    let end = Math.max(remaining.lastIndexOf('\n', 1999), remaining.lastIndexOf(' ', 1999));
-    end = end > 1000 ? end + 1 : 2000;
+  while (remaining.length > (clips.length ? 2000 : 300)) {
+    const limit = clips.length ? 2000 : 300;
+    let end = Math.max(
+      remaining.lastIndexOf('\n', limit - 1),
+      remaining.lastIndexOf(' ', limit - 1),
+    );
+    end = end > limit / 2 ? end + 1 : limit;
     if (/[\uD800-\uDBFF]/.test(remaining[end - 1])) end -= 1;
     clips.push(remaining.slice(0, end));
     remaining = remaining.slice(end);
@@ -258,80 +235,20 @@ export function ResultSpeechControls({ speechState, speechError, onPlay, onPause
   );
 }
 
-function createPdfReportDocument(result, labels) {
-  const report = document.createElement('article');
-  report.style.cssText =
-    'position:fixed;left:-100000px;top:0;width:1040px;background:#fff;color:#172b36;padding:48px;font-family:Arial,"Noto Sans",sans-serif;font-size:13px;line-height:1.45;';
-  const heading = document.createElement('h1');
-  heading.textContent = 'Puchoo.si report';
-  heading.style.cssText = 'margin:0;color:#172b36;font-size:28px;letter-spacing:-.5px;';
-  const question = document.createElement('p');
-  question.textContent = result.record.question;
-  question.style.cssText = 'margin:12px 0 4px;font-size:18px;font-weight:600;';
-  const metadata = document.createElement('p');
-  metadata.textContent = `${result.record.row_count ?? 0} ${labels.rows_returned} · Generated ${new Date().toLocaleString()}`;
-  metadata.style.cssText = 'margin:0 0 24px;color:#61727d;';
-  const summary = document.createElement('section');
-  summary.style.cssText =
-    'margin:0 0 24px;border:1px solid #d9e3e8;border-radius:12px;background:#f7fafb;padding:18px 20px;';
-  const summaryLabel = document.createElement('strong');
-  summaryLabel.textContent = labels.executive_summary;
-  const summaryText = document.createElement('p');
-  summaryText.textContent = result.presentation?.headline || '';
-  summaryText.style.cssText = 'margin:6px 0 0;font-size:17px;font-weight:600;';
-  summary.append(summaryLabel, summaryText);
-
-  const detail = result.presentation?.detail;
-  if (detail) {
-    const detailText = document.createElement('p');
-    detailText.textContent = detail;
-    detailText.style.cssText = 'margin:8px 0 0;color:#405662;';
-    summary.append(detailText);
-  }
-
-  const tableData = reportTable(result);
-  const table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
-  const thead = document.createElement('thead');
-  const headerRow = document.createElement('tr');
-  tableData.labels.forEach((label) => {
-    const cell = document.createElement('th');
-    cell.textContent = label;
-    cell.style.cssText =
-      'background:#172b36;color:#fff;padding:10px;text-align:left;font-weight:600;';
-    headerRow.append(cell);
-  });
-  thead.append(headerRow);
-  const tbody = document.createElement('tbody');
-  tableData.rows.forEach((row, index) => {
-    const tableRow = document.createElement('tr');
-    row.forEach((value) => {
-      const cell = document.createElement('td');
-      cell.textContent = String(value);
-      cell.style.cssText = `padding:9px 10px;border-bottom:1px solid #d9e3e8;background:${index % 2 ? '#f7fafb' : '#fff'};vertical-align:top;`;
-      tableRow.append(cell);
-    });
-    tbody.append(tableRow);
-  });
-  table.append(thead, tbody);
-  report.append(heading, question, metadata, summary, table);
-  return report;
-}
-
 export function queryUniversePalette(theme) {
   if (theme === 'light') {
     return {
       composite: 'source-over',
       motion: 1.45,
-      orbit: '38, 54, 63',
-      pulse: '48, 68, 79',
-      cluster: '38, 57, 67',
-      clusterEdge: '38, 57, 67',
-      dust: '16, 28, 35',
-      dustSpark: '24, 38, 47',
-      stream: '29, 50, 64',
-      star: '15, 28, 36',
-      starSpark: '19, 35, 44',
+      orbit: '44, 41, 38',
+      pulse: '54, 51, 48',
+      cluster: '44, 41, 38',
+      clusterEdge: '44, 41, 38',
+      dust: '22, 19, 16',
+      dustSpark: '30, 27, 24',
+      stream: '35, 32, 29',
+      star: '21, 18, 15',
+      starSpark: '25, 22, 19',
     };
   }
   return {
@@ -383,13 +300,30 @@ function QueryUniverse() {
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const dustCount = Math.min(300, Math.max(150, Math.round(width / 6)));
-      const streamCount = Math.min(430, Math.max(240, Math.round(width / 4.2)));
+      const area = width * height;
+      const dustCount = Math.min(4200, Math.max(1200, Math.round(area / 340)));
+      const stillCount = Math.min(6500, Math.max(1800, Math.round(area / 220)));
+      const streamCount = Math.min(3200, Math.max(900, Math.round(area / 450)));
       const motion = queryUniversePalette(document.documentElement.dataset.theme).motion;
+      const cornerPoint = () => {
+        const corner = Math.floor(Math.random() * 4);
+        const x = Math.random() ** 1.6 * width * 0.28;
+        const y = Math.random() ** 1.4 * height * 0.32;
+        return { x: corner % 2 ? width - x : x, y: corner > 1 ? height - y : y };
+      };
+      const stillStars = Array.from({ length: stillCount }, () => ({
+        kind: 'still',
+        ...(Math.random() < 0.45
+          ? cornerPoint()
+          : { x: Math.random() * width, y: Math.random() * height }),
+        size: 0.3 + Math.random() * 0.9,
+        alpha: 0.15 + Math.random() * 0.48,
+      }));
       const dust = Array.from({ length: dustCount }, () => ({
         kind: 'dust',
-        x: Math.random() * width,
-        y: Math.random() * height,
+        ...(Math.random() < 0.4
+          ? cornerPoint()
+          : { x: Math.random() * width, y: Math.random() * height }),
         drift: (Math.random() - 0.5) * 0.008 * motion,
         size: Math.random() > 0.91 ? 1.7 : 0.35 + Math.random() * 0.8,
         alpha: 0.21 + Math.random() * 0.72,
@@ -414,10 +348,28 @@ function QueryUniverse() {
         alpha: 0.015 + Math.random() * 0.035,
         phase: Math.random() * Math.PI * 2,
       }));
-      particles = [...clusters, ...dust, ...streams];
+      particles = [...clusters, ...stillStars, ...dust, ...streams];
     };
     const draw = (time) => {
       context.clearRect(0, 0, width, height);
+      context.save();
+      // Exclude the whole composer, including its voice and submit controls.
+      // Read current bounds so growing text and responsive layouts stay clear.
+      const composer = stage?.querySelector('.ask-prompt-shell');
+      if (composer) {
+        const bounds = canvas.getBoundingClientRect();
+        const input = composer.getBoundingClientRect();
+        const padding = 14;
+        context.beginPath();
+        context.rect(0, 0, width, height);
+        context.rect(
+          input.left - bounds.left - padding,
+          input.top - bounds.top - padding,
+          input.width + padding * 2,
+          input.height + padding * 2,
+        );
+        context.clip('evenodd');
+      }
       const centerX = width / 2;
       const centerY = height * 0.58;
       const palette = queryUniversePalette(document.documentElement.dataset.theme);
@@ -479,6 +431,11 @@ function QueryUniverse() {
           context.fill();
           return;
         }
+        if (particle.kind === 'still') {
+          context.fillStyle = `rgba(${palette.star}, ${particle.alpha})`;
+          context.fillRect(particle.x, particle.y, particle.size, particle.size);
+          return;
+        }
         if (particle.kind === 'dust') {
           const x = (particle.x + time * particle.drift) % width;
           const y = particle.y + Math.sin(time * 0.00035 + particle.phase) * 3;
@@ -530,6 +487,7 @@ function QueryUniverse() {
           context.stroke();
         }
       });
+      context.restore();
       context.globalCompositeOperation = 'source-over';
       frame = window.requestAnimationFrame(draw);
     };
@@ -574,6 +532,26 @@ export function ScopeWarning({ message }) {
   );
 }
 
+export function answerVerification(status, labels = DEFAULT_RESULT_LABELS) {
+  if (status === 'VERIFIED')
+    return { className: 'badge badge-ok', label: labels.verified_match, verified: true };
+  if (status === 'VERIFICATION_MISMATCH' || status === 'FAILED')
+    return {
+      className: 'badge badge-bad',
+      label: 'Verification failed',
+      verified: false,
+      notice:
+        'The independent check found that this result may not answer your question. Review the SQL and refine the question before relying on these rows.',
+    };
+  return {
+    className: 'badge badge-warn',
+    label: 'Not independently verified',
+    verified: false,
+    notice:
+      'The query passed read-only safety checks, but answer correctness has not been independently confirmed.',
+  };
+}
+
 export default function AskData() {
   const location = useLocation();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
@@ -595,6 +573,7 @@ export default function AskData() {
   const [loading, setLoading] = useChatState(user?.id, activeWorkspaceId, 'loading', false, false);
   const [result, setResult] = useChatState(user?.id, activeWorkspaceId, 'result', null);
   const [error, setError] = useState('');
+  const continuationRouteRef = useRef(null);
   const [clarification, setClarification] = useChatState(
     user?.id,
     activeWorkspaceId,
@@ -603,7 +582,8 @@ export default function AskData() {
   );
   useEffect(() => {
     const next = location.state?.continuation;
-    if (!next || continuation?._routeKey === location.key) return;
+    if (!next || continuationRouteRef.current === location.key) return;
+    continuationRouteRef.current = location.key;
     setContinuation({ ...next, _routeKey: location.key });
     setQuestion('');
     setQuestionLanguage(next.languageCode || null);
@@ -626,6 +606,7 @@ export default function AskData() {
   const [speechState, setSpeechState] = useState('idle');
   const [speechError, setSpeechError] = useState('');
   const [activeHighlight, setActiveHighlight] = useState(-1);
+  const queryInFlightRef = useRef(false);
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -636,12 +617,7 @@ export default function AskData() {
   const presentation = result?.presentation || {};
   const resultLabels = { ...DEFAULT_RESULT_LABELS, ...presentation.labels };
   const verificationStatus = result?.record?.verification?.status;
-  const verificationBadge =
-    verificationStatus === 'VERIFIED'
-      ? { className: 'badge badge-ok', label: resultLabels.verified_match }
-      : verificationStatus === 'FAILED'
-        ? { className: 'badge badge-bad', label: 'Verification failed' }
-        : { className: 'badge badge-warn', label: resultLabels.needs_review };
+  const verificationBadge = answerVerification(verificationStatus, resultLabels);
 
   const reportError = async (err, fallback) => {
     const message = err.message || fallback;
@@ -681,8 +657,11 @@ export default function AskData() {
     throw new Error('The query could not be executed after an automatic correction.');
   };
 
-  const handleAsk = async () => {
-    if (!question.trim() || !activeWorkspaceId) return;
+  const handleAsk = async (resolvedQuestion) => {
+    const submittedQuestion = typeof resolvedQuestion === 'string' ? resolvedQuestion : question;
+    if (!submittedQuestion.trim() || !activeWorkspaceId || loading || queryInFlightRef.current)
+      return;
+    queryInFlightRef.current = true;
     setLoading(true);
     setError('');
     stopReadingResult();
@@ -690,8 +669,8 @@ export default function AskData() {
     setClarification(null);
     try {
       const questionForQuery = continuation
-        ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${question.trim()}`
-        : question.trim();
+        ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${submittedQuestion.trim()}`
+        : submittedQuestion.trim();
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
         body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
@@ -704,6 +683,7 @@ export default function AskData() {
     } catch (err) {
       await reportError(err, 'Error running query');
     } finally {
+      queryInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -829,6 +809,23 @@ export default function AskData() {
     const requestId = speechRequestRef.current + 1;
     speechRequestRef.current = requestId;
     const language = resolveResultSpeechLanguage(result, questionLanguage);
+    const pendingClips = new Map();
+    const prepareClip = (index) => {
+      if (!pendingClips.has(index)) {
+        // Capture failures now so background requests never reject unhandled.
+        pendingClips.set(
+          index,
+          fetchApiBlob('/voice/synthesize', {
+            method: 'POST',
+            body: JSON.stringify({ text: clips[index], language_code: language }),
+          }).then(
+            (blob) => ({ blob }),
+            (error) => ({ error }),
+          ),
+        );
+      }
+      return pendingClips.get(index);
+    };
     const playClip = async (index) => {
       if (speechRequestRef.current !== requestId) return;
       stopResultSpeech(speechAudioRef, speechUrlRef);
@@ -839,10 +836,10 @@ export default function AskData() {
       }
       setSpeechState('loading');
       try {
-        const audioBlob = await fetchApiBlob('/voice/synthesize', {
-          method: 'POST',
-          body: JSON.stringify({ text: clips[index], language_code: language }),
-        });
+        const prepared = await prepareClip(index);
+        pendingClips.delete(index);
+        if (prepared.error) throw prepared.error;
+        const audioBlob = prepared.blob;
         if (speechRequestRef.current !== requestId) return;
         const objectUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(objectUrl);
@@ -861,6 +858,7 @@ export default function AskData() {
         };
         const playbackState = await playAnswerAudio(audio);
         if (isActiveResultSpeech(speechAudioRef, audio, speechRequestRef, requestId)) {
+          if (index + 1 < clips.length) void prepareClip(index + 1);
           setSpeechState(playbackState);
           setActiveHighlight(playbackState === 'playing' ? 0 : -1);
         }
@@ -872,6 +870,18 @@ export default function AskData() {
       }
     };
     await playClip(0);
+  };
+
+  const startNewChat = () => {
+    stopReadingResult();
+    setContinuation(null);
+    setQuestion('');
+    setQuestionLanguage(null);
+    setResult(null);
+    setClarification(null);
+    setError('');
+    setVoiceError('');
+    window.requestAnimationFrame(() => document.querySelector('.ask-page textarea')?.focus());
   };
 
   const pauseOrResumeResultSpeech = async () => {
@@ -924,13 +934,8 @@ export default function AskData() {
       report = createPdfReportDocument(result, resultLabels);
       document.body.append(report);
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      const documentPdf = await renderPdfHtml(pdf, report, {
-        autoPaging: 'text',
-        html2canvas: { scale: 0.75, backgroundColor: '#ffffff' },
-        margin: [22, 22, 22, 22],
-        width: 798,
-        windowWidth: 1040,
-      });
+      const { default: html2canvas } = await import('html2canvas');
+      const documentPdf = await renderReportPdf(pdf, report, html2canvas);
       documentPdf.save(reportFilename(result.record.question, 'pdf'));
     } catch {
       setError('We could not prepare the PDF. Please try downloading the CSV instead.');
@@ -1132,49 +1137,52 @@ export default function AskData() {
             </div>
           )}
 
+          {clarification && (
+            <div
+              className="ask-clarification animate-fade-slide"
+              role="region"
+              aria-label="Clarify your question"
+              aria-live="polite"
+            >
+              <h3 style={{ marginBottom: '0.5rem' }}>Choose one detail to continue</h3>
+              <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
+                {clarification.message}
+              </p>
+              <ScopeWarning message={clarification.scope_warning} />
+              {clarification.interpreted_request && (
+                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  Interpreted request: {clarification.interpreted_request}
+                </p>
+              )}
+              {clarification.assumptions?.length > 0 && (
+                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  Assumptions considered: {clarification.assumptions.join('; ')}
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {clarification.suggestions?.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    className="btn btn-secondary"
+                    disabled={loading}
+                    onClick={() => {
+                      const refinedQuestion = `${question.trim()}\nClarification: ${suggestion}`;
+                      setQuestion(refinedQuestion);
+                      void handleAsk(refinedQuestion);
+                    }}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="ask-stage-footer">
             <span>Puchoo.si intelligence · {activeWorkspace?.name || 'Private workspace'}</span>
           </div>
         </div>
       </section>
-
-      {clarification && (
-        <div
-          className="card animate-fade-slide"
-          style={{
-            marginBottom: '2rem',
-            borderColor: 'var(--accent-amber)',
-            background: 'var(--accent-amber-bg)',
-          }}
-        >
-          <h3 style={{ marginBottom: '0.5rem' }}>I need one detail before querying</h3>
-          <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
-            {clarification.message}
-          </p>
-          <ScopeWarning message={clarification.scope_warning} />
-          {clarification.interpreted_request && (
-            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-              Interpreted request: {clarification.interpreted_request}
-            </p>
-          )}
-          {clarification.assumptions?.length > 0 && (
-            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-              Assumptions considered: {clarification.assumptions.join('; ')}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {clarification.suggestions?.map((suggestion) => (
-              <button
-                key={suggestion}
-                className="btn btn-secondary"
-                onClick={() => setQuestion((current) => `${current}. ${suggestion}`)}
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {error && (
         <div className="ask-error" role="alert">
@@ -1184,6 +1192,18 @@ export default function AskData() {
           <p>{error}</p>
           <button type="button" onClick={() => setError('')} aria-label="Dismiss error">
             <X size={15} />
+          </button>
+        </div>
+      )}
+      {(result || continuation || question || clarification) && (
+        <div className="ask-chat-actions" aria-label="Chat actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={startNewChat}
+            disabled={loading || voiceState !== 'idle'}
+          >
+            <MessageSquarePlus size={15} /> New chat
           </button>
         </div>
       )}
@@ -1199,11 +1219,8 @@ export default function AskData() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => {
-              setContinuation(null);
-              setQuestion('');
-              setQuestionLanguage(null);
-            }}
+            onClick={startNewChat}
+            disabled={loading || voiceState !== 'idle'}
           >
             <ArrowLeft size={16} /> Start fresh
           </button>
@@ -1226,7 +1243,7 @@ export default function AskData() {
       {result && (
         <section ref={resultRef} className="ask-results" aria-label="Query results" tabIndex="-1">
           <div className="ask-results-heading">
-            <span>Verified output</span>
+            <span>{verificationBadge.verified ? 'Verified output' : 'Query results'}</span>
             <p>Generated from your active workspace</p>
           </div>
           <div className="result-stack animate-fade-slide">
@@ -1263,10 +1280,19 @@ export default function AskData() {
                 </div>
                 <div>
                   <span className="result-overline">{resultLabels.executive_summary}</span>
-                  <p>{resultLabels.validated_answer}</p>
+                  <p>
+                    {verificationBadge.verified
+                      ? resultLabels.validated_answer
+                      : 'Read-only query results'}
+                  </p>
                 </div>
               </div>
               <span className={verificationBadge.className}>{verificationBadge.label}</span>
+              {verificationBadge.notice && (
+                <p className="result-verification-notice" role="status">
+                  {verificationBadge.notice}
+                </p>
+              )}
               <div className="result-summary-copy">
                 <strong>{presentation.headline}</strong>
                 {presentation.detail && <p>{presentation.detail}</p>}

@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import './workspaceMembers.css';
+import './workspaceInvites.css';
+import MemberRoleDropdown from './MemberRoleDropdown';
 import { Check, Copy, KeyRound, RefreshCw, Trash2, Users } from 'lucide-react';
 import {
   createWorkspaceInvite,
@@ -104,7 +107,7 @@ export default function WorkspaceInvitePanel() {
   const workspaceLabel = user.workspace_name || user.institute_name || 'your shared workspace';
   return (
     <section
-      className="settings-section workspace-invite-panel"
+      className="settings-section workspace-invite-panel workspace-invite-refined"
       aria-labelledby="workspace-invites"
     >
       <div className="workspace-invite-heading">
@@ -177,34 +180,46 @@ export default function WorkspaceInvitePanel() {
         code leaves the other role codes valid. A recipient can use the same code from another
         device with their own email, password, and OTP.
       </p>
-      <div className="workspace-members" aria-busy={membersBusy}>
+      <div className="workspace-members workspace-members-refined" aria-busy={membersBusy}>
         <div className="workspace-members-heading">
-          <strong>Workspace members</strong>
+          <div className="workspace-members-title">
+            <Users size={18} aria-hidden="true" />
+            <div>
+              <strong>Workspace members</strong>
+              <p>People with access to your workspace</p>
+            </div>
+          </div>
           <span>{membersBusy ? 'Loading…' : `${members.length} total`}</span>
         </div>
         {!membersBusy &&
           members.map((member) => (
             <div className="workspace-member" key={member.id}>
-              <div>
+              <span
+                className={`workspace-member-avatar${member.role === 'owner' ? ' is-owner' : ''}`}
+                aria-hidden="true"
+              >
+                {(member.full_name || member.email || '?')
+                  .trim()
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join('')
+                  .toUpperCase()}
+              </span>
+              <div className="workspace-member-identity">
                 <strong>{member.full_name}</strong>
-                <span>{member.email}</span>
+                <span title={member.email}>{member.email}</span>
               </div>
               {member.role === 'owner' ? (
                 <span className="workspace-member-owner">Owner</span>
               ) : (
                 <>
-                  <select
-                    className="workspace-member-role"
-                    aria-label={`Role for ${member.full_name}`}
+                  <MemberRoleDropdown
+                    label={`Role for ${member.full_name}`}
                     value={member.role}
-                    onChange={(event) => changeMemberRole(member, event.target.value)}
-                  >
-                    {roles.map((memberRole) => (
-                      <option key={memberRole} value={memberRole}>
-                        {memberRole}
-                      </option>
-                    ))}
-                  </select>
+                    options={roles}
+                    onChange={(nextRole) => changeMemberRole(member, nextRole)}
+                  />
                   <button
                     type="button"
                     className="workspace-member-remove"

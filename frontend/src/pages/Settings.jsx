@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import '../styles/accountProfile.css';
+import '../styles/sessionHistory.css';
 import {
   Camera,
   Check,
@@ -94,7 +96,10 @@ export default function Settings() {
 
       <div className="settings-flow">
         {can(user, 'administer_workspace') && <WorkspaceInvitePanel />}
-        <section className="settings-section settings-profile" aria-labelledby="profile-title">
+        <section
+          className="settings-section settings-profile account-profile-refined"
+          aria-labelledby="profile-title"
+        >
           <div className="settings-card-label">
             <User size={15} />
             <span>Account profile</span>
@@ -130,8 +135,10 @@ export default function Settings() {
                 </span>
               </div>
               <p>
-                {user?.workspace_name || user?.institute_name || 'Puchoo.si workspace'}{' '}
-                <span>•</span> {user?.email || 'email@example.com'}
+                <span className="account-profile-workspace">
+                  {user?.workspace_name || user?.institute_name || 'Puchoo.si workspace'}
+                </span>
+                <span className="account-profile-email">{user?.email || 'email@example.com'}</span>
               </p>
             </div>
             <span className="settings-verified">
@@ -278,7 +285,7 @@ export default function Settings() {
         </section>
 
         <section
-          className="settings-section settings-history"
+          className="settings-section settings-history session-history-refined"
           aria-labelledby="session-history-title"
         >
           <div className="settings-history-icon">

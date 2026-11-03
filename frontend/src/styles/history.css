@@ -18,11 +18,11 @@
 }
 html[data-theme='light'] #root .history-page-clean {
   --history-surface: #fffefa;
-  --history-text: #233640;
-  --history-muted: #566b77;
-  --history-border: #ccd6dc;
-  --history-success: #176344;
-  --history-success-bg: #e4f4eb;
+  --history-text: #38352e;
+  --history-muted: #6c6962;
+  --history-border: #d9d6cf;
+  --history-success: #56534c;
+  --history-success-bg: #f5f2eb;
   --history-review: #7a4d00;
   --history-review-bg: #fff1d2;
 }

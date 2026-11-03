@@ -158,3 +158,10 @@ it('splits long reports without dropping any cells or breaking Unicode character
   expect(clips.join('')).toBe(text);
   expect(clips.every((clip) => !/[\uD800-\uDBFF]$/.test(clip))).toBe(true);
 });
+
+it('starts long reports with a short clip without losing text', () => {
+  const text = 'Report sentence. '.repeat(250);
+  const clips = splitResultSpeech(text);
+  expect(clips[0].length).toBeLessThanOrEqual(300);
+  expect(clips.join('')).toBe(text);
+});

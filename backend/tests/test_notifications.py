@@ -68,3 +68,7 @@ def test_notifications_are_private_and_can_be_marked_read(app, otp_codes):
         assert client.get("/api/notifications/").json()["unread_count"] == 1
         assert client.post("/api/notifications/read-all", headers=csrf_headers(client)).status_code == 200
         assert client.get("/api/notifications/").json()["unread_count"] == 0
+        assert client.delete(f"/api/notifications/{other_id}", headers=csrf_headers(client)).status_code == 404
+        assert client.delete(f"/api/notifications/{own_id}", headers=csrf_headers(client)).status_code == 200
+        assert all(item["id"] != own_id for item in client.get("/api/notifications/").json()["items"])
+        assert client.delete(f"/api/notifications/{own_id}", headers=csrf_headers(client)).status_code == 404

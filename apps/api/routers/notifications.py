@@ -108,6 +108,16 @@ def read_notification(notification_id: str, user=Depends(current_user), db: Sess
     return {"ok": True}
 
 
+@router.delete("/{notification_id}")
+def delete_notification(notification_id: str, user=Depends(current_user), db: Session = Depends(get_db)) -> dict[str, bool]:
+    row = db.scalar(select(Notification).where(Notification.id == notification_id, Notification.user_id == user.id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/stream")
 async def notification_stream(request: Request, user=Depends(current_user)) -> StreamingResponse:
     """Push newly persisted events to this authenticated user over SSE.

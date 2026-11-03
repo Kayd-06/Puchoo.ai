@@ -11,6 +11,8 @@ venv/
 
 # Environment and local runtime state
 .env
+.env.*
+!.env.example
 .pucho/
 .superpowers/
 :memory:.ses

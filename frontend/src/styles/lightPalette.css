@@ -1,0 +1,27 @@
+/* Shared warm neutrals for every page in light mode. */
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg-main: #f3f0e9;
+  --bg-surface: #faf8f2;
+  --bg-surface-raised: #efede5;
+  --bg-primary: #71634d;
+  --bg-primary-hover: #594d3b;
+  --text-primary: #302e29;
+  --text-muted: #706b61;
+  --text-on-primary: #faf8f2;
+  --border-color: #ded8cb;
+  --border-color-strong: #bcb3a2;
+}
+html[data-theme='light'] body {
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+html[data-theme='light'] #root .ask-stage {
+  background: #f6f3ec;
+}
+html[data-theme='light'] #root .ask-prompt-shell {
+  background: #faf8f2;
+}
+html[data-theme='light'] #root .ask-stage h1 em {
+  color: #75654d;
+}

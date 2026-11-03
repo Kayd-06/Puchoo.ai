@@ -1,0 +1,153 @@
+/* Scoped palette keeps member controls consistent in both application themes. */
+.workspace-members-refined {
+  --member-bg: #111110;
+  --member-card: #1b1b19;
+  --member-line: #3c3b36;
+  --member-fg: #f3f0e8;
+  --member-muted: #b7b3a9;
+  --member-accent: #ece6d9;
+  --member-accent-bg: #2c2b26;
+  --member-danger: #ffb6bf;
+  --member-danger-bg: #38232e;
+}
+html[data-theme='light'] .workspace-members-refined {
+  --member-bg: #faf8f2;
+  --member-card: #faf8f2;
+  --member-line: #e3e0d9;
+  --member-fg: #322f28;
+  --member-muted: #6e6b64;
+  --member-accent: #5d5a53;
+  --member-accent-bg: #f3f0e9;
+  --member-danger: #a72c44;
+  --member-danger-bg: #fff0f2;
+}
+#root .workspace-members-refined {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--member-line);
+  border-radius: 18px;
+  background: var(--member-bg);
+  color: var(--member-fg);
+}
+#root .workspace-members-refined .workspace-members-heading {
+  margin-bottom: 18px;
+  color: var(--member-fg);
+  gap: 12px;
+}
+#root .workspace-members-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#root .workspace-members-title > svg {
+  color: var(--member-accent);
+  flex-shrink: 0;
+}
+#root .workspace-members-title strong {
+  font-size: 1rem;
+}
+#root .workspace-members-title p {
+  margin: 4px 0 0;
+  font-size: 0.77rem;
+  color: var(--member-muted);
+  line-height: 1.5;
+}
+#root .workspace-members-refined .workspace-members-heading > span {
+  color: var(--member-muted);
+  background: var(--member-card);
+  border: 1px solid var(--member-line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+#root .workspace-members-refined .workspace-member {
+  grid-template-columns: 40px minmax(0, 1fr) 110px 36px;
+  min-height: 78px;
+  padding: 14px;
+  margin-top: 10px;
+  border: 1px solid var(--member-line);
+  border-radius: 12px;
+  background: var(--member-card);
+  gap: 12px;
+}
+#root .workspace-members-refined .workspace-member-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--member-bg);
+  color: var(--member-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+#root .workspace-members-refined .workspace-member-avatar.is-owner {
+  background: var(--member-accent-bg);
+  color: var(--member-accent);
+}
+#root .workspace-members-refined .workspace-member-identity strong {
+  color: var(--member-fg);
+  font-size: 0.88rem;
+}
+#root .workspace-members-refined .workspace-member-identity span {
+  color: var(--member-muted);
+  font-size: 0.76rem;
+}
+#root .workspace-members-refined .workspace-member-role {
+  background: var(--member-bg);
+  color: var(--member-fg);
+  border: 1px solid var(--member-line);
+  border-radius: 9px;
+  height: 36px;
+  font-size: 0.78rem;
+}
+#root .workspace-members-refined .workspace-member-owner {
+  grid-column: 3 / -1;
+  color: var(--member-accent);
+  background: var(--member-accent-bg);
+  border: 1px solid var(--member-line);
+  padding: 7px 14px;
+}
+#root .workspace-members-refined .workspace-member-remove {
+  width: 36px;
+  height: 36px;
+  color: var(--member-danger);
+  background: var(--member-danger-bg);
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+#root .workspace-members-refined .workspace-member-remove:hover {
+  border-color: var(--member-danger);
+}
+#root .workspace-members-refined :is(select, button):focus-visible {
+  outline: 2px solid var(--member-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  #root .workspace-members-refined {
+    padding: 14px;
+  }
+  #root .workspace-members-refined .workspace-member {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    padding: 12px;
+    gap: 10px;
+  }
+  #root .workspace-members-refined .workspace-member-avatar {
+    width: 36px;
+    height: 36px;
+  }
+  #root .workspace-members-refined .workspace-member-identity {
+    grid-column: 2 / -1;
+  }
+  #root .workspace-members-refined .workspace-member-role {
+    grid-column: 2;
+    width: 110px;
+  }
+  #root .workspace-members-refined .workspace-member-remove {
+    grid-column: 3;
+  }
+  #root .workspace-members-refined .workspace-member-owner {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+}

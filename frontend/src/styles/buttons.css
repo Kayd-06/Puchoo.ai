@@ -22,22 +22,22 @@
 /* light palette */
 html[data-theme='light'],
 .auth-form-panel {
-  --control-secondary-bg: #f3f6f8;
-  --control-secondary-fg: #25404f;
-  --control-hover-bg: #e1ebef;
-  --control-hover-fg: #183746;
-  --control-primary-bg: #284e60;
-  --control-primary-fg: #ffffff;
-  --control-primary-hover-bg: #1c3c4d;
-  --control-primary-hover-fg: #ffffff;
+  --control-secondary-bg: #faf8f1;
+  --control-secondary-fg: #403d36;
+  --control-hover-bg: #eeebe4;
+  --control-hover-fg: #36332c;
+  --control-primary-bg: #4c4942;
+  --control-primary-fg: #faf8f2;
+  --control-primary-hover-bg: #3b3831;
+  --control-primary-hover-fg: #faf8f2;
   --control-danger-bg: #fff0f0;
   --control-danger-fg: #92263b;
-  --control-disabled-bg: #e8edf0;
-  --control-disabled-fg: #576771;
-  --control-line: #8399a5;
-  --control-focus: #285b73;
-  --control-sheen: rgba(255, 255, 255, 0.75);
-  --control-shadow: rgba(40, 59, 69, 0.09);
+  --control-disabled-bg: #f1eee7;
+  --control-disabled-fg: #69665f;
+  --control-line: #9a9790;
+  --control-focus: #57544d;
+  --control-sheen: rgba(250, 248, 242, 0.75);
+  --control-shadow: rgba(61, 58, 51, 0.09);
 }
 
 /* A root-scoped specificity boundary keeps historical page overrides from

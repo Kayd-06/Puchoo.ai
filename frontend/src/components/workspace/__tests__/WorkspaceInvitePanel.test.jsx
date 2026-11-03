@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import WorkspaceInvitePanel from '../WorkspaceInvitePanel';
-import { listWorkspaceMembers } from '../../../api/auth';
+import { listWorkspaceMembers, updateWorkspaceMemberRole } from '../../../api/auth';
 
 let user;
 
@@ -45,6 +45,29 @@ describe('WorkspaceInvitePanel', () => {
       'workspace-member-remove',
     );
     expect(screen.queryByRole('button', { name: /remove olivia owner/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the role menu, supports keyboard focus, and saves a selected role', async () => {
+    updateWorkspaceMemberRole.mockResolvedValue({
+      id: 'editor-id',
+      full_name: 'Eddie Editor',
+      email: 'editor@acme.test',
+      role: 'viewer',
+    });
+    render(<WorkspaceInvitePanel />);
+    const trigger = await screen.findByRole('button', { name: 'Role for Eddie Editor' });
+    fireEvent.click(trigger);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'editor' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'viewer' }));
+    await waitFor(() =>
+      expect(updateWorkspaceMemberRole).toHaveBeenCalledWith('editor-id', 'viewer'),
+    );
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
   it('stays hidden when the capability is absent', async () => {

@@ -21,7 +21,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function showReport() {
+async function showReport(secondClip) {
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
   Element.prototype.scrollIntoView = vi.fn();
   const audios = [];
@@ -43,6 +43,7 @@ async function showReport() {
     .mockResolvedValueOnce({ pending_id: 'proposal', sql_hash: 'hash' })
     .mockResolvedValueOnce({
       record: {
+        id: 'saved-report',
         question: 'खर्च',
         language_code: 'hi-IN',
         columns: ['amount'],
@@ -58,6 +59,8 @@ async function showReport() {
       },
     });
   fetchApiBlob.mockResolvedValue(new Blob(['RIFF audio'], { type: 'audio/wav' }));
+  if (secondClip)
+    fetchApiBlob.mockResolvedValueOnce(new Blob(['first'])).mockImplementationOnce(secondClip);
   render(
     <MemoryRouter>
       <AskData />
@@ -91,9 +94,8 @@ it('plays all clips in Hindi in order and reads the final table row', async () =
 });
 
 it('stops the sequence and ignores a clip arriving after Stop', async () => {
-  const audios = await showReport();
   let finish;
-  fetchApiBlob.mockImplementationOnce(
+  const audios = await showReport(
     () =>
       new Promise((resolve) => {
         finish = resolve;
@@ -108,4 +110,76 @@ it('stops the sequence and ignores a clip arriving after Stop', async () => {
   });
   expect(audios).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Listen to answer' })).toBeInTheDocument();
+});
+
+it('prepares the next clip while the first clip is playing', async () => {
+  const audios = await showReport();
+  await waitFor(() => expect(fetchApiBlob).toHaveBeenCalledTimes(2));
+  expect(audios).toHaveLength(1);
+});
+
+it('starts a new chat and stops active speech without deleting history', async () => {
+  const audios = await showReport();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  expect(screen.queryByRole('region', { name: 'Query results' })).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox')).toHaveValue('');
+  expect(audios[0].pause).toHaveBeenCalled();
+  expect(fetchApi).toHaveBeenCalledTimes(2);
+});
+
+it('provides one chat reset action while preserving saved history', async () => {
+  await showReport();
+  expect(screen.queryByRole('button', { name: 'Clear chat' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('region', { name: 'Query results' })).not.toBeInTheDocument(),
+  );
+  expect(fetchApi).toHaveBeenCalledTimes(2);
+  expect(fetchApi.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
+  expect(screen.getByRole('textbox')).toHaveValue('');
+});
+
+it('does not submit duplicate requests when Enter is pressed during generation', async () => {
+  await showReport();
+  let finish;
+  fetchApi.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Compare sales by region' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  expect(fetchApi).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    finish({ status: 'clarification_required', message: 'Which period?', suggestions: [] });
+  });
+  expect(screen.getByText('Which period?')).toBeInTheDocument();
+  expect(fetchApi).toHaveBeenCalledTimes(3);
+});
+
+it('places clarification beside the composer and submits the selected answer immediately', async () => {
+  await showReport();
+  fetchApi.mockResolvedValueOnce({
+    status: 'clarification_required',
+    message: 'Which period?',
+    suggestions: ['January'],
+  });
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Compare sales by region' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  const choice = await screen.findByRole('button', { name: 'January' });
+  const panel = screen.getByRole('region', { name: 'Clarify your question' });
+  expect(panel.closest('.ask-stage-content')).toContainElement(screen.getByRole('textbox'));
+  fetchApi.mockResolvedValueOnce({
+    status: 'clarification_required',
+    message: 'Select a metric',
+    suggestions: [],
+  });
+  fireEvent.click(choice);
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(4));
+  expect(JSON.parse(fetchApi.mock.calls[3][1].body).question).toBe(
+    'Compare sales by region\nClarification: January',
+  );
 });

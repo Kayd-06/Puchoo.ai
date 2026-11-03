@@ -6,9 +6,9 @@ it('uses visible black moving particles against the light app theme', () => {
   expect(queryUniversePalette('light')).toMatchObject({
     composite: 'source-over',
     motion: 1.45,
-    dust: '16, 28, 35',
-    stream: '29, 50, 64',
-    star: '15, 28, 36',
+    dust: '22, 19, 16',
+    stream: '35, 32, 29',
+    star: '21, 18, 15',
   });
   expect(queryUniversePalette('dark').composite).toBe('lighter');
 });
@@ -21,4 +21,12 @@ it('shows the advisory scope warning as plain text and hides it when absent', as
   expect(container.querySelector('b')).toBeNull();
   rerender(<ScopeWarning message={undefined} />);
   expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('distinguishes mismatched, unavailable, and verified answers', async () => {
+  const { answerVerification } = await import('../AskData');
+  expect(answerVerification('VERIFICATION_MISMATCH').label).toBe('Verification failed');
+  expect(answerVerification('UNAVAILABLE').label).toBe('Not independently verified');
+  expect(answerVerification('VERIFIED').verified).toBe(true);
+  expect(answerVerification('unknown').verified).toBe(false);
 });

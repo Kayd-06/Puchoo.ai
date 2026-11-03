@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, ChevronDown, LogOut } from 'lucide-react';
+import {
+  Bell,
+  CheckCheck,
+  ChevronDown,
+  LogOut,
+  Trash2,
+  UserRound,
+  Settings,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../api/client';
 import ThemeToggle from '../ThemeToggle';
+import './notifications.css';
+import './accountMenu.css';
+import { useTheme } from '../../context/ThemeContext';
 
 function timeLabel(value) {
   const date = new Date(value);
@@ -20,11 +33,14 @@ export default function TopBar() {
   const { activeWorkspace } = useAppContext();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [deletingNotification, setDeletingNotification] = useState('');
+  const [notificationError, setNotificationError] = useState('');
   const notificationRef = useRef(null);
   const accountRef = useRef(null);
 
@@ -96,6 +112,21 @@ export default function TopBar() {
     }
   }
 
+  async function deleteNotification(notification) {
+    if (deletingNotification) return;
+    setDeletingNotification(notification.id);
+    setNotificationError('');
+    try {
+      await fetchApi(`/notifications/${encodeURIComponent(notification.id)}`, { method: 'DELETE' });
+      setNotifications((current) => current.filter((item) => item.id !== notification.id));
+      if (!notification.read_at) setUnreadCount((count) => Math.max(0, count - 1));
+    } catch {
+      setNotificationError('Could not delete this notification. Please try again.');
+    } finally {
+      setDeletingNotification('');
+    }
+  }
+
   async function markAllRead() {
     try {
       await fetchApi('/notifications/read-all', { method: 'POST' });
@@ -124,7 +155,7 @@ export default function TopBar() {
       ) : user?.full_name ? (
         user.full_name.charAt(0).toUpperCase()
       ) : (
-        'U'
+        <UserRound size={20} fill="currentColor" strokeWidth={1.5} aria-hidden="true" />
       )}
     </span>
   );
@@ -142,19 +173,19 @@ export default function TopBar() {
             type="button"
             aria-label="Notifications"
             aria-expanded={open}
-            className={`topbar-icon-button${open ? ' is-active' : ''}`}
+            className={`topbar-icon-button notification-bell-button${open ? ' is-active' : ''}`}
             onClick={() => {
               setOpen((value) => !value);
               setAccountOpen(false);
             }}
           >
-            <Bell size={17} />
+            <Bell size={18} fill="currentColor" strokeWidth={1.5} aria-hidden="true" />
             {unreadCount > 0 && (
               <span
                 className="topbar-notification-count"
                 aria-label={`${unreadCount} unread notifications`}
               >
-                {unreadCount > 9 ? '9+' : unreadCount}
+                <span className="notification-sr-only">{unreadCount}</span>
               </span>
             )}
           </button>
@@ -174,6 +205,11 @@ export default function TopBar() {
                   </button>
                 )}
               </header>
+              {notificationError && (
+                <p role="alert" className="notification-error">
+                  {notificationError}
+                </p>
+              )}
               <div className="topbar-notification-list">
                 {notifications.length === 0 ? (
                   <p className="topbar-empty-state">
@@ -181,18 +217,28 @@ export default function TopBar() {
                   </p>
                 ) : (
                   notifications.map((notification) => (
-                    <button
-                      key={notification.id}
-                      type="button"
-                      onClick={() => markRead(notification)}
-                      className={`topbar-notification-item${notification.read_at ? '' : ' is-unread'}`}
-                    >
-                      <div>
-                        <strong>{notification.title}</strong>
-                        <span>{timeLabel(notification.created_at)}</span>
-                      </div>
-                      {notification.body && <p>{notification.body}</p>}
-                    </button>
+                    <div key={notification.id} className="notification-row">
+                      <button
+                        type="button"
+                        onClick={() => markRead(notification)}
+                        className={`topbar-notification-item${notification.read_at ? '' : ' is-unread'}`}
+                      >
+                        <div>
+                          <strong>{notification.title}</strong>
+                          <span>{timeLabel(notification.created_at)}</span>
+                        </div>
+                        {notification.body && <p>{notification.body}</p>}
+                      </button>
+                      <button
+                        type="button"
+                        className="notification-delete"
+                        aria-label={`Delete notification: ${notification.title}`}
+                        disabled={Boolean(deletingNotification)}
+                        onClick={() => deleteNotification(notification)}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
@@ -211,18 +257,42 @@ export default function TopBar() {
             className={`topbar-account-button${accountOpen ? ' is-active' : ''}`}
           >
             {avatar()}
-            <ChevronDown size={16} />
+            {user?.full_name && <span className="account-trigger-name">{user.full_name}</span>}
+            <ChevronDown
+              size={14}
+              className={accountOpen ? 'account-chevron-open' : ''}
+              aria-hidden="true"
+            />
           </button>
           {accountOpen && (
             <section aria-label="Account menu" className="topbar-popover topbar-account-panel">
               <div className="topbar-account-summary">
                 {avatar()}
                 <div className="topbar-account-copy">
-                  <strong>{user?.full_name || 'Your account'}</strong>
+                  <strong>{user?.full_name || user?.email}</strong>
                   <span className="topbar-account-email" title={user?.email}>
                     {user?.email}
                   </span>
                 </div>
+              </div>
+              <div className="account-menu-links">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountOpen(false);
+                    navigate('/settings');
+                  }}
+                >
+                  <Settings size={16} aria-hidden="true" /> Profile settings
+                </button>
+                <button type="button" onClick={toggleTheme}>
+                  {theme === 'dark' ? (
+                    <Sun size={16} aria-hidden="true" />
+                  ) : (
+                    <Moon size={16} aria-hidden="true" />
+                  )}
+                  {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                </button>
               </div>
               <button
                 type="button"

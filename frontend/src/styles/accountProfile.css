@@ -1,0 +1,212 @@
+.account-profile-refined {
+  --profile-bg: #111110;
+  --profile-card: #1b1b19;
+  --profile-line: #3c3b36;
+  --profile-text: #f3f0e8;
+  --profile-muted: #b7b3a9;
+  --profile-accent: #ece6d9;
+  --profile-tint: #2c2b26;
+}
+html[data-theme='light'] .account-profile-refined {
+  --profile-bg: #faf8f2;
+  --profile-card: #faf8f1;
+  --profile-line: #e3e0d9;
+  --profile-text: #322f28;
+  --profile-muted: #6c6962;
+  --profile-accent: #5d5a53;
+  --profile-tint: #f4f1ea;
+}
+#root .account-profile-refined.settings-profile {
+  background: var(--profile-bg);
+  color: var(--profile-text);
+  border: 1px solid var(--profile-line);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: none;
+  overflow: hidden;
+}
+#root .account-profile-refined::before,
+#root .account-profile-refined::after {
+  display: none;
+}
+#root .account-profile-refined:hover {
+  transform: none;
+}
+#root .account-profile-refined .settings-card-label {
+  color: var(--profile-muted);
+  border-color: var(--profile-line);
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  padding-bottom: 18px;
+}
+#root .account-profile-refined .settings-card-label svg {
+  color: var(--profile-accent);
+}
+#root .account-profile-refined .settings-card-label small {
+  color: var(--profile-accent);
+  border-radius: 6px;
+  background: var(--profile-tint);
+  padding: 5px 8px;
+  font-size: 0.64rem;
+}
+#root .account-profile-refined .settings-profile-topline {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 18px;
+  border: 0;
+  padding: 24px 0;
+}
+#root .account-profile-refined .settings-avatar {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  grid-row: 1 / 3;
+  border-radius: 18px;
+  border: 1px solid var(--profile-line);
+  background: var(--profile-tint);
+  color: var(--profile-accent);
+  box-shadow: none;
+  font-size: 1.5rem;
+}
+#root .account-profile-refined .settings-avatar-edit {
+  background: var(--profile-accent);
+  color: var(--profile-bg);
+  border: 3px solid var(--profile-bg);
+  width: 25px;
+  height: 25px;
+}
+#root .account-profile-refined .settings-profile-identity {
+  min-width: 0;
+}
+#root .account-profile-refined .settings-profile-titleline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+#root .account-profile-refined .settings-profile-identity h2 {
+  color: var(--profile-text);
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+#root .account-profile-refined .settings-workspace-badge {
+  color: var(--profile-muted);
+  background: var(--profile-card);
+  border-color: var(--profile-line);
+  font-size: 0.67rem;
+  padding: 4px 8px;
+}
+#root .account-profile-refined .settings-profile-identity p {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  color: var(--profile-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+#root .account-profile-refined .account-profile-email {
+  overflow-wrap: anywhere;
+}
+#root .account-profile-refined .settings-verified {
+  grid-column: 2;
+  justify-self: start;
+  margin: 0;
+  color: var(--profile-accent);
+  background: var(--profile-tint);
+  border: 0;
+  padding: 5px 9px;
+  font-size: 0.7rem;
+}
+#root .account-profile-refined .settings-photo-row {
+  background: var(--profile-card);
+  border: 1px solid var(--profile-line);
+  border-radius: 12px;
+  padding: 14px;
+  gap: 12px;
+}
+#root .account-profile-refined .settings-photo-row strong {
+  color: var(--profile-text);
+  font-size: 0.82rem;
+}
+#root .account-profile-refined .settings-photo-row span {
+  color: var(--profile-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+#root .account-profile-refined .settings-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 22px 0 0;
+  margin: 0;
+  border: 0;
+}
+#root .account-profile-refined .settings-profile-grid label {
+  min-width: 0;
+  color: var(--profile-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+#root .account-profile-refined .settings-profile-grid .input {
+  width: 100%;
+  height: 44px;
+  padding: 10px 12px;
+  color: var(--profile-text);
+  background: var(--profile-card);
+  border: 1px solid var(--profile-line);
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+#root .account-profile-refined .settings-section-footer {
+  border-color: var(--profile-line);
+  margin-top: 22px;
+  padding-top: 18px;
+  gap: 16px;
+}
+#root .account-profile-refined .settings-section-footer p {
+  color: var(--profile-muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+#root .account-profile-refined .settings-action {
+  background: var(--profile-card);
+  color: var(--profile-text);
+  border: 1px solid var(--profile-line);
+  border-radius: 9px;
+  padding: 9px 13px;
+  min-height: 38px;
+  font-size: 0.78rem;
+  box-shadow: none;
+  white-space: nowrap;
+}
+#root .account-profile-refined .settings-action:hover {
+  background: var(--profile-tint);
+  border-color: var(--profile-accent);
+}
+#root .account-profile-refined :is(button, input):focus-visible {
+  outline: 2px solid var(--profile-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  #root .account-profile-refined.settings-profile {
+    padding: 18px;
+  }
+  #root .account-profile-refined .settings-profile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .account-profile-refined .settings-photo-row {
+    align-items: start;
+    flex-direction: column;
+  }
+  #root .account-profile-refined .settings-section-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
