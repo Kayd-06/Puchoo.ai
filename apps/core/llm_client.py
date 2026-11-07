@@ -518,7 +518,7 @@ def canonicalize_analytics_question(question: str) -> str:
         return "List students who have made any payment, including partial payments."
     period = _top_product_period(normalized)
     if period is None:
-        return normalized
+        return question.strip()
     return "Which product sold the most by total quantity" + period + "?"
 
 
@@ -650,14 +650,14 @@ LIMIT 1"""
         students = find_table({"student_id", "full_name"})
         attendance = find_table({"student_id", "attendance_percentage"})
         if students and attendance:
-            threshold = float(attendance_threshold.group(1))
+            threshold = attendance_threshold.group(1)
             comparison = ">=" if "at least" in attendance_threshold.group(0) else ">"
             return f"""SELECT s.student_id, s.full_name,
        ROUND(AVG(a.attendance_percentage), 2) AS overall_attendance
 FROM {attendance} AS a
 JOIN {students} AS s ON s.student_id = a.student_id
 GROUP BY s.student_id, s.full_name
-HAVING AVG(a.attendance_percentage) {comparison} {threshold:g}
+HAVING AVG(a.attendance_percentage) {comparison} {threshold}
 ORDER BY overall_attendance DESC, s.full_name ASC"""
 
     comprehensive_student_summary = q.rstrip('.?!') == (
@@ -763,7 +763,7 @@ ORDER BY student_rank"""
         grades = find_table({"student_id", "assessment_id", "marks_obtained"})
         assessments = find_table({"assessment_id", "maximum_marks"})
         if students and grades and assessments:
-            threshold = float(marks_threshold.group(1))
+            threshold = marks_threshold.group(1)
             comparison = ">=" if "at least" in marks_threshold.group(0) else ">"
             assessment_columns = table_columns[assessments]
             extra_columns = ""
@@ -778,7 +778,7 @@ FROM {grades} AS g
 JOIN {students} AS s ON s.student_id = g.student_id
 JOIN {assessments} AS a ON a.assessment_id = g.assessment_id
 WHERE a.maximum_marks > 0
-  AND 100.0 * g.marks_obtained / NULLIF(a.maximum_marks, 0) {comparison} {threshold:g}
+  AND 100.0 * g.marks_obtained / NULLIF(a.maximum_marks, 0) {comparison} {threshold}
 ORDER BY marks_percentage DESC, s.full_name"""
 
     trend_sentence = re.fullmatch(
@@ -795,7 +795,7 @@ ORDER BY marks_percentage DESC, s.full_name"""
         negative = re.search(r"at\s+most\s+-(\d+(?:\.\d+)?)", q)
         if not positive or not negative:
             return None
-        improving = float(positive.group(1))
+        improving = positive.group(1)
         declining = -float(negative.group(1))
         students = find_table({"student_id", "full_name"})
         attendance = find_table({"student_id", "attendance_date", "attendance_percentage"})
@@ -865,8 +865,8 @@ SELECT student_id, full_name,
        ROUND(attendance_change_points, 2) AS attendance_change_points,
        ROUND(combined_change_points, 2) AS combined_change_points{', total_fees_due, total_fees_paid, outstanding_fee_amount, fee_payment_behavior, enrollment_status' if include_context and fees and enrollments else ''},
        CASE WHEN combined_change_points IS NULL THEN 'insufficient data'
-            WHEN combined_change_points >= {improving:g} THEN 'improving'
-            WHEN combined_change_points <= {declining:g} THEN 'declining'
+            WHEN combined_change_points >= {improving} THEN 'improving'
+            WHEN combined_change_points <= {declining} THEN 'declining'
             ELSE 'stable' END AS trend_classification
 FROM changes
 ORDER BY full_name"""

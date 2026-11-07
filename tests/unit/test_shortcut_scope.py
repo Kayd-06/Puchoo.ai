@@ -81,3 +81,28 @@ def test_product_year_fixture_has_different_scoped_and_all_time_winners():
         JOIN invoices i USING(invoice_id) WHERE i.invoice_date >= '2025-01-01' AND i.invoice_date < '2026-01-01'
         GROUP BY p.product_id ORDER BY SUM(ii.quantity) DESC LIMIT 1'''
         assert db.execute(scoped).fetchone()[0] == 'B'
+
+
+def test_unrecognized_question_preserves_literal_spacing_and_line_filters():
+    question = "Which product sold the most for customer 'Alice  Chen'\nin 2025?"
+    assert canonicalize_analytics_question(question) == question
+    assert schema_guided_fallback_sql(SCHEMA, question) is None
+
+@pytest.mark.parametrize('metric', ['marks', 'attendance'])
+def test_threshold_shortcuts_do_not_round_away_requested_precision(metric):
+    with sqlite3.connect(':memory:') as db:
+        db.executescript("""CREATE TABLE students(student_id INTEGER, full_name TEXT);
+        CREATE TABLE grades(student_id INTEGER, assessment_id INTEGER, marks_obtained REAL);
+        CREATE TABLE assessments(assessment_id INTEGER, maximum_marks REAL, assessment_date TEXT);
+        CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL);
+        INSERT INTO students VALUES(1,'A');
+        INSERT INTO grades VALUES(1,1,80.000095);
+        INSERT INTO assessments VALUES(1,100,'2025-01-01');
+        INSERT INTO attendance VALUES(1,80.000095);""")
+        if metric == 'marks':
+            question = 'Tell me which students scored marks greater than 80.00009 percent and give their marks and name'
+        else:
+            question = 'List students with overall attendance greater than 80.00009 percent'
+        sql = schema_guided_fallback_sql(SCHEMA, question)
+        assert sql and '80.00009' in sql
+        assert db.execute(sql).fetchall()
