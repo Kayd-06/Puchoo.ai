@@ -633,6 +633,7 @@ export default function AskData() {
   const [speechError, setSpeechError] = useState('');
   const [activeHighlight, setActiveHighlight] = useState(-1);
   const queryInFlightRef = useRef(false);
+  const composingRef = useRef(false);
   const voiceOperationRef = useRef(null);
   useLayoutEffect(
     () => () => {
@@ -975,6 +976,13 @@ export default function AskData() {
   };
 
   const onComposerKeyDown = (event) => {
+    if (
+      event.isComposing ||
+      event.nativeEvent?.isComposing ||
+      composingRef.current ||
+      event.keyCode === 229
+    )
+      return;
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleAsk();
@@ -1109,6 +1117,12 @@ export default function AskData() {
                   setQuestion(event.target.value);
                   // Typed edits must not inherit a previous recording's language.
                   setQuestionLanguage(null);
+                }}
+                onCompositionStart={() => {
+                  composingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composingRef.current = false;
                 }}
                 onKeyDown={onComposerKeyDown}
                 placeholder={

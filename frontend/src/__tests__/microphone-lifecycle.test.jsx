@@ -145,3 +145,24 @@ it('accepts a current transcript and releases capture before sending it', async 
   expect(track.stop).toHaveBeenCalledOnce();
   expect(screen.getByRole('button', { name: 'Speak your question' })).toBeEnabled();
 });
+
+it('keeps IME composition Enter local, then ordinary Enter executes exactly once', async () => {
+  mount();
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: '売上 合計' } });
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.compositionEnd(input);
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+  expect(fetchApi).not.toHaveBeenCalled();
+  fetchApi
+    .mockResolvedValueOnce({ pending_id: 'p', sql_hash: 'h' })
+    .mockResolvedValueOnce({ record: { question: '売上 合計', columns: [], rows: [] } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(2));
+  expect(fetchApi.mock.calls[0][0]).toContain('/generate');
+  expect(fetchApi.mock.calls[1][0]).toContain('/approve');
+});
