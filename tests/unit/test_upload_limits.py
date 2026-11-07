@@ -395,3 +395,33 @@ def test_driver_decode_failure_closes_workbook_and_returns_safe_error(monkeypatc
     with pytest.raises(UploadLimitError, match="sheet structure"):
         read_tabular("broken.xlsx", book, limits())
     assert closed == [True]
+
+
+def test_valid_randomized_csv_quoting_matches_pandas():
+    import csv, random
+
+    generator = random.Random(42)
+    alphabet = 'a,b"\r\n αक'
+    for _ in range(100):
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["first", "second", "third"])
+        for _ in range(4):
+            writer.writerow(
+                [
+                    "".join(generator.choice(alphabet) for _ in range(12))
+                    for _ in range(3)
+                ]
+            )
+        contents = output.getvalue().encode("utf-8")
+        expected = pd.read_csv(io.BytesIO(contents))
+        actual = read_tabular("valid.csv", contents, limits())["valid"]
+        pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_utf16_worksheet_xml_remains_supported():
+    book = xlsx_bytes({"s": pd.DataFrame({"x": [1, 2]})})
+    with zipfile.ZipFile(io.BytesIO(book)) as archive:
+        xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    book = rewrite_xlsx(book, {"xl/worksheets/sheet1.xml": xml.encode("utf-16")})
+    assert read_tabular("utf16.xlsx", book, limits())["s"]["x"].tolist() == [1, 2]
