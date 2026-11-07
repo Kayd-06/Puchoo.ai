@@ -221,7 +221,13 @@ def _localize_rows(
     ))
     if not texts:
         return rows
-    client = SarvamClient()
+    try:
+        client = SarvamClient()
+    except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
+        logger.warning("table_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
+        if failures is not None:
+            failures.extend(texts)
+        return rows
     translations: dict[str, str] = {}
     pending = texts
     for _attempt in range(2):

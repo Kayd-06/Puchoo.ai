@@ -921,3 +921,22 @@ def test_invalid_clarification_rejected_before_sql_provider(env, monkeypatch):
     }, headers=csrf_headers(env.owner))
     assert response.status_code == 400
     assert env.executions == []
+
+
+def test_translation_constructor_failure_preserves_executed_answer_and_history(env, monkeypatch):
+    pending = env.generate().json()
+    class UnconfiguredSarvam:
+        def __init__(self):
+            raise query_router.SarvamConfigurationError('synthetic missing configuration')
+    monkeypatch.setattr(query_router, '_spoken_language', lambda _code: 'hi-IN')
+    monkeypatch.setattr(query_router, 'SarvamClient', UnconfiguredSarvam)
+    monkeypatch.setattr(query_router, '_translation_cache', {})
+    response = env.approve(pending)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload['presentation']['translation_unavailable'] is True
+    assert payload['presentation']['labels']['executive_summary'] == 'Executive summary'
+    assert payload['presentation']['display_rows'] == [{'region': 'north', 'total': 15}, {'region': 'south', 'total': 20}]
+    assert len(env.executions) == 1
+    assert len(env.owner.get(f'/api/history/{WORKSPACE_ID}').json()) == 1
+    assert env.approve(pending).status_code == 409
