@@ -425,3 +425,49 @@ def test_utf16_worksheet_xml_remains_supported():
         xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
     book = rewrite_xlsx(book, {"xl/worksheets/sheet1.xml": xml.encode("utf-16")})
     assert read_tabular("utf16.xlsx", book, limits())["s"]["x"].tolist() == [1, 2]
+
+
+@pytest.mark.parametrize("alias", ["reused_id", "same_target"])
+def test_sheet_aliases_rejected_before_driver(monkeypatch, alias):
+    from xml.etree import ElementTree as ET
+
+    book = xlsx_bytes(
+        {"large": pd.DataFrame({"x": [1, 2, 3, 4]}), "small": pd.DataFrame({"x": [1]})}
+    )
+    part = "xl/workbook.xml" if alias == "reused_id" else "xl/_rels/workbook.xml.rels"
+    with zipfile.ZipFile(io.BytesIO(book)) as archive:
+        root = ET.fromstring(archive.read(part))
+    if alias == "reused_id":
+        sheets = list(root.find("{*}sheets"))
+        key = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        sheets[1].set(key, sheets[0].get(key))
+    else:
+        relationships = [
+            row for row in root if row.get("Type", "").endswith("/worksheet")
+        ]
+        relationships[1].set("Target", "worksheets/../worksheets/sheet1.xml")
+    book = rewrite_xlsx(book, {part: ET.tostring(root)})
+    monkeypatch.setattr(
+        pd, "ExcelFile", lambda *a, **k: pytest.fail("driver must not start")
+    )
+    with pytest.raises(UploadLimitError, match="worksheet"):
+        read_tabular("aliases.xlsx", book, limits(max_cells=5))
+
+
+def test_sheet_count_failure_closes_driver(monkeypatch):
+    class Excel:
+        sheet_names = ["a", "b"]
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    excel = Excel()
+    monkeypatch.setattr(pd, "ExcelFile", lambda *a, **k: excel)
+    with pytest.raises(UploadLimitError, match="sheets"):
+        read_tabular(
+            "one.xlsx",
+            xlsx_bytes({"one": pd.DataFrame({"x": [1]})}),
+            limits(max_sheets=1),
+        )
+    assert excel.closed

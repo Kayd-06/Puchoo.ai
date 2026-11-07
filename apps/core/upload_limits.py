@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+import posixpath
 import re
 import struct
 import zipfile
@@ -199,7 +200,7 @@ def inspect_xlsx(contents: bytes, limits: UploadLimits) -> None:
             )
 
 
-def _preflight_csv(contents, limits):
+def _preflight_csv(contents, limits, label):
     # RFC4180-style quoting, including multiline headers/escaped quotes. No row
     # list is constructed here, so millions of delimiters cannot allocate fields.
     state, columns, header, rows, field_bytes, total_text = "start", 1, None, 0, 0, 0
@@ -218,7 +219,7 @@ def _preflight_csv(contents, limits):
                     )
                 if rows > limits.max_rows:
                     raise UploadLimitError(
-                        f"The upload has more than {limits.max_rows:,} rows.",
+                        f"{label} has more than {limits.max_rows:,} rows.",
                         status_code=400,
                     )
                 if rows * header > limits.max_cells:
@@ -295,6 +296,7 @@ def _preflight_xml(archive, limits):
                 "An Excel internal part exceeds the safe parser budget."
             )
         worksheet, shared, root_seen = False, False, False
+        workbook_part, sheet_references, worksheet_targets = False, set(), set()
         max_row, max_column, current_row, current_column, field_size = 0, 0, 0, 0, 0
         physical_rows, physical_columns, depth = 0, 0, 0
         tag_bytes, in_tag, quote = 0, False, None
@@ -341,7 +343,7 @@ def _preflight_xml(archive, limits):
         def start(name, attrs):
             nonlocal elements, strings, current_row, current_column, field_size
             nonlocal worksheet, shared, root_seen, observed_sheets, physical_rows, physical_columns, depth
-            nonlocal style_nodes
+            nonlocal style_nodes, workbook_part
             root_seen = True
             depth += 1
             if depth > 64 or len(attrs) > 64:
@@ -354,6 +356,41 @@ def _preflight_xml(archive, limits):
                     "Excel XML complexity exceeds the safe parser budget."
                 )
             tag = name.rsplit("}", 1)[-1]
+            if tag == "workbook":
+                workbook_part = True
+            if workbook_part and tag == "sheet":
+                reference = next(
+                    (v for k, v in attrs.items() if k.endswith("}id")), None
+                )
+                if reference is None or reference in sheet_references:
+                    raise UploadLimitError(
+                        "Repeated or invalid worksheet references are unsupported.",
+                        status_code=400,
+                    )
+                sheet_references.add(reference)
+                if len(sheet_references) > limits.max_sheets:
+                    raise UploadLimitError(
+                        "The workbook exceeds the sheet budget.", status_code=400
+                    )
+            if tag == "Relationship" and attrs.get("Type", "").endswith("/worksheet"):
+                target = attrs.get("Target", "")
+                # Relative worksheet targets resolve beside the workbook, not beside its .rels.
+                base = posixpath.dirname(posixpath.dirname(member.filename))
+                canonical = posixpath.normpath(
+                    target.lstrip("/")
+                    if target.startswith("/")
+                    else posixpath.join(base, target)
+                )
+                if (
+                    not target
+                    or attrs.get("TargetMode") == "External"
+                    or canonical in worksheet_targets
+                ):
+                    raise UploadLimitError(
+                        "Repeated or external worksheet targets are unsupported.",
+                        status_code=400,
+                    )
+                worksheet_targets.add(canonical)
             if tag in {"font", "fill", "border", "xf", "numFmt", "cellStyle"}:
                 style_nodes += 1
                 if style_nodes > 10000:
@@ -507,7 +544,7 @@ def _check_cells(frames: dict, limits: UploadLimits) -> None:
 def read_tabular(
     filename: str, contents: bytes, limits: UploadLimits | None = None
 ) -> dict[str, pd.DataFrame]:
-    """Parse a CSV/XLSX/XLS upload into named frames, enforcing every limit."""
+    """Preflight and parse supported CSV/XLSX uploads into bounded named frames."""
 
     limits = bounded_limits(limits or UploadLimits.from_env())
     if len(contents) > MAX_INPUT_BYTES:
@@ -517,7 +554,7 @@ def read_tabular(
     # Read one row past the cap so "too many rows" is detected without loading the rest.
     nrows = limits.max_rows + 1
     if suffix == ".csv":
-        _preflight_csv(contents, limits)
+        _preflight_csv(contents, limits, filename)
         frames = {stem: pd.read_csv(io.BytesIO(contents), nrows=nrows)}
     elif suffix == ".xls":
         raise UploadLimitError(
@@ -542,12 +579,12 @@ def read_tabular(
                 "The XLSX workbook structure is invalid or unsupported.",
                 status_code=400,
             ) from exc
-        if len(excel.sheet_names) > limits.max_sheets:
-            raise UploadLimitError(
-                f"The Excel file has {len(excel.sheet_names)} sheets; the limit is {limits.max_sheets}.",
-                status_code=400,
-            )
         try:
+            if len(excel.sheet_names) > limits.max_sheets:
+                raise UploadLimitError(
+                    f"The Excel file has {len(excel.sheet_names)} sheets; the limit is {limits.max_sheets}.",
+                    status_code=400,
+                )
             frames = {}
             cells = 0
             for name in excel.sheet_names:
@@ -569,7 +606,7 @@ def read_tabular(
         finally:
             excel.close()
     else:
-        raise ValueError("Upload a CSV, XLSX, or XLS file.")
+        raise ValueError("Upload a CSV or XLSX file.")
     for name, frame in frames.items():
         check_frame(
             frame, f"{filename} ({name})" if suffix != ".csv" else filename, limits

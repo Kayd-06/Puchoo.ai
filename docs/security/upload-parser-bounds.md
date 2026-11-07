@@ -21,7 +21,7 @@ Configuration may lower, but cannot raise these unmeasured expansion ceilings:
   is checked before ZipFile allocates entry objects. ZIP64/multipart/unusual
   compression layouts, encrypted and duplicate parts are rejected.
 - XML: 1,000,000 elements, depth64, 64 attributes per node, 64 KiB lexical token,
-  10,000 style objects, 250,000 shared strings. DTD/entities are forbidden. XML is
+  10,000 style objects, 250,000 shared strings. Repeated/external worksheet targets and reused worksheet relationship IDs are rejected so multiple sheet aliases cannot multiply a once-accounted part. DTD/entities are forbidden. XML is
   preflighted by content even under a nonstandard part name: relationship targets
   cannot evade shape/complexity checks by using a `.bin` name. Ordinary non-XML
   images/print settings are ignored, still subject to byte ceilings.
