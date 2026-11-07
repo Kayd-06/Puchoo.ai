@@ -1,3 +1,4 @@
+import { universePolicy } from '../utils/universePolicy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -283,22 +284,27 @@ export function queryUniversePalette(theme) {
   };
 }
 
-function QueryUniverse() {
+export function QueryUniverse() {
   const canvasRef = useRef(null);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (!canvas || reducedMotion.matches) return undefined;
-    const context = canvas.getContext('2d', { alpha: true });
-    if (!context) return undefined;
+    if (!canvas) return undefined;
+    let context;
+    let policy = { mode: 'off' };
+    let disposed = false;
+    let intersecting = true;
+    let resizeTimer = 0;
+    let lastPaint = -Infinity;
     let frame = 0;
     let width = 0;
     let height = 0;
     let particles = [];
     const stage = canvas.parentElement;
     const updatePointer = (event) => {
+      if (policy.mode !== 'animated') return;
       const bounds = canvas.getBoundingClientRect();
       pointerRef.current = {
         x: event.clientX - bounds.left,
@@ -311,16 +317,39 @@ function QueryUniverse() {
     };
     const setup = () => {
       const bounds = canvas.getBoundingClientRect();
-      const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
-      width = Math.max(1, bounds.width);
-      height = Math.max(1, bounds.height);
-      canvas.width = Math.round(width * ratio);
-      canvas.height = Math.round(height * ratio);
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const area = width * height;
-      const dustCount = Math.min(4200, Math.max(1200, Math.round(area / 340)));
-      const stillCount = Math.min(6500, Math.max(1800, Math.round(area / 220)));
-      const streamCount = Math.min(3200, Math.max(900, Math.round(area / 450)));
+      policy = universePolicy({
+        width: bounds.width,
+        height: bounds.height,
+        dpr: window.devicePixelRatio,
+        reducedMotion: reducedMotion.matches,
+        hidden: document.hidden || !intersecting,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory,
+        saveData: navigator.connection?.saveData,
+      });
+      if (policy.mode === 'off') {
+        particles = [];
+        canvas.width = canvas.height = 0;
+        return false;
+      }
+      try {
+        context ||= canvas.getContext('2d', { alpha: true });
+      } catch {
+        context = null;
+      }
+      if (!context) {
+        particles = [];
+        canvas.width = canvas.height = 0;
+        return false;
+      }
+      width = bounds.width;
+      height = bounds.height;
+      canvas.width = policy.pixelWidth;
+      canvas.height = policy.pixelHeight;
+      context.setTransform(policy.ratio, 0, 0, policy.ratio, 0, 0);
+      const dustCount = policy.dust,
+        stillCount = policy.still,
+        streamCount = policy.streams;
       const motion = queryUniversePalette(document.documentElement.dataset.theme).motion;
       const cornerPoint = () => {
         const corner = Math.floor(Math.random() * 4);
@@ -357,7 +386,7 @@ function QueryUniverse() {
         phase: Math.random() * Math.PI * 2,
         tail: 0.014 + Math.random() * 0.035,
       }));
-      const clusters = Array.from({ length: 17 }, () => ({
+      const clusters = Array.from({ length: policy.clusters }, () => ({
         kind: 'cluster',
         x: Math.random() * width,
         y: Math.random() * height,
@@ -366,8 +395,9 @@ function QueryUniverse() {
         phase: Math.random() * Math.PI * 2,
       }));
       particles = [...clusters, ...stillStars, ...dust, ...streams];
+      return true;
     };
-    const draw = (time) => {
+    const paint = (time) => {
       context.clearRect(0, 0, width, height);
       context.save();
       // Exclude the whole composer, including its voice and submit controls.
@@ -506,18 +536,88 @@ function QueryUniverse() {
       });
       context.restore();
       context.globalCompositeOperation = 'source-over';
-      frame = window.requestAnimationFrame(draw);
     };
-    setup();
-    frame = window.requestAnimationFrame(draw);
-    window.addEventListener('resize', setup);
+    const tick = (time) => {
+      frame = 0;
+      if (disposed || policy.mode !== 'animated') return;
+      if (time - lastPaint >= 1000 / policy.fps) {
+        try {
+          paint(time);
+        } catch {
+          policy = { mode: 'off' };
+          particles = [];
+          canvas.width = canvas.height = 0;
+          return;
+        }
+        lastPaint = time;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+    const restart = () => {
+      window.cancelAnimationFrame(frame);
+      frame = 0;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = 0;
+      if (disposed) return;
+      clearPointer();
+      lastPaint = -Infinity;
+      if (setup()) {
+        if (policy.mode === 'static') {
+          try {
+            paint(0);
+          } catch {
+            particles = [];
+            canvas.width = canvas.height = 0;
+          }
+        } else frame = window.requestAnimationFrame(tick);
+      }
+    };
+    const resize = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(restart, 100);
+    };
+    restart();
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', restart);
+    if (reducedMotion.addEventListener) reducedMotion.addEventListener('change', restart);
+    else reducedMotion.addListener?.(restart);
+    navigator.connection?.addEventListener?.('change', restart);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize);
+    resizeObserver?.observe(canvas);
+    const intersectionObserver =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            intersecting = entries.some((entry) => entry.isIntersecting);
+            restart();
+          });
+    intersectionObserver?.observe(canvas);
+    const themeObserver = new MutationObserver(restart);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
     stage?.addEventListener('pointermove', updatePointer, { passive: true });
     stage?.addEventListener('pointerleave', clearPointer);
     return () => {
+      disposed = true;
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', setup);
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', restart);
+      if (reducedMotion.removeEventListener) reducedMotion.removeEventListener('change', restart);
+      else reducedMotion.removeListener?.(restart);
+      navigator.connection?.removeEventListener?.('change', restart);
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
+      themeObserver.disconnect();
       stage?.removeEventListener('pointermove', updatePointer);
       stage?.removeEventListener('pointerleave', clearPointer);
+      clearPointer();
+      particles = [];
+      canvas.width = canvas.height = 0;
+      context = null;
     };
   }, []);
 
