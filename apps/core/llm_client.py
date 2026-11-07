@@ -79,6 +79,9 @@ a name. For top-N within each group, use ROW_NUMBER/RANK and filter that rank in
 an outer query rather than applying one global LIMIT. Return SQL only."""
 
 
+from apps.core.question_text import unquoted_question
+
+
 def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
     """Detect requests that cannot be answered faithfully without user input."""
 
@@ -134,7 +137,7 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
     explicit_academic_rule = bool(re.search(
         r"\b(?:average\s+|overall\s+)?(?:marks?(?:\s+percentage)?|attendance(?:\s+percentage)?)\s*"
         r"(?:is\s+)?(?:>=|<=|>|<|above|below|over|under|at\s+least|at\s+most)\s*[+-]?\d+(?:\.\d+)?",
-        q,
+        unquoted_question(q),
     ))
     if education_subject and vague_education_outcome and not explicit_academic_rule:
         return {
@@ -163,13 +166,14 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
             "suggestions": ["Define rules using marks and attendance", "Define rules using fees and enrollment"],
         }
 
-    if re.search(r"\bfiscal\s+(?:year|quarter|month)\b", q) and not re.search(
+    fiscal_period = re.search(r"\bfiscal\s+(year|quarter|month)\b", q)
+    if fiscal_period and not re.search(
         r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", q
     ):
         return {
             "reason": "missing_time_definition",
             "message": "What month does your fiscal year start? Calendar and fiscal periods can produce different answers.",
-            "suggestions": ["Fiscal year starts in April", "Use calendar year instead"],
+            "suggestions": ["Fiscal year starts in April", f"Use calendar {fiscal_period.group(1)} instead"],
         }
 
     vague_ranking = re.search(r"\b(best|top|worst|strongest|weakest|performance)\b", q)

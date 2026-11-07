@@ -1,6 +1,6 @@
 """Validated, stateless clarification choices; never erase the original filters."""
 from apps.core.llm_client import question_clarification
-import re
+from apps.core.question_text import replace_outside_literals
 
 
 def resolve_clarifications(schema: str, question: str, answers: list[dict]):
@@ -16,9 +16,9 @@ def resolve_clarifications(schema: str, question: str, answers: list[dict]):
             raise ValueError("Clarification no longer matches this question")
         reason, choice = answer["reason"], answer["choice"]
         next_detail = None
-        if reason == "missing_time_definition" and choice == "Use calendar year instead":
+        if reason == "missing_time_definition" and choice.startswith("Use calendar "):
             # Change only the explicitly resolved calendar, not year/class/region.
-            question = re.sub(r"\bfiscal\s+(year|quarter|month)\b", r"calendar \1", question, flags=re.I)
+            question = replace_outside_literals(question, r"\bfiscal\s+(year|quarter|month)\b", r"calendar \1")
         elif reason == "ambiguous_education_metric":
             question += "\nSelected metric: " + choice.removeprefix("Use ")
             next_detail = ("education_rule_required", "State the exact threshold or comparison and time period for the selected metric. Edit the question using those rules instead of 'doing well' or 'needs attention'; keep your original class/date filters.")

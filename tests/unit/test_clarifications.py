@@ -12,6 +12,8 @@ QUESTIONS = [
     "Show total amount in fiscal year 2025 for region west",
     "Show best customers in region west in 2025",
     "Show profit in region west in 2025",
+    "Show amount in fiscal quarter 2025 for region west",
+    "Show amount in fiscal month 2025 for region west",
 ]
 CASES = [(question, question_clarification(SCHEMA, question), choice)
          for question in QUESTIONS
@@ -66,3 +68,27 @@ def test_user_can_supply_requested_metric_rule_without_repeating_choice(metric):
     question = f'Show students doing well with {metric} in class 10 in 2025'
     planned, clarification = resolve_clarifications(SCHEMA, question, [])
     assert planned == question and clarification is None
+
+
+@pytest.mark.parametrize('literal', ["'fiscal year'", '\"fiscal year\"', '‘fiscal year’', '“fiscal year”'])
+def test_calendar_resolution_never_rewrites_quoted_region_filter(literal):
+    question = 'Show amount in fiscal year 2025 for region ' + literal
+    planned, next_step = resolve_clarifications(SCHEMA, question, [{'reason': 'missing_time_definition', 'choice': 'Use calendar year instead'}])
+    assert planned == 'Show amount in calendar year 2025 for region ' + literal
+    assert next_step is None or next_step['suggestions'] == []
+
+
+def test_quoted_data_cannot_supply_missing_academic_threshold():
+    step = question_clarification(SCHEMA, "Show students doing well in class 10 where label = 'average marks above 80'")
+    assert step['reason'] == 'ambiguous_education_metric'
+
+
+@pytest.mark.parametrize('period', ['quarter', 'month'])
+def test_calendar_choice_preserves_requested_period_granularity(period):
+    question = f'Show amount in fiscal {period} 2025 for region west'
+    offered = question_clarification(SCHEMA, question)
+    choice = f'Use calendar {period} instead'
+    assert choice in offered['suggestions']
+    planned, next_step = resolve_clarifications(SCHEMA, question, [{'reason': offered['reason'], 'choice': choice}])
+    assert planned == question.replace('fiscal '+period, 'calendar '+period)
+    assert next_step is None
