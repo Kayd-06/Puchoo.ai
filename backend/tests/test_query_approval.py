@@ -166,7 +166,7 @@ def env(app, otp_codes, tmp_path, monkeypatch):
     )
     monkeypatch.setattr(query_router, "get_verifier", lambda: FakeVerifier())
     monkeypatch.setattr(query_router, "get_chat_memory", lambda: FakeMemory())
-    monkeypatch.setattr(session_manager, "save", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.api.session.save_local_state", lambda **kwargs: None)
 
     with TestClient(create_app(include_product=True)) as owner:
         _signup(owner, "owner@approvalco.com", otp_codes, workspace_type="business", workspace_name="Approval Co")
@@ -179,6 +179,7 @@ def env(app, otp_codes, tmp_path, monkeypatch):
         }
         session_manager.workspace_guardrails[WORKSPACE_ID] = session_manager.DEFAULT_GUARDRAILS.copy()
         session_manager.query_history[WORKSPACE_ID] = []
+        session_manager.save(active_workspace_id=WORKSPACE_ID)
         try:
             yield Env(owner, source, fake, executions)
         finally:
@@ -591,7 +592,7 @@ def test_migration_creates_pending_queries_table(tmp_path):
         with database.engine.connect() as connection:
             tables = {row[0] for row in connection.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'"))}
             assert "pending_queries" in tables
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261016_0016"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20261107_0017"
     finally:
         database.configure_database(original_url)
 
@@ -779,3 +780,20 @@ def test_fee_shortcut_with_extra_filter_goes_to_the_model(env, monkeypatch):
     monkeypatch.setattr(env.fake, 'generate_sql', spy)
     env.generate(question='give me the list of students with unpaid fees in class 10')
     assert calls, 'a filtered fee question must reach the SQL model'
+
+
+def test_distinct_approvals_concurrently_preserve_all_relational_history(env):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from backend.workspace_repository import WorkspaceRepository
+    proposals=[env.generate().json() for _ in range(4)]
+    barrier=Barrier(4,timeout=10)
+    def approve(proposal):
+        barrier.wait()
+        return env.approve(proposal)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses=list(pool.map(approve,proposals))
+    assert [response.status_code for response in responses] == [200]*4
+    assert len(env.executions) == 4
+    with database.SessionLocal() as db:
+        assert {row['id'] for row in WorkspaceRepository(db).get_history(WORKSPACE_ID)} == {proposal['id'] for proposal in proposals}

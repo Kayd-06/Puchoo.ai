@@ -55,6 +55,5 @@ def update_guardrails(workspace_id: str, request: GuardrailsRequest, workspace: 
         "timeout_seconds": request.timeout_seconds,
         "confirm_complex_queries": request.confirm_complex_queries
     }
-    session_manager.workspace_guardrails[workspace_id] = guardrails
-    session_manager.save(active_workspace_id=workspace_id)
+    session_manager.set_guardrails(workspace_id, guardrails)
     return guardrails

@@ -8,6 +8,21 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # Disposable CI-only database; these are not application credentials.
+          POSTGRES_USER: auth_test
+          POSTGRES_PASSWORD: auth_test_only
+          POSTGRES_DB: puchoo_auth_tests
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U auth_test -d puchoo_auth_tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -18,6 +33,8 @@ jobs:
       - run: mkdir -p reports
       - run: python -m pytest -q backend/tests/test_schema_upgrade.py --junitxml=reports/migrations.xml
       - run: python -m pytest -q --junitxml=reports/backend.xml
+        env:
+          TEST_PERSISTENCE_POSTGRES_URL: postgresql+psycopg://auth_test:auth_test_only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/puchoo_auth_tests
       # chromadb has no fixed release for these advisories. All four are in Chroma's HTTP
       # server (/api/v2 endpoints, RBAC provider); the app only embeds chromadb.PersistentClient
       # and never runs or exposes a Chroma server. Revisit when a patched chromadb ships.

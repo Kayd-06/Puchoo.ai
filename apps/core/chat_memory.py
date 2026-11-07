@@ -108,6 +108,7 @@ class ApprovedConversationMemory:
             "actor_user_id": actor_user_id,
             "created_at": _compact_text(record.get("executed_at") or record.get("created_at"), 64),
             "status": "approved",
+            "memory_generation": int(record.get("memory_generation", 0)),
         }
         try:
             self._collection.upsert(
@@ -152,6 +153,7 @@ class ApprovedConversationMemory:
                 "content": document,
                 "created_at": metadata.get("created_at") if metadata else None,
                 "distance": distance,
+                "memory_generation": metadata.get("memory_generation", 0) if metadata else 0,
             }
             for item_id, document, metadata, distance in zip(ids, documents, metadatas, distances)
         ]
@@ -184,20 +186,94 @@ class ApprovedConversationMemory:
             raise ChatMemoryError("Could not delete approved conversation memory.") from exc
 
 
-_memory: ApprovedConversationMemory | None = None
+class GuardedConversationMemory:
+    """The API/RAG boundary: fail closed if durable deletion policy cannot be read."""
+    def __init__(self, storage):
+        self.storage = storage
 
-
-def get_chat_memory() -> ApprovedConversationMemory:
-    global _memory
-    if _memory is None:
-        # Keep a damaged or unavailable local Chroma store contained to the
-        # memory-dependent endpoint. Authentication, startup, and approved
-        # query execution must remain available when local persistence cannot
-        # be opened (a missing directory itself is recreated in __init__).
+    def save_approved_conversation(self, *, tenant_id, workspace_id, actor_user_id, record):
+        from apps.core.local_state import STATE_LOCK
+        from backend import database
+        from backend.models import WorkspaceRecord, WorkspaceHistoryRecord
+        from backend.memory_deletions import suppressed
+        from sqlalchemy import select
         try:
-            _memory = ApprovedConversationMemory()
-        except ChatMemoryError:
-            raise
+            with STATE_LOCK, database.SessionLocal() as db:
+                workspace = db.get(WorkspaceRecord, workspace_id)
+                record_id = str(record.get("id", ""))
+                saved = db.scalar(select(WorkspaceHistoryRecord.id).where(
+                    WorkspaceHistoryRecord.workspace_id == workspace_id,
+                    WorkspaceHistoryRecord.entry_id == record_id))
+                if not workspace or workspace.tenant_id != tenant_id or saved is None:
+                    return False
+                if suppressed(db, tenant_id, workspace_id, record_id, int(record.get("memory_generation", 0))):
+                    return False
+                self.storage.save_approved_conversation(tenant_id=tenant_id, workspace_id=workspace_id,
+                    actor_user_id=actor_user_id, record=record)
+                return True
         except Exception as exc:
-            raise ChatMemoryError("Could not initialize approved conversation memory.") from exc
-    return _memory
+            raise ChatMemoryError("Conversation memory policy or storage is unavailable.") from exc
+
+    def search_approved_conversations(self, *, tenant_id, workspace_id, query, limit=5):
+        from apps.core.local_state import STATE_LOCK
+        from backend import database
+        from backend.models import WorkspaceRecord, WorkspaceHistoryRecord
+        from sqlalchemy import select
+        from backend.memory_deletions import suppressed
+        try:
+            with STATE_LOCK, database.SessionLocal() as db:
+                workspace = db.get(WorkspaceRecord, workspace_id)
+                if not workspace or workspace.tenant_id != tenant_id:
+                    return []
+                matches = self.storage.search_approved_conversations(tenant_id=tenant_id,
+                    workspace_id=workspace_id, query=query, limit=limit)
+                return [item for item in matches if db.scalar(select(WorkspaceHistoryRecord.id).where(
+                    WorkspaceHistoryRecord.workspace_id == workspace_id, WorkspaceHistoryRecord.entry_id == item["id"])) is not None
+                    and not suppressed(db, tenant_id, workspace_id,
+                    item["id"], int(item.get("memory_generation", 0)))]
+        except Exception as exc:
+            raise ChatMemoryError("Conversation memory policy or storage is unavailable.") from exc
+
+    def cleanup(self, intent):
+        # Caller holds STATE_LOCK. Bulk cleanup selects only suppressed epochs;
+        # Chroma $ne includes missing legacy generation metadata (zero).
+        from backend import database
+        from backend.memory_deletions import generation
+        scope = self.storage._scope(intent.tenant_id, intent.workspace_id)
+        if intent.record_id:
+            where = scope
+            kwargs = {"ids": [intent.record_id]}
+        else:
+            with database.SessionLocal() as db:
+                current = generation(db, intent.tenant_id, intent.workspace_id)
+            if current <= intent.generation:
+                raise ChatMemoryError("Deletion generation policy is unavailable.")
+            # Later clears also suppress every older epoch. Never select current
+            # records, including newly indexed records that reuse an old vector id.
+            where = {"$and": [scope, {"memory_generation": {"$ne": current}}]}
+            kwargs = {"limit": 200}
+        found = self.storage._collection.get(where=where, include=["metadatas"], **kwargs)
+        ids, metadata = found.get("ids") or [], found.get("metadatas") or []
+        removed = [item_id for item_id, meta in zip(ids, metadata)
+                   if not intent.record_id or int((meta or {}).get("memory_generation", 0)) <= intent.generation]
+        if removed:
+            self.storage._collection.delete(ids=removed, where=where)
+        # No offsets over a mutating collection: each retry starts at eligible data.
+        return bool(intent.record_id) or len(ids) < 200, 0
+
+
+_memory: GuardedConversationMemory | None = None
+
+
+def get_chat_memory() -> GuardedConversationMemory:
+    from apps.core.local_state import STATE_LOCK
+    global _memory
+    with STATE_LOCK:
+        if _memory is None:
+            try:
+                _memory = GuardedConversationMemory(ApprovedConversationMemory())
+            except ChatMemoryError:
+                raise
+            except Exception as exc:
+                raise ChatMemoryError("Could not initialize approved conversation memory.") from exc
+        return _memory
