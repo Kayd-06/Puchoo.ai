@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  chatScope,
+  scopeKey,
+  clearVersion,
+  filterHistory,
+  subscribeHistoryInvalidation,
+  invalidateHistory,
+  makeContinuation,
+} from '../hooks/useChatState';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -85,11 +94,29 @@ export default function History() {
   const navigate = useNavigate();
   const { activeWorkspaceId, activeWorkspace } = useAppContext();
   const { user } = useAuth();
+  const scope = chatScope(user, activeWorkspaceId);
+  const identity = scopeKey(scope);
   const isViewer = user?.workspace_role === 'viewer';
   const canManageHistory =
     !isViewer &&
     (user?.workspace_role === 'admin' || (!user?.workspace_owner_id && !user?.institute_owner_id));
-  const [history, setHistory] = useState([]);
+  const currentIdentity = useRef(identity);
+  useLayoutEffect(() => {
+    currentIdentity.current = identity;
+  }, [identity]);
+  const [historyState, setHistoryState] = useState({ identity: '', records: [] });
+  const history = useMemo(
+    () => (historyState.identity === identity ? historyState.records : []),
+    [historyState, identity],
+  );
+  const setHistory = (next) =>
+    setHistoryState((current) => ({
+      identity,
+      records:
+        typeof next === 'function'
+          ? next(current.identity === identity ? current.records : [])
+          : next,
+    }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -100,14 +127,21 @@ export default function History() {
 
   useEffect(() => {
     let cancelled = false;
+    const version = clearVersion(scope);
+    const unsubscribe = subscribeHistoryInvalidation((event) => {
+      if (event.tenantId !== scope?.tenantId || event.workspaceId !== scope?.workspaceId) return;
+      setHistory((current) =>
+        event.recordId == null ? [] : current.filter((record) => record.id !== event.recordId),
+      );
+    });
     async function loadHistory() {
       setError('');
       setHistory([]);
-      if (!activeWorkspaceId) return;
+      if (!scope) return;
       setLoading(true);
       try {
         const data = await fetchApi(`/history/${activeWorkspaceId}`);
-        if (!cancelled) setHistory(data || []);
+        if (!cancelled) setHistory(filterHistory(scope, data || [], version));
       } catch (err) {
         if (!cancelled) setError(err.message || 'Could not load query history.');
       } finally {
@@ -117,8 +151,11 @@ export default function History() {
     loadHistory();
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, [activeWorkspaceId]);
+    // Canonical identity owns this fetch; older identity responses are ignored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity]);
 
   const visibleHistory = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -154,26 +191,25 @@ export default function History() {
     setError('');
     try {
       await fetchApi(`/history/${activeWorkspaceId}`, { method: 'DELETE' });
-      setHistory([]);
+      invalidateHistory(scope);
+      if (currentIdentity.current === identity) setHistory([]);
     } catch (err) {
-      setError(err.message || 'Could not clear query history.');
+      if (currentIdentity.current === identity)
+        setError(err.message || 'Could not clear query history.');
     } finally {
       setClearing(false);
     }
   };
 
   const continueConversation = (item) => {
-    navigate('/ask', {
-      state: {
-        continuation: {
-          recordId: item.id,
-          question: item.question,
-          interpretedRequest: item.interpreted_request,
-          rowCount: item.row_count,
-          languageCode: item.language_code,
-        },
-      },
-    });
+    const continuation = makeContinuation(scope, item);
+    if (!continuation) {
+      setError(
+        'This conversation is no longer available in this workspace. Refresh history and try again.',
+      );
+      return;
+    }
+    navigate('/ask', { state: { continuation } });
   };
 
   const deleteRecord = async (item) => {
@@ -190,9 +226,12 @@ export default function History() {
       await fetchApi(`/history/${activeWorkspaceId}/records/${encodeURIComponent(item.id)}`, {
         method: 'DELETE',
       });
-      setHistory((current) => current.filter((record) => record.id !== item.id));
+      invalidateHistory(scope, item.id);
+      if (currentIdentity.current === identity)
+        setHistory((current) => current.filter((record) => record.id !== item.id));
     } catch (err) {
-      setError(err.message || 'Could not delete this history record.');
+      if (currentIdentity.current === identity)
+        setError(err.message || 'Could not delete this history record.');
     } finally {
       setDeletingId('');
     }
