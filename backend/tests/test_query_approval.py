@@ -662,12 +662,13 @@ def test_rag_context_reaches_generation_with_owner_and_workspace_scope(env, monk
     assert env.executions == []
 
 
-def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
+def test_undefined_business_rule_returns_explanation_without_followup(env, monkeypatch):
     monkeypatch.setenv('PUCHOO_AUTONOMOUS_MODE', 'true')
-    monkeypatch.setattr(query_router, 'question_clarification', lambda *_: {'reason': 'ambiguous_metric', 'message': 'Which metric?', 'suggestions': ['Revenue', 'Quantity']})
+    monkeypatch.setattr(query_router, 'question_clarification', lambda *_: {'reason': 'missing_policy_definition', 'message': 'Which policy?', 'suggestions': ['Policy A', 'Policy B']})
     response = env.generate(question='Show the best region')
     assert response.status_code == 200
-    assert response.json()['status'] == 'clarification_required'
+    assert response.json()['status'] == 'cannot_answer'
+    assert 'suggestions' not in response.json()
     assert env.executions == []
 
 
@@ -695,15 +696,16 @@ def _order_plan(**overrides):
     return {**plan, **overrides}
 
 
-def test_complex_planner_clarification_must_not_become_an_assumption(env, monkeypatch):
+def test_unanswerable_plan_returns_explanation_without_followup(env, monkeypatch):
     import json
     monkeypatch.setenv('PUCHOO_AUTONOMOUS_MODE', 'true')
     monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
     monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(needs_clarification=True, clarification_question='Which comparison period?')), raising=False)
     response = env.generate(question='Compare regional amounts')
     assert response.status_code == 200, response.text
-    assert response.json()['status'] == 'clarification_required'
-    assert response.json()['message'] == 'Which comparison period?'
+    assert response.json()['status'] == 'cannot_answer'
+    assert 'suggestions' not in response.json()
+    assert '?' not in response.json()['message']
     assert not env.executions
 
 
@@ -718,7 +720,12 @@ def test_complex_planned_aggregate_returns_known_database_results(env, monkeypat
     assert response.json()['record']['rows'] == [{'region': 'north', 'total': 15}, {'region': 'south', 'total': 20}]
 
 
-def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
+@pytest.mark.parametrize("question", [
+    "give me the list of students with unpaid fee",
+    "Give me the list of students who have not paid the fee.",
+    "Show students who have not paid fees",
+])
+def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch, question):
     from apps.core.llm_client import schema_guided_fallback_sql
     connection = sqlite3.connect(env.source)
     connection.executescript("CREATE TABLE pupils(student_id INTEGER,full_name TEXT); CREATE TABLE charges(student_id INTEGER,amount_due REAL,amount_paid REAL); INSERT INTO pupils VALUES(1,'Part paid'),(2,'Fully paid'); INSERT INTO charges VALUES(1,100,40),(2,100,100);")
@@ -727,7 +734,7 @@ def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
     def unavailable():
         raise query_router.LocalMLXConfigurationError('Provider unavailable')
     monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
-    proposal = env.generate(question='give me the list of students with unpaid fee')
+    proposal = env.generate(question=question)
     assert proposal.status_code == 200, proposal.text
     assert not env.executions
     response = env.approve(proposal.json())
@@ -779,3 +786,89 @@ def test_fee_shortcut_with_extra_filter_goes_to_the_model(env, monkeypatch):
     monkeypatch.setattr(env.fake, 'generate_sql', spy)
     env.generate(question='give me the list of students with unpaid fees in class 10')
     assert calls, 'a filtered fee question must reach the SQL model'
+
+
+def test_student_attendance_below_threshold_skips_paid_model_and_keeps_approval(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    connection = sqlite3.connect(env.source)
+    connection.executescript(
+        "CREATE TABLE students(student_id INTEGER, full_name TEXT);"
+        "CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL);"
+        "INSERT INTO students VALUES (1, 'Asha'), (2, 'Rohan');"
+        "INSERT INTO attendance VALUES (1, 60), (1, 100), (2, 60), (2, 80);"
+    )
+    connection.close()
+    monkeypatch.setattr(query_router, "schema_guided_fallback_sql", schema_guided_fallback_sql)
+
+    def unexpected_model():
+        pytest.fail("Simple attendance threshold must not call the paid model")
+
+    monkeypatch.setattr(query_router, "get_sql_client", unexpected_model)
+    response = env.generate(question="Give me the list of students having attendance less than 75%.")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "pending_approval"
+    assert "HAVING AVG(a.attendance_percentage) < 75" in body["sql"]
+    assert env.executions == []
+    result = env.approve(body)
+    assert result.status_code == 200, result.text
+    assert result.json()["record"]["rows"] == [{"student_id": 2, "full_name": "Rohan", "overall_attendance": 70.0}]
+
+
+def test_ordinary_metric_ambiguity_uses_planner_default_without_followup(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, "question_clarification", lambda *_: {
+        "reason": "ambiguous_metric", "message": "Which metric?", "suggestions": ["Amount"],
+    })
+    monkeypatch.setattr(env.fake, "generate_plan", lambda **_: json.dumps(_order_plan(
+        assumptions=["Regional performance is interpreted as total recorded amount."],
+    )), raising=False)
+    response = env.generate(question="Show the best region")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "pending_approval"
+    assert response.json()["assumptions"] == ["Regional performance is interpreted as total recorded amount."]
+    assert env.executions == []
+
+
+def test_lowest_three_per_class_keeps_all_classes_and_boundary_ties(env, monkeypatch):
+    import json
+    connection = sqlite3.connect(env.source)
+    connection.executescript(
+        "CREATE TABLE students(student_id INTEGER, full_name TEXT, class_name TEXT);"
+        "CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL);"
+    )
+    connection.executemany("INSERT INTO students VALUES (?, ?, ?)", [
+        (i, f"Student {i}", "A" if i <= 5 else "B") for i in range(1, 11)
+    ])
+    connection.executemany("INSERT INTO attendance VALUES (?, ?)", [
+        (1, 40), (1, 60), (2, 60), (3, 70), (4, 70), (5, 90),
+        (6, 20), (7, 30), (8, 40), (9, 80),
+    ])
+    connection.commit()
+    connection.close()
+    question = "For each class, show the three students with the lowest average attendance. Include ties and exclude students with no attendance records."
+    plan = _order_plan(
+        normalized_question=question, relevant_tables=["students", "attendance"],
+        metrics=["AVG(attendance_percentage)"], group_by=["class_name"],
+        ranking={"direction": "ascending", "limit": 3},
+        joins=[{"left": "students.student_id", "right": "attendance.student_id"}],
+    )
+    monkeypatch.setattr(query_router, "classify_complexity", lambda *_: ComplexityDecision("planned", 5, ("ranking",)))
+    monkeypatch.setattr(env.fake, "generate_plan", lambda **_: json.dumps(plan), raising=False)
+    env.fake.sql = """WITH student_avg AS (
+        SELECT s.class_name, s.student_id, s.full_name, AVG(a.attendance_percentage) AS avg_attendance
+        FROM students AS s JOIN attendance AS a ON s.student_id = a.student_id
+        GROUP BY s.class_name, s.student_id, s.full_name
+    ), ranked AS (
+        SELECT sa.*, RANK() OVER (PARTITION BY sa.class_name ORDER BY sa.avg_attendance ASC) AS rnk
+        FROM student_avg AS sa
+    ) SELECT r.class_name, r.student_id, r.full_name, r.avg_attendance
+    FROM ranked AS r WHERE r.rnk <= 3 ORDER BY r.class_name, r.avg_attendance, r.student_id"""
+    proposal = env.generate(question=question)
+    assert proposal.status_code == 200, proposal.text
+    assert proposal.json()["model_attempts"] == 1
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    rows = response.json()["record"]["rows"]
+    assert [r["student_id"] for r in rows] == [1, 2, 3, 4, 6, 7, 8]
+    assert [r["class_name"] for r in rows] == ["A"] * 4 + ["B"] * 3

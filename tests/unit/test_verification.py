@@ -6,7 +6,7 @@ import json
 from types import SimpleNamespace
 import unittest
 
-from apps.core.verification import ClaudeVerifier, GroqVerifier, VerificationStatus
+from apps.core.verification import ClaudeVerifier, DeepSeekVerifier, VerificationStatus
 
 
 class _Messages:
@@ -22,7 +22,7 @@ class _Client:
         self.messages = _Messages(response)
 
 
-class _GroqClient:
+class _DeepSeekClient:
     def __init__(self, response: str) -> None:
         self.response = response
 
@@ -46,9 +46,9 @@ class ClaudeVerifierTests(unittest.TestCase):
         )
         self.assertEqual(VerificationStatus.VERIFICATION_MISMATCH, result.status)
 
-    def test_groq_fallback_exposes_a_verified_result(self) -> None:
+    def test_deepseek_fallback_exposes_a_verified_result(self) -> None:
         payload = json.dumps({"verdict": "MATCH", "confidence": 91, "summary": "Matches.", "details": "Checked."})
-        result = GroqVerifier(client=_GroqClient(payload)).verify(
+        result = DeepSeekVerifier(client=_DeepSeekClient(payload)).verify(
             question="What is the amount?", sql="SELECT amount FROM metrics", columns=["amount"], rows=[{"amount": 10}], row_count=1
         )
         self.assertEqual(VerificationStatus.VERIFIED, result.status)
