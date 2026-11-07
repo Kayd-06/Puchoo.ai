@@ -156,7 +156,11 @@ it('does not submit duplicate requests when Enter is pressed during generation',
   await act(async () => {
     finish({ status: 'clarification_required', message: 'Which period?', suggestions: [] });
   });
-  expect(screen.getByText('The available data or definitions do not support a reliable answer to this request.')).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'The available data or definitions do not support a reliable answer to this request.',
+    ),
+  ).toBeInTheDocument();
   expect(screen.queryByText('Which period?')).not.toBeInTheDocument();
   expect(fetchApi).toHaveBeenCalledTimes(3);
 });
@@ -170,7 +174,9 @@ it('explains unavailable answers without asking a question or offering confirmat
   });
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Compare sales by region' } });
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
-  expect(await screen.findByText('The available data does not define a comparison period.')).toBeInTheDocument();
+  expect(
+    await screen.findByText('The available data does not define a comparison period.'),
+  ).toBeInTheDocument();
   expect(screen.queryByText('Choose one detail to continue')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'January' })).not.toBeInTheDocument();
   expect(fetchApi).toHaveBeenCalledTimes(3);
