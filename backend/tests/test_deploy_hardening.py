@@ -172,7 +172,9 @@ def test_notification_streams_are_capped_per_user_and_released(app, monkeypatch)
     monkeypatch.setattr(notifications_router, "stream_slots", slots)
     monkeypatch.setattr(settings, "notification_streams_per_user", 3)
     monkeypatch.setattr(notifications_router, "STREAM_POLL_SECONDS", 0)
-    user = SimpleNamespace(id=f"user-{uuid4().hex}")
+    user = SimpleNamespace(id=f"user-{uuid4().hex}", workspace_owner_id=None, institute_owner_id=None)
+    monkeypatch.setattr(notifications_router, "_stream_authorized", lambda *args: True)
+    monkeypatch.setattr(_FakeRequest, "cookies", {}, raising=False)
 
     async def scenario():
         requests = [_FakeRequest() for _ in range(3)]
