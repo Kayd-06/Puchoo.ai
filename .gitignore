@@ -27,3 +27,6 @@ model_training/models/
 *.gguf
 *.bin
 *.safetensors
+
+# Persistent OS maintenance lease sidecars (never unlink a live lock).
+*.maintenance.lock

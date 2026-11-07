@@ -77,3 +77,7 @@ use trusted operators, encrypted storage and access controls. Files are private
 (0700 directories/0600 files); backups contain sensitive account hashes/data.
 Set retention and quota from measured deployment capacity; keep snapshots outside
 the web root/repository. Never auto-delete existing production data during recovery.
+
+Maintenance `.maintenance.lock` sidecars persist by design and are ignored by Git.
+Never unlink one while an API or backup may still hold it: that can create two
+independent lock inodes and bypass mutual exclusion. Stop processes first.
