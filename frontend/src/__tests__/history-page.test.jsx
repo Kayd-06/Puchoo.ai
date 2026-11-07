@@ -8,7 +8,7 @@ vi.mock('../context/AppContext', () => ({
   useAppContext: () => ({ activeWorkspaceId: 'sales', activeWorkspace: { name: 'Sales' } }),
 }));
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { workspace_role: 'owner' } }),
+  useAuth: () => ({ user: { id: 'ada', tenant_id: 'ada', workspace_role: 'owner' } }),
 }));
 vi.mock('../api/client', () => ({ fetchApi: vi.fn() }));
 afterEach(() => {

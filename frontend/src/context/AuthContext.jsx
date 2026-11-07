@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   login as loginRequest,
@@ -11,13 +11,20 @@ import {
   updateProfileImage as updateProfileImageRequest,
 } from '../api/auth';
 
-import { clearChatSessions } from '../hooks/useChatState';
+import { clearChatSessions, chatScope, scopeKey } from '../hooks/useChatState';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children, loadSession = true }) {
   const [user, setUser] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(() => !loadSession);
+
+  const identity = scopeKey(chatScope(user, 'auth'));
+  const previousIdentity = useRef(identity);
+  useEffect(() => {
+    if (previousIdentity.current && previousIdentity.current !== identity) clearChatSessions();
+    previousIdentity.current = identity;
+  }, [identity]);
 
   useEffect(() => {
     if (!loadSession) {

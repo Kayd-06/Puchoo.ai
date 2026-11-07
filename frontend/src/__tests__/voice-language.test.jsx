@@ -12,7 +12,7 @@ vi.mock('../context/AppContext', () => ({
   }),
 }));
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { workspace_role: 'owner' } }),
+  useAuth: () => ({ user: { id: 'ada', tenant_id: 'ada', workspace_role: 'owner' } }),
 }));
 vi.mock('../api/client', () => ({ fetchApi: vi.fn(), fetchApiBlob: vi.fn() }));
 afterEach(() => {

@@ -31,6 +31,7 @@ it('restores the question, Hindi answer, and whole table after navigating away a
     questionLanguage: 'hi-IN',
     result: {
       record: {
+        id: 'saved-record',
         question: 'खर्च बताओ',
         columns: ['amount'],
         rows: [{ amount: 0 }, { amount: 200 }],
@@ -43,8 +44,11 @@ it('restores the question, Hindi answer, and whole table after navigating away a
       },
     },
   };
-  for (const [field, value] of Object.entries(saved))
-    sessionStorage.setItem(`puchoo:chat:v1:ada:sales:${field}`, JSON.stringify({ value }));
+  sessionStorage.setItem(
+    'puchoo:chat:v2:ada:ada:owner:sales',
+    JSON.stringify({ version: '', values: saved }),
+  );
+
   const page = () => (
     <MemoryRouter initialEntries={['/ask']}>
       <Link to="/settings">Settings tab</Link>
