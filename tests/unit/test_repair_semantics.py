@@ -7,8 +7,8 @@ from apps.core.repair_semantics import repair_preserves_query
     " WHERE region = 'west' GROUP BY region HAVING SUM(amount) > 100 ORDER BY region LIMIT 3",
 ])
 def test_widening_preserves_every_filter_metric_and_group(dialect, suffix):
-    original = 'SELECT ABS(amount) AS magnitude FROM orders' + suffix
-    repaired = 'SELECT ABS(CAST(amount AS DOUBLE PRECISION)) AS magnitude FROM orders' + suffix
+    original = 'SELECT ABS(-9223372036854775808) AS magnitude FROM orders' + suffix
+    repaired = 'SELECT ABS(CAST(-9223372036854775808 AS DOUBLE PRECISION)) AS magnitude FROM orders' + suffix
     assert repair_preserves_query(original, repaired, dialect=dialect)
     assert not repair_preserves_query(original, 'SELECT amount FROM orders' + suffix, dialect=dialect)
     assert not repair_preserves_query(original, repaired.replace('2025', '2024').replace('west', 'east'), dialect=dialect)
@@ -28,3 +28,8 @@ def test_no_filter_metric_ranking_or_group_loss(change):
 def test_repair_cannot_remove_existing_cast_or_cast_filter():
     assert not repair_preserves_query('SELECT ABS(CAST(amount AS REAL)) FROM orders', 'SELECT ABS(amount) FROM orders')
     assert not repair_preserves_query('SELECT amount FROM orders WHERE amount > 10', 'SELECT amount FROM orders WHERE CAST(amount AS REAL) > 10')
+
+
+@pytest.mark.parametrize('operand', ['amount', '9007199254740993'])
+def test_cast_cannot_introduce_unproven_column_or_literal_rounding(operand):
+    assert not repair_preserves_query(f'SELECT ABS({operand}) FROM orders', f'SELECT ABS(CAST({operand} AS REAL)) FROM orders')

@@ -496,8 +496,8 @@ def test_runtime_error_proposes_a_repair_that_needs_new_approval(env, monkeypatc
     connection.execute("INSERT INTO orders (region, amount) VALUES ('west', ?)", (MIN_INT,))
     connection.commit()
     connection.close()
-    env.fake.sql = "SELECT ABS(amount) AS size FROM orders"  # integer overflow at run time
-    env.fake.repair_sql = "SELECT ABS(CAST(amount AS REAL)) AS size FROM orders"
+    env.fake.sql = "SELECT ABS(-9223372036854775808) AS size FROM orders"  # runtime overflow
+    env.fake.repair_sql = "SELECT ABS(CAST(-9223372036854775808 AS REAL)) AS size FROM orders"
     pending = env.generate().json()
     assert pending["status"] == "pending_approval"
     monkeypatch.setattr(query_router, "LocalMLXSQLClient", FakeSQLClient)
@@ -509,7 +509,7 @@ def test_runtime_error_proposes_a_repair_that_needs_new_approval(env, monkeypatc
     repaired = body["proposal"]
     assert repaired["pending_id"] != pending["pending_id"]
     assert repaired["repair_of"] == pending["pending_id"]
-    assert "ABS(CAST(amount AS REAL))" in repaired["sql"]
+    assert "ABS(CAST(-9223372036854775808 AS REAL))" in repaired["sql"]
     assert repaired["sql_hash"] == pending_queries.sql_hash(repaired["sql"])
     # Only the original SQL ran; the repair was proposed, not executed.
     assert env.executions == [pending["sql"]]
@@ -844,11 +844,12 @@ def test_repair_keeps_class_and_date_filters_before_automatic_run(env, monkeypat
         conn.execute("ALTER TABLE orders ADD COLUMN issued_date TEXT DEFAULT '2025-01-01'")
         conn.execute("INSERT INTO orders (region,amount,class_id,issued_date) VALUES ('west',?,10,'2025-02-01')", (MIN_INT,))
     scope = "class_id = 10 AND issued_date >= '2025-01-01'"
-    env.fake.sql = 'SELECT ABS(amount) AS magnitude FROM orders WHERE ' + scope
+    operand = 'amount' if missing else '-9223372036854775808'
+    env.fake.sql = f'SELECT ABS({operand}) AS magnitude FROM orders WHERE ' + scope
     repair_scope = scope
     if missing == 'class': repair_scope = "issued_date >= '2025-01-01'"
     if missing == 'date': repair_scope = 'class_id = 10'
-    env.fake.repair_sql = 'SELECT ABS(CAST(amount AS REAL)) AS magnitude FROM orders WHERE ' + repair_scope
+    env.fake.repair_sql = f'SELECT ABS(CAST({operand} AS REAL)) AS magnitude FROM orders WHERE ' + repair_scope
     monkeypatch.setattr(query_router, 'LocalMLXSQLClient', FakeSQLClient)
     pending_response = env.generate(question='Show absolute order amounts for class 10 since 2025-01-01')
     assert pending_response.status_code == 200, pending_response.text
@@ -862,3 +863,22 @@ def test_repair_keeps_class_and_date_filters_before_automatic_run(env, monkeypat
         executed = env.approve(replacement)
         assert executed.status_code == 200, executed.text
         assert len(env.executions) == 2
+
+
+def test_expense_year_constraint_reaches_model_and_changes_executed_results(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    with sqlite3.connect(env.source) as db:
+        db.executescript('''CREATE TABLE expenses(expense_date TEXT, expense_category TEXT, amount INTEGER);
+        INSERT INTO expenses VALUES ('2024-01-01','Travel',999),('2025-01-01','Travel',5);''')
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', schema_guided_fallback_sql)
+    prompts = []
+    def generate_sql(**kwargs):
+        prompts.append(kwargs['question'])
+        return "SELECT expense_category, SUM(amount) AS total_expenses FROM expenses WHERE expense_date >= '2025-01-01' AND expense_date < '2026-01-01' GROUP BY expense_category"
+    monkeypatch.setattr(env.fake, 'generate_sql', generate_sql)
+    response = env.generate(question='Show expenses by category in 2025')
+    assert response.status_code == 200, response.text
+    assert prompts and '2025' in prompts[0]
+    executed = env.approve(response.json())
+    assert executed.status_code == 200, executed.text
+    assert executed.json()['record']['rows'] == [{'expense_category':'Travel','total_expenses':5}]

@@ -26,7 +26,7 @@ from apps.core.llm_client import (
     canonicalize_analytics_question,
     schema_guided_fallback_sql,
 )
-from apps.core.repair_semantics import repair_preserves_query
+from apps.core.repair_semantics import repair_preserves_query, RepairMeaningError
 from apps.core.verification import get_verifier, verification_unavailable
 from apps.core.question_scope import classify_question_scope
 from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
@@ -574,7 +574,7 @@ def _repair_proposal(
         feedback.extend(plan_semantic_feedback(build_query_plan(schema, original_question), guarded_repair.sql))
     if feedback or not repair_preserves_query(pending.sql, guarded_repair.sql,
             dialect=workspace.get("dialect", "sqlite")):
-        raise SQLGenerationError("Automatic repair could not preserve the original query meaning.")
+        raise RepairMeaningError("Automatic repair could not preserve the original query meaning.")
     repaired_context = {
         **context,
         "sql": guarded_repair.sql,
@@ -779,6 +779,8 @@ def approve_pending_query(
         finish_pending(db, pending, "blocked")
         logger.warning("approved query blocked on re-validation: %s", type(exc).__name__)
         raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
+    except RepairMeaningError:
+        raise HTTPException(status_code=400, detail="The query failed and automatic repair could not preserve the original metric and filters. Please rephrase the question. No replacement query was run.") from None
     except (QueryExecutionError, SQLGenerationError, LocalMLXConfigurationError, ValueError) as exc:
         logger.exception("query execution failed: %s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The query could not be executed.") from None
