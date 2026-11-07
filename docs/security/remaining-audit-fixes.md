@@ -1,7 +1,7 @@
 # Remaining audit fixes: SQL meaning preservation
 
-This branch is an incomplete release-fix workstream, not a production-readiness
-certificate. Automatic guarded read-only execution remains the product behavior.
+This branch implements the remaining scoped audit controls for review, not a
+production-readiness certificate. Automatic guarded read-only execution remains the product behavior.
 The `/approve` protocol is an execution claim, not a mandatory user preview step.
 
 ## F20: bounded automatic runtime repair
@@ -63,3 +63,47 @@ Localized headline, labels, column labels, highlights and display rows are persi
 Offline snapshot/restore now captures the SQL authority/deletion policy, managed uploaded databases and scoped Chroma together; runtime-only credentials and legacy JSON are excluded. Restore is fresh-directory only, verifies hashes/path/schema integrity, relocates dataset paths and requires explicit newer-deletion/privacy review. Active SQLite API lifespans prevent backup via a maintenance presence lease. This is NOT an online multi-store snapshot or automatic reconciliation of deletions newer than a backup. See the [operational runbook](../runbooks/backups.md).
 
 Import now validates ZIP metadata and streams CSV/XML shape/text/complexity preflight before dataframe construction, including cumulative sheets/files, sparse/repeated coordinates and shared strings. Limits can lower but not exceed hard ceilings. Legacy XLS is explicitly unsupported; convert first. Reproducible selected boundary-resource probes are helper-only Linux observations, not universal peak-memory or Oracle/ARM/load guarantees. See the [bounded parser policy](upload-parser-bounds.md).
+
+
+## Review and release gates (not executed acceptance)
+
+All 27 audit IDs are accounted for: seven source fixes were merged in PR60–63,
+F04/F05 were already closed, and this branch implements controls for the remaining
+18 IDs. Implementation is not deployment or closure of unexecuted acceptance.
+
+- F03 corrects product copy; Enter still runs guarded read-only SQL automatically,
+  with conservative safe automatic repair and optional SQL inspection.
+- F08/F18 add scoped microphone cleanup and IME submission handling. Synthetic
+  DOM/media events do not prove native permission, microphone or IME behavior.
+- F09 bounds each PDF capture before allocation; total browser/PDF memory and
+  multilingual visual readability still require real-browser review. See
+  [PDF bounds](pdf-export-bounds.md).
+- F10: AskData really animates particles. Adaptive limits, reduced-motion and
+  visibility controls are implemented; no mobile throughput, battery or OOM
+  improvement has been measured. See [resource policy](query-universe-resources.md).
+- F16 revalidates live SSE sessions and membership before delivery; synthetic
+  database tests are not a deployed proxy/disconnect/load exercise.
+- F23 fixes the PowerShell migration working directory and exit propagation;
+  actual Windows execution remains untested.
+- F26/F27 add local contrast rules and a canonical mobile workspace selector.
+  Browser attempts failed with connection refused before loading any page,
+  despite successful box-side HTTP checks. No visual/theme/viewport/contrast,
+  native IME/microphone or PDF browser acceptance was performed. Box health
+  checks passed; a cause for the browser refusal was not established.
+
+Release review must retain the offline **SQLite-only** backup scope, fresh-target
+restore, explicit newer-deletion/privacy acknowledgement, and single-API-process
+limit. Older snapshots cannot automatically know deletions made afterward.
+Legacy XLS is unsupported: convert to CSV/XLSX. Partial translation is rejected,
+not silently truncated; conservative SQL repair can require rephrasing.
+
+Dependency audits retain existing CI exceptions: raw Python audit reports five
+Chroma 1.5.9 records representing four unique advisory IDs (PYSEC-2026-311 appears
+twice). No new waiver or dependency change is made here. An npm audit reporting
+zero vulnerabilities does not make the Python dependencies vulnerability-free.
+Review these existing exceptions before release.
+
+No real-provider, production-load, actual Windows, Oracle/ARM, mobile-hardware,
+power-loss or deployment validation is claimed. PostgreSQL/pgvector consolidation
+remains deferred. Browser validation is a documented release gate, not a reason
+to represent this review PR as deployment-ready.
