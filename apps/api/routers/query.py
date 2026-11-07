@@ -21,7 +21,6 @@ from apps.core.llm_client import (
     SQLGenerationError,
     get_sql_client,
     local_semantic_feedback,
-    question_clarification,
     compact_plan_feedback,
     canonicalize_analytics_question,
     schema_guided_fallback_sql,
@@ -61,6 +60,7 @@ from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
 from apps.core.chat_memory import ChatMemoryError, get_chat_memory
 from apps.core.rag import retrieve_context
+from apps.core.clarifications import resolve_clarifications
 from backend.routers.auth import current_user
 from backend.database import get_db
 from backend.notifications import create_notification
@@ -69,11 +69,18 @@ router = APIRouter(prefix="/query", tags=["query"])
 logger = logging.getLogger(__name__)
 _translation_cache: dict[tuple[str, str], str] = {}
 
+class ClarificationAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    reason: str = Field(min_length=1, max_length=80, strict=True)
+    choice: str = Field(min_length=1, max_length=500, strict=True)
+
+
 class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     question: str = Field(min_length=1, max_length=4_000, strict=True)
     language_code: str | None = Field(default=None, max_length=16, strict=True)
+    clarifications: list[ClarificationAnswer] = Field(default_factory=list, max_length=8)
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -290,11 +297,18 @@ def generate_query(
         # Keyword misses (synonyms, translated wording) are advisory only: the
         # guardrail and the user's approval still gate every query.
         scope_warning = scope.warning
-        clarification = question_clarification(schema, planning_question)
+        try:
+            planning_question, clarification = resolve_clarifications(
+                schema, planning_question, [item.model_dump() for item in request.clarifications]
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Clarification no longer matches this question. Please ask again.") from None
         if clarification:
             return {
                 "status": "clarification_required",
                 "question": question,
+                "clarifications": [item.model_dump() for item in request.clarifications],
+                "interpreted_request": planning_question,
                 **({"scope_warning": scope_warning} if scope_warning else {}),
                 **clarification,
             }

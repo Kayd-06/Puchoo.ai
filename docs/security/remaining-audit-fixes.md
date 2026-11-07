@@ -45,3 +45,9 @@ See the workstream manifest outside the repository for current executed counts a
 remaining audit IDs. Other audit fixes are not claimed complete by this document.
 
 Repair widening is restricted to a final scalar projection without downstream alias references; exact literal representation alone does not prove arithmetic or aggregate type-promotion equivalence. Workspace `postgresql` aliases use the same SQLGlot dialect normalization as the guardrails.
+
+## F25: explicit clarification choices
+
+The browser submits the original scoped question and a bounded list of reason/choice answers, not an appended free-form `Clarification:` suffix. The server replays only choices it actually offers for that question, after translating the original question. Calendar selection changes only the calendar, and classification choices retain all original filters. Multi-step choices retain earlier definitions. Stale or fabricated choices fail before SQL planning.
+
+A field choice is not a policy or threshold: educational metric, eligibility, missing-input and scoring-rule choices advance to a distinct detail prompt with no executable proposal. The user must edit/rephrase the question with actual rules, preserving their filters. No scoring or eligibility policy is invented. Available-fields selection displays only the current workspace schema. Explicit marks/attendance comparisons can then be processed without repeating the metric question.

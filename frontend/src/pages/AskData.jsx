@@ -679,7 +679,7 @@ export default function AskData() {
     throw new Error('The query could not be executed after an automatic correction.');
   };
 
-  const handleAsk = async (resolvedQuestion) => {
+  const handleAsk = async (resolvedQuestion, clarificationAnswers = []) => {
     const submittedQuestion = typeof resolvedQuestion === 'string' ? resolvedQuestion : question;
     if (
       !submittedQuestion.trim() ||
@@ -701,7 +701,11 @@ export default function AskData() {
         : submittedQuestion.trim();
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
+        body: JSON.stringify({
+          question: questionForQuery,
+          language_code: questionLanguage,
+          clarifications: clarificationAnswers,
+        }),
       });
       if (!requestCurrent(token)) return;
       if (proposal.status === 'clarification_required') {
@@ -1195,9 +1199,10 @@ export default function AskData() {
                     className="btn btn-secondary"
                     disabled={loading}
                     onClick={() => {
-                      const refinedQuestion = `${question.trim()}\nClarification: ${suggestion}`;
-                      setQuestion(refinedQuestion);
-                      void handleAsk(refinedQuestion);
+                      void handleAsk(question, [
+                        ...(clarification.clarifications || []),
+                        { reason: clarification.reason, choice: suggestion },
+                      ]);
                     }}
                   >
                     {suggestion}

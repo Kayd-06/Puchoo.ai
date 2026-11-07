@@ -164,12 +164,13 @@ it('places clarification beside the composer and submits the selected answer imm
   await showReport();
   fetchApi.mockResolvedValueOnce({
     status: 'clarification_required',
+    reason: 'missing_time_definition',
     message: 'Which period?',
-    suggestions: ['January'],
+    suggestions: ['Use calendar year instead'],
   });
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Compare sales by region' } });
   fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
-  const choice = await screen.findByRole('button', { name: 'January' });
+  const choice = await screen.findByRole('button', { name: 'Use calendar year instead' });
   const panel = screen.getByRole('region', { name: 'Clarify your question' });
   expect(panel.closest('.ask-stage-content')).toContainElement(screen.getByRole('textbox'));
   fetchApi.mockResolvedValueOnce({
@@ -179,7 +180,57 @@ it('places clarification beside the composer and submits the selected answer imm
   });
   fireEvent.click(choice);
   await waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(4));
-  expect(JSON.parse(fetchApi.mock.calls[3][1].body).question).toBe(
-    'Compare sales by region\nClarification: January',
-  );
+  expect(JSON.parse(fetchApi.mock.calls[3][1].body)).toMatchObject({
+    question: 'Compare sales by region',
+    clarifications: [{ reason: 'missing_time_definition', choice: 'Use calendar year instead' }],
+  });
+  expect(screen.getByRole('textbox')).toHaveValue('Compare sales by region');
+});
+
+it('replays prior choices separately while keeping original class and date filters', async () => {
+  await showReport();
+  const question =
+    'Classify students in class 10 in 2025 using marks attendance fees and enrollment';
+  const first = {
+    reason: 'missing_classification_factor_rules',
+    choice:
+      'Classify using marks and attendance only; show fee-payment behavior and enrollment status separately',
+  };
+  const second = {
+    reason: 'missing_performance_classification_definition',
+    choice:
+      'Compare the latest assessment with the previous assessment and show the attendance change separately; classify using marks change of at least +5 or at most -5 percentage points',
+  };
+  fetchApi.mockResolvedValueOnce({
+    status: 'clarification_required',
+    reason: first.reason,
+    message: 'Which factors?',
+    suggestions: [first.choice],
+    clarifications: [],
+  });
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: question } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  const choice = await screen.findByRole('button', { name: first.choice });
+  fetchApi.mockResolvedValueOnce({
+    status: 'clarification_required',
+    reason: second.reason,
+    message: 'Which rules?',
+    suggestions: [second.choice],
+    clarifications: [first],
+  });
+  fireEvent.click(choice);
+  const nextChoice = await screen.findByRole('button', { name: second.choice });
+  fetchApi.mockResolvedValueOnce({
+    status: 'clarification_required',
+    reason: 'additional_definition_required',
+    message: 'Provide exact rules',
+    suggestions: [],
+  });
+  fireEvent.click(nextChoice);
+  await screen.findByText('Provide exact rules');
+  expect(JSON.parse(fetchApi.mock.calls.at(-1)[1].body)).toMatchObject({
+    question,
+    clarifications: [first, second],
+  });
+  expect(screen.getByRole('textbox')).toHaveValue(question);
 });

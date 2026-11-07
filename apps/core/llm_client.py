@@ -131,7 +131,12 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
         r"\b(doing\s+well|need(?:s)?\s+attention|weakest|most\s+successful|doing\s+badly|performing\s+badly|serious\s+problems?)\b",
         q,
     ))
-    if education_subject and vague_education_outcome:
+    explicit_academic_rule = bool(re.search(
+        r"\b(?:average\s+|overall\s+)?(?:marks?(?:\s+percentage)?|attendance(?:\s+percentage)?)\s*"
+        r"(?:is\s+)?(?:>=|<=|>|<|above|below|over|under|at\s+least|at\s+most)\s*[+-]?\d+(?:\.\d+)?",
+        q,
+    ))
+    if education_subject and vague_education_outcome and not explicit_academic_rule:
         return {
             "reason": "ambiguous_education_metric",
             "message": "How should student performance be measured: average marks, attendance, fee status, enrollment status, or a combination?",
@@ -169,7 +174,7 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
 
     vague_ranking = re.search(r"\b(best|top|worst|strongest|weakest|performance)\b", q)
     ranking_metric = re.search(
-        r"\b(revenue|sales|quantity|amount|profit|margin|cost|expense|attendance|rating|count|total|average|salary|budget)\b",
+        r"\b(revenue|sales|quantity|amount|profit|margin|cost|expense|attendance|marks?|rating|count|total|average|salary|budget)\b",
         q,
     )
     if vague_ranking and not ranking_metric:
