@@ -75,7 +75,7 @@ def test_calendar_resolution_never_rewrites_quoted_region_filter(literal):
     question = 'Show amount in fiscal year 2025 for region ' + literal
     planned, next_step = resolve_clarifications(SCHEMA, question, [{'reason': 'missing_time_definition', 'choice': 'Use calendar year instead'}])
     assert planned == 'Show amount in calendar year 2025 for region ' + literal
-    assert next_step is None or next_step['suggestions'] == []
+    assert next_step is None
 
 
 def test_quoted_data_cannot_supply_missing_academic_threshold():

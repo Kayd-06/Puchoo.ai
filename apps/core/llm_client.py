@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 
 from apps.core.rag import RAG_INSTRUCTIONS, model_request
+from apps.core.question_text import unquoted_question
 
 
 DEFAULT_SQL_MODEL = "claude-sonnet-5"
@@ -77,9 +78,6 @@ FROM clause. When returning people or named business entities, include their
 human-readable name column when the schema provides one; do not present an ID as
 a name. For top-N within each group, use ROW_NUMBER/RANK and filter that rank in
 an outer query rather than applying one global LIMIT. Return SQL only."""
-
-
-from apps.core.question_text import unquoted_question
 
 
 def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
@@ -166,9 +164,10 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
             "suggestions": ["Define rules using marks and attendance", "Define rules using fees and enrollment"],
         }
 
-    fiscal_period = re.search(r"\bfiscal\s+(year|quarter|month)\b", q)
+    fiscal_wording = unquoted_question(q)
+    fiscal_period = re.search(r"\bfiscal\s+(year|quarter|month)\b", fiscal_wording)
     if fiscal_period and not re.search(
-        r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", q
+        r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", fiscal_wording
     ):
         return {
             "reason": "missing_time_definition",
