@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import logging
 import os
 import re
@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from apps.core.guardrails import SchemaCatalog
-from apps.core.upload_limits import UploadLimitError, UploadLimits, read_tabular
+from apps.core.upload_limits import MAX_INPUT_BYTES, UploadLimitError, UploadLimits, read_tabular
 
 from apps.core.db_connection import (
     GENERIC_CONNECTION_ERROR,
@@ -239,15 +239,17 @@ def create_tabular_collection_workspace(
             written_tables: set[str] = set()
             limits = UploadLimits.from_env()
             total_cells = 0
+            if sum(len(contents) for _, contents in files) > MAX_INPUT_BYTES:
+                raise UploadLimitError("The file collection exceeds the 25 MiB parser input budget.")
             for filename, contents in files:
                 if not contents:
                     raise ValueError(f"{filename} is empty.")
                 suffix = Path(filename).suffix.lower()
                 file_stem = Path(filename).stem
                 if suffix == ".csv":
-                    frames = read_tabular(filename, contents, limits)
+                    frames = read_tabular(filename, contents, replace(limits, max_cells=limits.max_cells - total_cells))
                 elif suffix in {".xlsx", ".xls"}:
-                    sheets = read_tabular(filename, contents, limits)
+                    sheets = read_tabular(filename, contents, replace(limits, max_cells=limits.max_cells - total_cells))
                     frames = {
                         f"{file_stem}_{sheet_name}": frame
                         for sheet_name, frame in sheets.items()

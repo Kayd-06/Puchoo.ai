@@ -28,7 +28,7 @@ from apps.core.workspaces import (
     get_schema_snapshot,
     get_schema_table_stats,
 )
-from apps.core.upload_limits import UploadLimitError
+from apps.core.upload_limits import MAX_INPUT_BYTES, UploadLimitError
 from apps.api.session import session_manager
 from apps.api.security import (
     require_capability,
@@ -48,11 +48,12 @@ MAX_UPLOAD_FILES = settings.upload_max_files
 OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
-async def _read_upload(file: UploadFile) -> bytes:
+async def _read_upload(file: UploadFile, remaining: int = MAX_INPUT_BYTES) -> bytes:
     """Bound a multipart part before it can exhaust the application process."""
 
-    contents = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(contents) > MAX_UPLOAD_BYTES:
+    budget = min(MAX_UPLOAD_BYTES, MAX_INPUT_BYTES, remaining)
+    contents = await file.read(budget + 1)
+    if len(contents) > budget:
         raise HTTPException(status_code=413, detail="The uploaded file is too large.")
     if not contents:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
@@ -66,7 +67,7 @@ def _validated_upload_kind(filename: str, contents: bytes) -> str:
     if suffix == ".xlsx":
         valid = contents.startswith(b"PK\x03\x04")
     elif suffix == ".xls":
-        valid = contents.startswith(OLE_HEADER)
+        raise HTTPException(status_code=400, detail="Legacy XLS is unsupported for safe parsing. Save as XLSX or CSV first.")
     elif suffix == ".csv":
         head = contents[:8192]
         if len(contents) > len(head):
@@ -229,9 +230,11 @@ async def upload_multiple_files(
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=400, detail="Too many files were uploaded at once.")
     payloads: list[tuple[str, bytes]] = []
+    remaining = MAX_INPUT_BYTES
     for file in files:
         filename = file.filename or "uploaded_file"
-        contents = await _read_upload(file)
+        contents = await _read_upload(file, remaining)
+        remaining -= len(contents)
         suffix = _validated_upload_kind(filename, contents)
         payloads.append((filename, contents))
     workspace_name = name.strip() or f"{len(payloads)}-file workspace"

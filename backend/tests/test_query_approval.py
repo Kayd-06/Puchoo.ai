@@ -1006,3 +1006,11 @@ def test_api_lifespan_owns_shared_maintenance_lease(app,tmp_path):
  with TestClient(app):
   with pytest.raises(RuntimeError,match='in use'):
    with database_lease(Path(database.engine.url.database)):pass
+
+
+def test_multi_upload_total_bytes_rejected_before_importer(env, monkeypatch):
+    from apps.api.routers import workspaces as route
+    monkeypatch.setattr(route, 'MAX_INPUT_BYTES', 10)
+    monkeypatch.setattr(route, 'create_tabular_collection_workspace', lambda *a, **k: pytest.fail('oversized collection reached importer'))
+    response = env.owner.post('/api/workspaces/upload-multiple', files=[('files', ('one.csv', b'x\n1\n2\n', 'text/csv')), ('files', ('two.csv', b'y\n3\n4\n', 'text/csv'))], headers=csrf_headers(env.owner))
+    assert response.status_code == 413, response.text
