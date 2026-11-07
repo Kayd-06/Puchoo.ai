@@ -957,3 +957,43 @@ def test_verifier_exception_body_is_not_returned_logged_or_persisted(env, monkey
     assert 'SYNTHETIC_PRIVATE_TOKEN' not in response.text + history.text + caplog.text
     assert 'private-verifier.invalid' not in response.text + history.text + caplog.text
     assert len(env.executions) == 1
+
+
+def test_localized_presentation_survives_history_reload_with_facts_unchanged(env, monkeypatch):
+    pending = env.generate().json()
+    class SyntheticTranslator:
+        def translate(self, text, *args, **kwargs):
+            return 'हिन्दी ' + text
+        def translate_many(self, texts, *args, **kwargs):
+            return {text: 'हिन्दी ' + text for text in texts}
+    monkeypatch.setattr(query_router, '_spoken_language', lambda _code: 'hi-IN')
+    monkeypatch.setattr(query_router, 'SarvamClient', SyntheticTranslator)
+    monkeypatch.setattr(query_router, '_translation_cache', {})
+    payload = env.approve(pending).json()
+    assert payload['presentation_saved'] is True
+    expected = payload['presentation']
+    assert expected['labels']['executive_summary'] == 'हिन्दी Executive summary'
+    assert expected['display_rows'][0] == {'region': 'हिन्दी north', 'total': 15}
+    assert payload['record']['rows'][0] == {'region': 'north', 'total': 15}
+    # Actual relational reload, not just an assertion against the response/cache.
+    session_manager.hydrate_from_database()
+    with TestClient(create_app(include_product=True)) as fresh:
+        fresh.cookies.update(env.owner.cookies)
+        history = fresh.get(f'/api/history/{WORKSPACE_ID}')
+    assert history.status_code == 200, history.text
+    assert history.json()[0]['presentation'] == expected
+    assert history.json()[0]['rows'] == payload['record']['rows']
+
+
+def test_deletion_during_translation_cannot_be_undone_by_presentation_write(env, monkeypatch):
+    pending = env.generate().json()
+    def delete_during_translation(text, _language, **kwargs):
+        session_manager.delete_history(_user_id('owner@approvalco.com'), WORKSPACE_ID)
+        return text
+    monkeypatch.setattr(query_router, '_translate_for_display', delete_during_translation)
+    payload = env.approve(pending).json()
+    assert payload['presentation_saved'] is False
+    assert session_manager.get_history(WORKSPACE_ID) == []
+    session_manager.hydrate_from_database()
+    assert env.owner.get(f'/api/history/{WORKSPACE_ID}').json() == []
+    assert len(env.executions) == 1

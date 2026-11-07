@@ -148,8 +148,12 @@ class WorkspaceRepository:
                     position=position,
                     payload_json=json.dumps(payload, default=str),
                 ))
-            elif record.position != position:
-                record.position = position
+            else:
+                if record.position != position:
+                    record.position = position
+                encoded = json.dumps(payload, default=str)
+                if record.payload_json != encoded:
+                    record.payload_json = encoded
         for entry_id, record in existing.items():
             if entry_id not in seen:
                 self.db.delete(record)

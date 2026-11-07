@@ -390,3 +390,54 @@ def test_legacy_import_only_once_before_relational_authority_exists(state):
     second=SessionManager()
     second.hydrate_from_database()
     assert second.get_workspace('late') is None
+
+
+def test_late_presentation_patch_is_scoped_generation_bound_and_durable(state):
+    old = state.append('same')
+    other = state.append('same', workspace='b', owner='owner-b')
+    presentation = {'headline': 'हिन्दी title', 'display_rows': [{'marks': 80}]}
+    assert not state.manager.set_history_presentation('owner-b', 'a', old, presentation)
+    assert state.manager.set_history_presentation('owner-a', 'a', old, presentation)
+    state.manager.hydrate_from_database()
+    assert state.manager.get_history('a')[0]['presentation'] == presentation
+    assert 'presentation' not in state.manager.get_history('b')[0]
+    state.manager.delete_history('owner-a', 'a')
+    new = state.manager.append_history('a', {'id': 'same', 'question': 'new generation'})
+    assert new['memory_generation'] != old['memory_generation']
+    assert not state.manager.set_history_presentation('owner-a', 'a', old, {'headline': 'stale'})
+    assert 'presentation' not in state.manager.get_history('a')[0]
+    state.manager.delete_history('owner-a', 'a', 'same')
+    assert not state.manager.set_history_presentation('owner-a', 'a', new, presentation)
+    state.manager.hydrate_from_database()
+    assert state.manager.get_history('a') == []
+
+
+def test_presentation_patch_sql_failure_rolls_back_without_losing_original_answer(state):
+    original = state.append('p1')
+    before = local_state.STATE_PATH.read_text()
+    def fail(db):
+        db.flush()
+        raise RuntimeError('synthetic presentation commit failure')
+    event.listen(database.SessionLocal, 'before_commit', fail)
+    try:
+        with pytest.raises(RuntimeError):
+            state.manager.set_history_presentation('owner-a', 'a', original, {'headline': 'not committed'})
+    finally:
+        event.remove(database.SessionLocal, 'before_commit', fail)
+    assert 'presentation' not in state.manager.get_history('a')[0]
+    assert local_state.STATE_PATH.read_text() == before
+    state.manager.hydrate_from_database()
+    assert 'presentation' not in state.manager.get_history('a')[0]
+    assert state.manager.get_history('a')[0]['question'] == original['question']
+
+
+def test_concurrent_presentation_patches_keep_other_records(state):
+    originals = [state.append('p'+str(index)) for index in range(4)]
+    barrier = Barrier(4)
+    def patch(record):
+        barrier.wait(timeout=10)
+        return state.manager.set_history_presentation('owner-a', 'a', record, {'headline': record['id']})
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert all(pool.map(patch, originals))
+    state.manager.hydrate_from_database()
+    assert {row['id']: row['presentation']['headline'] for row in state.manager.get_history('a')} == {'p'+str(i): 'p'+str(i) for i in range(4)}

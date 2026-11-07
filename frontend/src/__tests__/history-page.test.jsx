@@ -89,3 +89,42 @@ it('uses saved translated PDF labels and falls back to English', async () => {
     executive_summary: 'Executive summary',
   });
 });
+
+it('exports a refetched localized record using saved labels and display rows', async () => {
+  fetchApi.mockResolvedValueOnce([
+    {
+      id: 'saved-hi',
+      question: 'Saved Hindi answer',
+      status: 'executed',
+      columns: ['region', 'total'],
+      rows: [{ region: 'north', total: 42 }],
+      row_count: 1,
+      presentation: {
+        headline: 'हिन्दी सारांश',
+        column_labels: { region: 'क्षेत्र', total: 'कुल' },
+        display_rows: [{ region: 'उत्तर', total: 42 }],
+        labels: { executive_summary: 'सारांश' },
+        language_code: 'hi-IN',
+      },
+    },
+  ]);
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:export-hi');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  render(<History />);
+  const card = (await screen.findByRole('heading', { name: 'Saved Hindi answer' })).closest(
+    'article',
+  );
+  fireEvent.click(within(card).getByRole('button', { name: 'Download CSV' }));
+  const blob = create.mock.calls[0][0];
+  const text = await new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsText(blob);
+  });
+  expect(text).toContain('"क्षेत्र","कुल"');
+  expect(text).toContain('"उत्तर","42"');
+  expect(text).not.toContain('north');
+  expect(fetchApi).toHaveBeenCalledTimes(1);
+  vi.restoreAllMocks();
+});

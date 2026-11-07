@@ -782,19 +782,26 @@ def approve_pending_query(
         }
         display_rows = _localize_rows(record["rows"], output_language, failures=translation_failures)
 
+        presentation_data = {
+            "headline": headline,
+            "detail": detail,
+            "highlights": highlights,
+            "language_code": output_language,
+            "labels": labels,
+            "column_labels": column_labels,
+            "display_rows": display_rows,
+            "translation_unavailable": bool(translation_failures),
+        }
+        presentation_saved = session_manager.set_history_presentation(
+            tenant_owner_id(user), workspace_id, record, presentation_data
+        )
+        if presentation_saved:
+            record["presentation"] = presentation_data
         return {
             "record": record,
             "approved_memory_saved": memory_saved,
-            "presentation": {
-                "headline": headline,
-                "detail": detail,
-                "highlights": highlights,
-                "language_code": output_language,
-                "labels": labels,
-                "column_labels": column_labels,
-                "display_rows": display_rows,
-                "translation_unavailable": bool(translation_failures),
-            }
+            "presentation": presentation_data,
+            "presentation_saved": presentation_saved,
         }
 
     except SQLGuardrailError as exc:
