@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Boolean, func, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Index, Boolean, func, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -213,3 +213,32 @@ class PendingQuery(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+
+class PersistenceMarker(Base):
+    __tablename__ = "persistence_markers"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+
+
+class MemoryGeneration(Base):
+    # Deliberately not cascaded on workspace removal: old vectors stay suppressed.
+    __tablename__ = "memory_generations"
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class MemoryDeletion(Base):
+    __tablename__ = "memory_deletions"
+    __table_args__ = (
+        Index("ix_memory_deletion_scope", "tenant_id", "workspace_id", "record_id", "generation"),
+        Index("ix_memory_deletion_due", "completed", "next_attempt_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    record_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
