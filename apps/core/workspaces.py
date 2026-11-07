@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import pandas as pd
 from pydantic import ValidationError
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from apps.core.guardrails import SchemaCatalog
 from apps.core.upload_limits import UploadLimitError, UploadLimits, read_tabular
@@ -26,7 +26,7 @@ from apps.core.db_connection import (
     build_server_url,
     checked_connection_host,
     connect_args_for,
-    materialize_connect_args,
+    create_database_engine,
     redact_secret,
     render_password_free,
 )
@@ -337,14 +337,14 @@ def create_server_workspace(
         dialect=fields.dialect,
         username=fields.username,
         password=fields.password,
-        host=connect_host,
+        host=fields.host,
         port=fields.port,
         database=fields.database,
     )
     stored_uri = render_password_free(built)
     if fields.password in stored_uri:
         raise RuntimeError("Refusing to keep the database password in the URL string.")
-    args = connect_args_for(fields.dialect, fields.password)
+    args = connect_args_for(fields.dialect, fields.password, pinned_ip=connect_host)
     try:
         get_schema_snapshot(stored_uri, connect_args=args)
     except (SQLAlchemyError, ValueError, OSError) as exc:
@@ -402,10 +402,7 @@ def _unique_column_names(columns: list[object]) -> list[str]:
 
 
 def _open_engine(database_uri: str, connect_args: dict | None = None):
-    args = materialize_connect_args(connect_args)
-    if database_uri.startswith("mysql"):
-        args["local_infile"] = False
-    return create_engine(database_uri, connect_args=args)
+    return create_database_engine(database_uri, connect_args=connect_args)
 
 
 def get_schema_snapshot(database_uri: str, *, connect_args: dict | None = None) -> str:

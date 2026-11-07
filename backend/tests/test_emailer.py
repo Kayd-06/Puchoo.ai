@@ -47,7 +47,8 @@ def test_otp_uses_the_requested_recipient_for_smtp_envelope(monkeypatch):
         def ehlo(self):
             return None
 
-        def starttls(self):
+        def starttls(self, *, context):
+            assert context.check_hostname is True
             return None
 
         def login(self, *_args):

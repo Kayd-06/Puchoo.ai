@@ -22,6 +22,7 @@ from apps.core.db_connection import (
     ServerConnection,
     build_server_url,
     checked_connection_host,
+    create_database_engine,
     ip_is_blocked,
     materialize_connect_args,
     mysql_connect_args,
@@ -160,7 +161,7 @@ def test_mysql_driver_receives_verified_tls_kwargs(monkeypatch, tmp_path):
     connection = pymysql.connections.Connection(**checked)
     assert connection._ssl_required is True
     assert connection.ctx.verify_mode == ssl.CERT_REQUIRED
-    assert connection.ctx.check_hostname is False
+    assert connection.ctx.check_hostname is True
     assert connection._local_infile is False
 
 
@@ -169,70 +170,53 @@ def test_postgres_connect_args_are_read_only(monkeypatch):
     monkeypatch.delenv("DB_SSL_MODE", raising=False)
     monkeypatch.delenv("DB_SSL_ROOT_CERT", raising=False)
     args = postgres_connect_args("s3cret-db-password")
-    assert args["sslmode"] == "require"
-    assert "sslrootcert" not in args
+    assert args["sslmode"] == "verify-full"
+    assert args["sslrootcert"] == certifi.where()
     assert args["connect_timeout"] == 10
     assert "default_transaction_read_only=on" in args["options"]
     assert "statement_timeout=30000" in args["options"]
     assert str(args["password"]) == "***"
 
 
-def test_postgres_verify_ca_uses_the_configured_root_cert(monkeypatch):
+def test_postgres_legacy_verify_ca_keeps_configured_root_and_verifies_identity(monkeypatch):
     monkeypatch.setenv("DB_SSL_REQUIRED", "true")
     monkeypatch.setenv("DB_SSL_MODE", "verify-ca")
     monkeypatch.setenv("DB_SSL_ROOT_CERT", r"C:\certs\root.pem")
     args = postgres_connect_args("s3cret-db-password")
-    assert args["sslmode"] == "verify-ca"
+    assert args["sslmode"] == "verify-full"
     assert args["sslrootcert"] == r"C:\certs\root.pem"
 
 
-def test_postgres_ssl_mode_is_validated_at_startup_not_per_connection(monkeypatch):
+@pytest.mark.parametrize("mode", ["require", "verify-ca", "verify-full"])
+def test_postgres_ssl_modes_never_disable_hostname_verification(monkeypatch, mode):
     monkeypatch.setenv("DB_SSL_REQUIRED", "true")
-    monkeypatch.setenv("DB_SSL_MODE", "verify-full")
-    args = postgres_connect_args("s3cret-db-password")
-    assert args["sslmode"] == "verify-full"
-    with pytest.raises(ValueError, match="resolved IP"):
-        validate_db_ssl_mode()
-
-    monkeypatch.setenv("DB_SSL_MODE", "verify-ca")
+    monkeypatch.setenv("DB_SSL_MODE", mode)
     monkeypatch.delenv("DB_SSL_ROOT_CERT", raising=False)
-    with pytest.raises(ValueError, match="DB_SSL_ROOT_CERT"):
-        validate_db_ssl_mode()
-    with pytest.raises(ValueError, match="DB_SSL_ROOT_CERT"):
-        postgres_connect_args("s3cret-db-password")
-
-    for mode in ("disable", "allow", "prefer", "require-or-else"):
-        monkeypatch.setenv("DB_SSL_MODE", mode)
-        with pytest.raises(ValueError, match="require or verify-ca"):
-            validate_db_ssl_mode()
-
-    monkeypatch.setenv("DB_SSL_MODE", "require")
     validate_db_ssl_mode()
+    args = postgres_connect_args("synthetic-password")
+    assert args["sslmode"] == "verify-full"
+    assert args["sslrootcert"] == certifi.where()
 
 
 def test_invalid_db_ssl_mode_stops_process_startup():
     root = Path(__file__).resolve().parents[2]
     completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import os; os.environ['DB_SSL_MODE']='verify-full'; import backend.config",
-        ],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+        [sys.executable, "-c", "import os; os.environ['DB_SSL_MODE']='prefer'; import backend.config"],
+        cwd=root, capture_output=True, text=True, timeout=60, check=False,
     )
     assert completed.returncode != 0
-    assert "resolved IP" in completed.stderr
+    assert "DB_SSL_MODE must be" in completed.stderr
 
 
-def test_postgres_omits_sslmode_when_tls_is_disabled(monkeypatch):
+def test_postgres_tls_optout_is_explicit_and_development_only(monkeypatch):
     monkeypatch.setenv("DB_SSL_REQUIRED", "false")
-    monkeypatch.setenv("DB_SSL_MODE", "verify-full")
-    args = postgres_connect_args("s3cret-db-password")
-    assert "sslmode" not in args
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    assert postgres_connect_args("synthetic-password")["sslmode"] == "disable"
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(ValueError, match="TLS is required"):
+        validate_db_ssl_mode()
+    with pytest.raises(ValueError, match="TLS is required"):
+        mysql_connect_args("synthetic-password")
 
 
 def _addrinfo(mapping):
@@ -340,7 +324,7 @@ def test_mixed_resolution_is_blocked_unless_allowlisted(monkeypatch):
         assert checked_connection_host("db.example.com", 5432) == "8.8.8.8"
 
 
-def test_server_workspace_stores_the_checked_ip_without_a_password(monkeypatch):
+def test_server_workspace_keeps_hostname_and_checked_endpoint_without_a_password(monkeypatch):
     password = "p@ss word"
     monkeypatch.setenv("ALLOWED_DB_HOSTS", "")
     monkeypatch.setenv("DB_SSL_REQUIRED", "true")
@@ -360,11 +344,12 @@ def test_server_workspace_stores_the_checked_ip_without_a_password(monkeypatch):
         username="readonly",
         password=password,
     )
-    assert workspace.database_uri == "postgresql+psycopg://readonly@8.8.8.8:5432/reporting"
+    assert workspace.database_uri == "postgresql+psycopg://readonly@db.example.com:5432/reporting"
+    assert workspace.connect_args["hostaddr"] == "8.8.8.8"
     assert "?" not in workspace.database_uri
     assert password not in workspace.database_uri
     assert password not in repr(workspace)
-    assert workspace.connect_args["sslmode"] == "require"
+    assert workspace.connect_args["sslmode"] == "verify-full"
     assert str(workspace.connect_args["password"]) == "***"
 
     mysql = create_server_workspace(
@@ -376,7 +361,8 @@ def test_server_workspace_stores_the_checked_ip_without_a_password(monkeypatch):
         username="readonly",
         password=password,
     )
-    assert mysql.database_uri == "mysql+pymysql://readonly@8.8.8.8:3306/reporting"
+    assert mysql.database_uri == "mysql+pymysql://readonly@db.example.com:3306/reporting"
+    assert mysql.connect_args["_pinned_ip"] == "8.8.8.8"
     assert mysql.connect_args["local_infile"] is False
     assert password not in repr(mysql)
 
@@ -412,7 +398,7 @@ def test_probe_errors_hide_driver_text(monkeypatch, caplog):
 
 
 def test_executor_postgres_select_passes_the_guardrail():
-    with patch("apps.core.executor.create_engine"):
+    with patch("apps.core.executor.create_database_engine"):
         executor = ReadOnlyExecutor(
             "postgresql+psycopg://readonly@8.8.8.8:5432/reporting",
             dialect="postgresql",
@@ -424,7 +410,7 @@ def test_executor_postgres_select_passes_the_guardrail():
 
 
 def test_executor_forces_mysql_local_infile_off():
-    with patch("apps.core.executor.create_engine") as create_engine:
+    with patch("apps.core.executor.create_database_engine") as create_engine:
         ReadOnlyExecutor(
             "mysql+pymysql://readonly@8.8.8.8:3306/reporting",
             dialect="mysql",
@@ -434,3 +420,9 @@ def test_executor_forces_mysql_local_infile_off():
     assert kwargs["connect_args"]["local_infile"] is False
     assert kwargs["connect_args"]["password"] == "s3cret-db-password"
     assert "s3cret-db-password" not in create_engine.call_args.args[0]
+
+
+def test_shared_engine_factory_overrides_url_local_infile():
+    with patch("apps.core.db_connection.create_engine") as create:
+        create_database_engine("mysql+pymysql://fixture@8.8.8.8/reporting?local_infile=1")
+    assert create.call_args.kwargs["connect_args"]["local_infile"] is False
