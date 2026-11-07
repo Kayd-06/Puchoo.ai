@@ -38,7 +38,7 @@ import {
   reportTable,
   createPdfReportDocument,
 } from '../utils/reportDocument';
-import { playAnswerAudio, requestMicrophone } from '../utils/voice';
+import { disposeVoiceCapture, playAnswerAudio, requestMicrophone } from '../utils/voice';
 import '../styles/chatActions.css';
 
 const DEFAULT_RESULT_LABELS = {
@@ -110,16 +110,24 @@ function encodeWav(audioBuffer) {
   return new Blob([output], { type: 'audio/wav' });
 }
 
-async function convertRecordingToWav(blob) {
+async function convertRecordingToWav(blob, signal) {
   const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextConstructor)
     throw new Error('This browser cannot prepare the recording for transcription.');
   const audioContext = new AudioContextConstructor();
+  const close = () => {
+    if (audioContext.state !== 'closed') void audioContext.close().catch(() => {});
+  };
+  signal.addEventListener('abort', close, { once: true });
   try {
-    const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer());
+    const bytes = await blob.arrayBuffer();
+    signal.throwIfAborted();
+    const decoded = await audioContext.decodeAudioData(bytes);
+    signal.throwIfAborted();
     return encodeWav(decoded);
   } finally {
-    await audioContext.close();
+    signal.removeEventListener('abort', close);
+    close();
   }
 }
 
@@ -617,16 +625,23 @@ export default function AskData() {
     setClarification,
   ]);
 
-  const [voiceState, setVoiceState] = useState('idle');
-  const [voiceError, setVoiceError] = useState('');
+  const [voice, setVoice] = useState({ identity, stage: 'idle', error: '' });
+  const voiceState = voice.identity === identity ? voice.stage : 'idle';
+  const voiceError = voice.identity === identity ? voice.error : '';
   const [exportingPdf, setExportingPdf] = useState(false);
   const [speechState, setSpeechState] = useState('idle');
   const [speechError, setSpeechError] = useState('');
   const [activeHighlight, setActiveHighlight] = useState(-1);
   const queryInFlightRef = useRef(false);
-  const recorderRef = useRef(null);
-  const streamRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const voiceOperationRef = useRef(null);
+  useLayoutEffect(
+    () => () => {
+      const operation = voiceOperationRef.current;
+      voiceOperationRef.current = null;
+      disposeVoiceCapture(operation);
+    },
+    [identity],
+  );
   const resultRef = useRef(null);
   const speechAudioRef = useRef(null);
   const speechUrlRef = useRef(null);
@@ -721,105 +736,121 @@ export default function AskData() {
     }
   };
 
-  const releaseMicrophone = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  };
-
-  const transcribeRecording = async (blob) => {
-    if (!blob.size) {
-      setVoiceError('No audio was captured. Please try recording again.');
-      setVoiceState('idle');
-      return;
-    }
-    try {
-      const audio = new FormData();
-      // Gnani accepts OGG, M4A, and WAV. Unsupported browser recordings are
-      // converted to WAV in startVoiceInput before this request is made.
-      const extension = blob.type.includes('mp4')
-        ? 'm4a'
-        : blob.type.includes('ogg')
-          ? 'ogg'
-          : 'wav';
-      audio.append('file', blob, `puchoo-question.${extension}`);
-      const response = await fetchApi('/voice/transcribe', { method: 'POST', body: audio });
-      const transcript = response?.transcript?.trim();
-      if (!transcript) throw new Error('No speech was detected. Please try again.');
-      setQuestion((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
-      // Follow the language detected from the recording, never a browser default.
-      setQuestionLanguage(response?.language_code || null);
-    } catch (err) {
-      setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
-    } finally {
-      setVoiceState('idle');
-      recorderRef.current = null;
-    }
-  };
+  const voiceCurrent = (operation) =>
+    voiceOperationRef.current === operation &&
+    !operation.controller.signal.aborted &&
+    currentScope.current === operation.identity;
 
   const startVoiceInput = async () => {
-    setVoiceError('');
+    if (voiceOperationRef.current) return;
+    const operation = {
+      identity,
+      controller: new AbortController(),
+      chunks: [],
+      stream: null,
+      recorder: null,
+    };
+    voiceOperationRef.current = operation;
+    const update = (stage, error = '') => {
+      if (voiceCurrent(operation)) setVoice({ identity, stage, error });
+    };
+    const fail = (error) => {
+      update('idle', error);
+      if (voiceOperationRef.current === operation) voiceOperationRef.current = null;
+      disposeVoiceCapture(operation);
+    };
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setVoiceError(
-        'Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.',
-      );
+      fail('Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.');
       return;
     }
-    setVoiceState('requesting');
+    update('requesting');
     try {
-      const stream = await requestMicrophone();
-      streamRef.current = stream;
-      audioChunksRef.current = [];
-      const preferredMimeType = GNANI_RECORDING_MIME_TYPES.find((type) =>
+      const stream = await requestMicrophone(20000, { signal: operation.controller.signal });
+      if (!voiceCurrent(operation)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      operation.stream = stream;
+      const preferred = GNANI_RECORDING_MIME_TYPES.find((type) =>
         MediaRecorder.isTypeSupported(type),
       );
-      const recorder = preferredMimeType
-        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+      const recorder = preferred
+        ? new MediaRecorder(stream, { mimeType: preferred })
         : new MediaRecorder(stream);
-      recorderRef.current = recorder;
+      operation.recorder = recorder;
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        if (voiceCurrent(operation) && event.data.size > 0) operation.chunks.push(event.data);
       };
-      recorder.onerror = () => {
-        releaseMicrophone();
-        setVoiceError('The microphone recording stopped unexpectedly. Please try again.');
-        setVoiceState('idle');
-      };
+      recorder.onerror = () =>
+        fail('The microphone recording stopped unexpectedly. Please try again.');
       recorder.onstop = async () => {
-        setVoiceState('transcribing');
-        let blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        releaseMicrophone();
-        if (!blob.type.includes('ogg') && !blob.type.includes('mp4')) {
-          try {
-            blob = await convertRecordingToWav(blob);
-          } catch {
-            setVoiceError(
-              'We could not prepare that recording for Gnani. Please try again in the latest Chrome, Edge, or Safari.',
-            );
-            setVoiceState('idle');
-            recorderRef.current = null;
-            return;
-          }
+        if (!voiceCurrent(operation)) return;
+        update('transcribing');
+        operation.stream?.getTracks().forEach((track) => track.stop());
+        operation.stream = null;
+        try {
+          let blob = new Blob(operation.chunks, { type: recorder.mimeType || 'audio/webm' });
+          operation.chunks.length = 0;
+          if (!blob.size) throw new Error('No audio was captured. Please try recording again.');
+          if (!blob.type.includes('ogg') && !blob.type.includes('mp4'))
+            blob = await convertRecordingToWav(blob, operation.controller.signal);
+          if (!voiceCurrent(operation)) return;
+          const audio = new FormData();
+          const extension = blob.type.includes('mp4')
+            ? 'm4a'
+            : blob.type.includes('ogg')
+              ? 'ogg'
+              : 'wav';
+          audio.append('file', blob, `puchoo-question.${extension}`);
+          const response = await fetchApi('/voice/transcribe', {
+            method: 'POST',
+            body: audio,
+            signal: operation.controller.signal,
+          });
+          if (!voiceCurrent(operation)) return;
+          const transcript = response?.transcript?.trim();
+          if (!transcript) throw new Error('No speech was detected. Please try again.');
+          setQuestion((current) =>
+            current.trim() ? `${current.trim()} ${transcript}` : transcript,
+          );
+          setQuestionLanguage(response?.language_code || null);
+          update('idle');
+        } catch (error) {
+          update(
+            'idle',
+            error.message || 'We could not transcribe that recording. Please try again.',
+          );
+        } finally {
+          if (voiceOperationRef.current === operation) voiceOperationRef.current = null;
+          disposeVoiceCapture(operation);
         }
-        await transcribeRecording(blob);
       };
       recorder.start();
-      setVoiceState('recording');
-    } catch (err) {
-      releaseMicrophone();
-      setVoiceState('idle');
-      setVoiceError(
-        err.name === 'NotAllowedError'
+      update('recording');
+    } catch (error) {
+      fail(
+        error.name === 'NotAllowedError'
           ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
-          : err.message || 'We could not start the microphone. Please try again.',
+          : error.message || 'We could not start the microphone. Please try again.',
       );
     }
   };
 
   const stopVoiceInput = () => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === 'inactive') return;
-    setVoiceState('transcribing');
-    recorder.stop();
+    const operation = voiceOperationRef.current;
+    if (!operation || !voiceCurrent(operation) || operation.recorder?.state === 'inactive') return;
+    setVoice({ identity, stage: 'transcribing', error: '' });
+    try {
+      operation.recorder.stop();
+    } catch {
+      disposeVoiceCapture(operation);
+      voiceOperationRef.current = null;
+      setVoice({
+        identity,
+        stage: 'idle',
+        error: 'The microphone recording stopped unexpectedly. Please try again.',
+      });
+    }
   };
 
   const stopReadingResult = () => {
@@ -913,7 +944,9 @@ export default function AskData() {
     setResult(null);
     setClarification(null);
     setError('');
-    setVoiceError('');
+    disposeVoiceCapture(voiceOperationRef.current);
+    voiceOperationRef.current = null;
+    setVoice({ identity, stage: 'idle', error: '' });
     window.requestAnimationFrame(() => document.querySelector('.ask-page textarea')?.focus());
   };
 
