@@ -14,7 +14,7 @@ it('restores a draft and result across route unmounts', () => {
   first.unmount();
   const second = renderHook(() => useChatState('ada', 'sales', 'question', ''));
   expect(second.result.current[0]).toBe('मेरे खर्चे');
-  expect(Object.values(sessionStorage)).toContain(JSON.stringify({ value: 'मेरे खर्चे' }));
+  expect(JSON.parse(Object.values(sessionStorage)[0]).values.question).toBe('मेरे खर्चे');
 });
 
 it('loads persisted state after a fresh module load, as on refresh', async () => {
@@ -68,7 +68,7 @@ it('retains navigation state when browser storage is unavailable', () => {
 
 it('restores complete result tables and ignores malformed saved results', () => {
   const answer = {
-    record: { columns: ['amount'], rows: [{ amount: 0 }, { amount: 200 }] },
+    record: { id: 'q1', columns: ['amount'], rows: [{ amount: 0 }, { amount: 200 }] },
     presentation: { headline: 'कुल खर्च', language_code: 'hi-IN' },
   };
   const first = renderHook(() => useChatState('ada', 'sales', 'result', null));

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -20,7 +20,16 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { useChatState } from '../hooks/useChatState';
+import {
+  useChatState,
+  chatScope,
+  scopeKey,
+  consumeContinuation,
+  startContinuation,
+  continuationMatches,
+  historyToken,
+  tokenCurrent,
+} from '../hooks/useChatState';
 import { fetchApi, fetchApiBlob } from '../api/client';
 import { buildCsv, renderReportPdf } from '../utils/reportExport';
 import {
@@ -554,45 +563,53 @@ export function answerVerification(status, labels = DEFAULT_RESULT_LABELS) {
 
 export default function AskData() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { activeWorkspaceId, activeWorkspace, refreshWorkspaces } = useAppContext();
   const { user } = useAuth();
-  const [question, setQuestion] = useChatState(user?.id, activeWorkspaceId, 'question', '');
+  const scope = chatScope(user, activeWorkspaceId);
+  const currentScope = useRef(scopeKey(scope));
+  const identity = scopeKey(scope);
+  useLayoutEffect(() => {
+    currentScope.current = identity;
+  }, [identity]);
+  const [question, setQuestion] = useChatState(scope, activeWorkspaceId, 'question', '');
   const [continuation, setContinuation] = useChatState(
-    user?.id,
+    scope,
     activeWorkspaceId,
     'continuation',
-    location.state?.continuation || null,
+    null,
   );
   const [questionLanguage, setQuestionLanguage] = useChatState(
-    user?.id,
+    scope,
     activeWorkspaceId,
     'questionLanguage',
-    location.state?.continuation?.languageCode || null,
+    null,
   );
   const [welcome, setWelcome] = useState(() => consumeWelcome(location.state?.welcome));
-  const [loading, setLoading] = useChatState(user?.id, activeWorkspaceId, 'loading', false, false);
-  const [result, setResult] = useChatState(user?.id, activeWorkspaceId, 'result', null);
+  const [loading, setLoading] = useChatState(scope, activeWorkspaceId, 'loading', false, false);
+  const [result, setResult] = useChatState(scope, activeWorkspaceId, 'result', null);
   const [error, setError] = useState('');
   const continuationRouteRef = useRef(null);
   const [clarification, setClarification] = useChatState(
-    user?.id,
+    scope,
     activeWorkspaceId,
     'clarification',
     null,
   );
   useEffect(() => {
     const next = location.state?.continuation;
-    if (!next || continuationRouteRef.current === location.key) return;
+    if (!next || !scope || continuationRouteRef.current === location.key) return;
     continuationRouteRef.current = location.key;
-    setContinuation({ ...next, _routeKey: location.key });
-    setQuestion('');
-    setQuestionLanguage(next.languageCode || null);
-    setResult(null);
-    setClarification(null);
+    const accepted = consumeContinuation(scope, next);
+    const { continuation: ignored, ...rest } = location.state;
+    void ignored;
+    navigate(location.pathname, { replace: true, state: rest });
+    if (!accepted) return;
+    startContinuation(scope, accepted);
   }, [
-    location.key,
-    location.state?.continuation,
-    continuation?._routeKey,
+    location,
+    navigate,
+    scope,
     setContinuation,
     setQuestion,
     setQuestionLanguage,
@@ -631,12 +648,16 @@ export default function AskData() {
     }
   };
 
-  const executeProposal = async (proposal) => {
+  const requestCurrent = (token) =>
+    currentScope.current === scopeKey(token.scope) && tokenCurrent(token);
+
+  const executeProposal = async (proposal, token) => {
     let currentProposal = proposal;
     // A runtime-only database error can produce one corrected, fully guarded
     // proposal. Run that correction in the same user action instead of asking
     // the user to confirm a second time.
     for (let repairAttempt = 0; repairAttempt <= 1; repairAttempt += 1) {
+      if (!requestCurrent(token)) return;
       if (!currentProposal?.pending_id || !currentProposal?.sql_hash) {
         throw new Error('The generated query could not be prepared for execution.');
       }
@@ -647,6 +668,7 @@ export default function AskData() {
           body: JSON.stringify({ sql_hash: currentProposal.sql_hash }),
         },
       );
+      if (!requestCurrent(token)) return;
       if (response?.status !== 'repair_pending_approval') {
         stopReadingResult();
         setResult(response);
@@ -659,31 +681,38 @@ export default function AskData() {
 
   const handleAsk = async (resolvedQuestion) => {
     const submittedQuestion = typeof resolvedQuestion === 'string' ? resolvedQuestion : question;
-    if (!submittedQuestion.trim() || !activeWorkspaceId || loading || queryInFlightRef.current)
+    if (
+      !submittedQuestion.trim() ||
+      !scope ||
+      loading ||
+      (queryInFlightRef.current && requestCurrent(queryInFlightRef.current))
+    )
       return;
-    queryInFlightRef.current = true;
+    const token = historyToken(scope);
+    queryInFlightRef.current = token;
     setLoading(true);
     setError('');
     stopReadingResult();
     setResult(null);
     setClarification(null);
     try {
-      const questionForQuery = continuation
+      const questionForQuery = continuationMatches(scope, continuation)
         ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${submittedQuestion.trim()}`
         : submittedQuestion.trim();
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
         body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
       });
+      if (!requestCurrent(token)) return;
       if (proposal.status === 'clarification_required') {
         setClarification(proposal);
         return;
       }
-      await executeProposal(proposal);
+      await executeProposal(proposal, token);
     } catch (err) {
-      await reportError(err, 'Error running query');
+      if (requestCurrent(token)) await reportError(err, 'Error running query');
     } finally {
-      queryInFlightRef.current = false;
+      if (queryInFlightRef.current === token) queryInFlightRef.current = null;
       setLoading(false);
     }
   };
