@@ -997,3 +997,12 @@ def test_deletion_during_translation_cannot_be_undone_by_presentation_write(env,
     session_manager.hydrate_from_database()
     assert env.owner.get(f'/api/history/{WORKSPACE_ID}').json() == []
     assert len(env.executions) == 1
+
+
+def test_api_lifespan_owns_shared_maintenance_lease(app,tmp_path):
+ from fastapi.testclient import TestClient
+ from backend.maintenance import database_lease
+ from backend import database
+ with TestClient(app):
+  with pytest.raises(RuntimeError,match='in use'):
+   with database_lease(Path(database.engine.url.database)):pass

@@ -1,38 +1,79 @@
-# Backups and restore drill
+# Offline backup and fresh-directory restore (SQLite authority)
 
-## Scope
+This supported workflow captures the relational accounts/workspaces/history database,
+its authority marker, memory generations and deletion intents/tombstones, every
+referenced managed uploaded SQLite dataset, and the paired scoped Chroma directory.
+It does **not** capture `.env`, runtime server connection credentials, unreferenced
+uploads, legacy `state.json`, or a PostgreSQL server. Server workspaces require
+manual reconnection after recovery. For a PostgreSQL authority use a separately
+validated coordinated database/Chroma recovery procedure; these commands reject
+non-SQLite input rather than claim a complete server backup.
 
-This runbook covers the current local persistence used by Puchoo.ai:
+## Create
 
-- the SQLite account database (`backend/puchoo_auth.db` by default);
-- the Chroma approved-conversation store (`CHROMA_PATH`, default `.pucho/chroma`).
-
-It does not cover a future R2/S3 integration or manage a production PostgreSQL service.
-
-## Backup policy
-
-- Run one application-consistent snapshot daily.
-- Retain 35 daily snapshots; keep backups encrypted at rest using the deployment provider’s managed encryption.
-- Restrict read/write access to the backup operator role. Never store snapshots in the web root or source repository.
-- A snapshot directory must contain `auth.db` and `chroma/`, and be named in sortable UTC format such as `2026-10-07T00-00-00Z`.
-
-Create a local snapshot only while the application is stopped, or use the SQLite backup API in the deployment job so the database copy is consistent. Copy the Chroma directory from the same maintenance window.
-
-## Restore drill
-
-Never restore over a running or production database. Choose new, empty destinations outside the application’s normal state paths:
+1. Stop **all** API, indexing, repair and maintenance writer processes and wait for
+   process exit. This is an OFFLINE workflow, not an online multi-store transaction.
+   The API holds a shared maintenance lease for the SQLite database during its
+   lifespan; the backup needs an exclusive lease and fails if an API is active.
+   This presence lease does not serialize queries or hold the application state
+   mutation lock across provider calls. Separate/uncooperative writers still MUST
+   be stopped. Do not equate an ASGI lifespan stopping with every SDK writer process
+   having exited. Use the configured paired database/Chroma/uploads paths.
+2. From the repository root, into a trusted private destination outside source trees:
 
 ```bash
-python scripts/restore_latest_backup.py \
-  --backup-dir /secure/puchoo-backups \
-  --target-database /tmp/puchoo-restore/auth-restore.db \
-  --target-chroma-dir /tmp/puchoo-restore/chroma
+python -m scripts.create_backup --database /srv/puchoo/auth.db \
+  --chroma /srv/puchoo/chroma --uploads /srv/puchoo/uploads \
+  --destination /secure/backups/2026-11-07T180000 --writers-stopped
 ```
 
-The command refuses existing paths and production-like target names. It selects the newest complete snapshot, copies the SQLite and Chroma artifacts separately, and runs SQLite `PRAGMA integrity_check`.
+Only referenced datasets within the managed upload directory are accepted. Missing
+sources, unsafe paths, symlinks, SQLite corruption, a missing authority/deletion
+schema, or Chroma changing while copied fail the job; do not report that snapshot
+as successful. SQLite backup API includes committed WAL contents. Dataset files
+are deduplicated. A versioned manifest includes mappings and SHA-256 file hashes;
+the complete tree is published at once after private staging. An interrupted
+publication may leave an empty reservation/staging directory, not a usable complete
+backup. Only manifested snapshots qualify; delete/review incomplete artifacts
+manually, never treat them as newer successful backups.
 
-After a restore drill, start an isolated application process with the restored SQLite path and `CHROMA_PATH`; verify health, a test account lookup, and a tenant-scoped memory query. Record the date, snapshot identifier, operator, duration, result, and any corrective action in the operational log. Remove the temporary restore directory after the drill.
+## Restore — explicit privacy/recovery gate
 
-## Point-in-time recovery
+An older snapshot **cannot know deletions after it was taken**. Before EVERY
+restore, review the newest retained deletion/privacy ledger against the selected
+snapshot. If no trustworthy newer ledger is available, do not reconnect restored
+memory/data to users until an offline privacy review and approved purge/rebuild
+has completed. This tool does NOT merge newer tombstones automatically or promise
+retroactive erasure of historical backups. Retain required deletion evidence outside
+ordinary snapshot rotation under the applicable privacy policy. The acknowledgement
+below records this operator decision, not proof of reconciliation.
 
-If production later uses PostgreSQL, configure provider-managed point-in-time recovery and document the provider, retention period, recovery owner, and a separately tested restore procedure here. Do not point this SQLite restore command at PostgreSQL.
+```bash
+python -m scripts.restore_latest_backup --backup-dir /secure/backups \
+  --destination /srv/recovery/reviewed-2026-11-07 --acknowledge-privacy-review
+```
+
+The newest named manifested snapshot must validate; corruption never silently
+falls back to an older backup. Legacy two-folder backups are rejected for manual
+review because dataset files and suppression state were not guaranteed complete.
+The old `--target-database`/`--target-chroma-dir` interface is intentionally removed.
+
+The destination MUST NOT exist. Restore validates paths/hashes/schema/integrity,
+stages all stores privately, relocates dataset references to `destination/datasets`,
+and publishes one fresh directory. It never overwrites running or arbitrary
+existing data. Failed staging cleans only its own temporary directory. Do not
+start the application against the destination until the command succeeds and
+privacy review is complete. Configure `DATABASE_URL` to `destination/auth.db`,
+`CHROMA_PATH` to `destination/chroma` and `PUCHOO_UPLOAD_DIRECTORY` to
+`destination/datasets`; verify startup, account login, workspace scope, known query
+results and deletion suppression before any traffic. Keep one API process/worker.
+
+Existing suppression tables/authority marker prevent a deleted vector copied in
+the same snapshot from being recalled and prevent stale JSON imports. Local Linux
+cold-process roundtrips are regression-tested; Oracle ARM, Windows locking,
+production-sized storage, power-loss and actual deployment restore drills remain
+release gates. Hashes detect accidental corruption, NOT malicious backup forgery:
+use trusted operators, encrypted storage and access controls. Files are private
+(0700 directories/0600 files); backups contain sensitive account hashes/data.
+Set retention and quota from measured deployment capacity; keep snapshots outside
+the web root/repository. Never auto-delete existing production data during recovery.

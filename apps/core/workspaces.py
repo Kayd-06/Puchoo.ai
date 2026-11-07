@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import logging
+import os
 import re
 import sqlite3
 import tempfile
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-LOCAL_WORKSPACE_DIRECTORY = PROJECT_ROOT / ".pucho" / "workspaces"
+LOCAL_WORKSPACE_DIRECTORY = Path(os.getenv("PUCHOO_UPLOAD_DIRECTORY") or PROJECT_ROOT / ".pucho" / "workspaces").expanduser().resolve()
 
 
 @dataclass(frozen=True)
