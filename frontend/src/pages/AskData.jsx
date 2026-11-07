@@ -1225,17 +1225,15 @@ export default function AskData() {
               aria-live="polite"
             >
               <h3 style={{ marginBottom: '0.5rem' }}>Choose one detail to continue</h3>
-              <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
-                {clarification.message}
-              </p>
+              <p style={{ marginBottom: '1rem' }}>{clarification.message}</p>
               <ScopeWarning message={clarification.scope_warning} />
               {clarification.interpreted_request && (
-                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                <p className="clarification-context" style={{ marginBottom: '0.75rem' }}>
                   Interpreted request: {clarification.interpreted_request}
                 </p>
               )}
               {clarification.assumptions?.length > 0 && (
-                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                <p className="clarification-context" style={{ marginBottom: '0.75rem' }}>
                   Assumptions considered: {clarification.assumptions.join('; ')}
                 </p>
               )}

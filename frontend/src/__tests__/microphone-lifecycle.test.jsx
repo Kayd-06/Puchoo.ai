@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import AskData from '../pages/AskData';
+import { readFileSync } from 'node:fs';
+const styles = readFileSync('src/index.css', 'utf8');
 import { fetchApi } from '../api/client';
 const context = vi.hoisted(() => ({
   activeWorkspaceId: 'voice',
@@ -166,3 +168,51 @@ it('keeps IME composition Enter local, then ordinary Enter executes exactly once
   expect(fetchApi.mock.calls[0][0]).toContain('/generate');
   expect(fetchApi.mock.calls[1][0]).toContain('/approve');
 });
+
+it.each(['dark', 'light'])(
+  'renders readable clarification text and choices in %s computed styles',
+  async (theme) => {
+    document.documentElement.dataset.theme = theme;
+    const sheet = document.createElement('style');
+    sheet.textContent = styles.slice(styles.indexOf('/* Keep essential query choices'));
+    document.head.append(sheet);
+    try {
+      fetchApi.mockResolvedValue({
+        status: 'clarification_required',
+        message: 'Which metric?',
+        interpreted_request: 'sales',
+        assumptions: ['no hidden filters'],
+        suggestions: ['Revenue'],
+      });
+      mount();
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'best sales' } });
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+      const card = await screen.findByRole('region', { name: 'Clarify your question' });
+      const lum = (color) => {
+        const channels = color
+          .match(/[\d.]+/g)
+          .slice(0, 3)
+          .map(Number)
+          .map((v) => v / 255)
+          .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      for (const node of card.querySelectorAll('h3,p,button')) {
+        const computed = getComputedStyle(node);
+        const bg =
+          node.tagName === 'BUTTON'
+            ? computed.backgroundColor
+            : getComputedStyle(card).backgroundColor;
+        const a = lum(computed.color),
+          b = lum(bg);
+        expect(
+          (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+          `${node.tagName}: ${computed.color} / ${bg}; sheet ${sheet.textContent.length}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    } finally {
+      sheet.remove();
+      delete document.documentElement.dataset.theme;
+    }
+  },
+);
