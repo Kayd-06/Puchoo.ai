@@ -634,6 +634,9 @@ export default function AskData() {
   const [activeHighlight, setActiveHighlight] = useState(-1);
   const queryInFlightRef = useRef(false);
   const composingRef = useRef(false);
+  useLayoutEffect(() => {
+    composingRef.current = false;
+  }, [identity]);
   const voiceOperationRef = useRef(null);
   useLayoutEffect(
     () => () => {
@@ -938,6 +941,7 @@ export default function AskData() {
   };
 
   const startNewChat = () => {
+    composingRef.current = false;
     stopReadingResult();
     setContinuation(null);
     setQuestion('');

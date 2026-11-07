@@ -216,3 +216,23 @@ it.each(['dark', 'light'])(
     }
   },
 );
+
+it('drops unfinished composition ownership when workspace changes', async () => {
+  const view = mount();
+  fireEvent.compositionStart(screen.getByRole('textbox'));
+  context.activeWorkspaceId = `voice-${sequence++}`;
+  view.rerender(
+    <MemoryRouter>
+      <AskData />
+    </MemoryRouter>,
+  );
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'new scope' } });
+  fetchApi.mockResolvedValue({
+    status: 'clarification_required',
+    message: 'metric',
+    suggestions: [],
+  });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledOnce());
+  expect(fetchApi.mock.calls[0][0]).toContain(`/query/${context.activeWorkspaceId}/generate`);
+});
