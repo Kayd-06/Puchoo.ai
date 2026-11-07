@@ -120,7 +120,7 @@ describe('role-aware product surfaces', () => {
 
   it('limits data-source selection to CSV and Excel files', () => {
     renderRoute(<ConnectData />);
-    expect(document.getElementById('fileUpload')).toHaveAttribute('accept', '.csv,.xlsx,.xls');
+    expect(document.getElementById('fileUpload')).toHaveAttribute('accept', '.csv,.xlsx');
     expect(screen.getByText(/upload CSV or Excel files/i)).toBeInTheDocument();
   });
 
