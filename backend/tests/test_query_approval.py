@@ -497,6 +497,7 @@ def test_runtime_error_proposes_a_repair_that_needs_new_approval(env, monkeypatc
     connection.commit()
     connection.close()
     env.fake.sql = "SELECT ABS(amount) AS size FROM orders"  # integer overflow at run time
+    env.fake.repair_sql = "SELECT ABS(CAST(amount AS REAL)) AS size FROM orders"
     pending = env.generate().json()
     assert pending["status"] == "pending_approval"
     monkeypatch.setattr(query_router, "LocalMLXSQLClient", FakeSQLClient)
@@ -508,7 +509,7 @@ def test_runtime_error_proposes_a_repair_that_needs_new_approval(env, monkeypatc
     repaired = body["proposal"]
     assert repaired["pending_id"] != pending["pending_id"]
     assert repaired["repair_of"] == pending["pending_id"]
-    assert repaired["sql"].startswith("SELECT id, amount FROM orders WHERE amount > 0")
+    assert "ABS(CAST(amount AS REAL))" in repaired["sql"]
     assert repaired["sql_hash"] == pending_queries.sql_hash(repaired["sql"])
     # Only the original SQL ran; the repair was proposed, not executed.
     assert env.executions == [pending["sql"]]
@@ -797,3 +798,67 @@ def test_distinct_approvals_concurrently_preserve_all_relational_history(env):
     assert len(env.executions) == 4
     with database.SessionLocal() as db:
         assert {row['id'] for row in WorkspaceRepository(db).get_history(WORKSPACE_ID)} == {proposal['id'] for proposal in proposals}
+
+
+@pytest.mark.parametrize("replacement", [
+    "SELECT ABS(CAST(amount AS REAL)) AS size FROM orders WHERE amount > 0",
+    "SELECT amount AS size FROM orders WHERE region = 'west'",
+    "SELECT ABS(CAST(amount AS REAL)) AS size FROM orders",
+])
+def test_runtime_repair_cannot_change_metric_or_filter(env, monkeypatch, replacement):
+    with sqlite3.connect(env.source) as conn:
+        conn.execute("INSERT INTO orders (region, amount) VALUES ('west', ?)", (MIN_INT,))
+    env.fake.sql = "SELECT ABS(amount) AS size FROM orders WHERE region = 'west'"
+    env.fake.repair_sql = replacement
+    monkeypatch.setattr(query_router, "LocalMLXSQLClient", FakeSQLClient)
+    pending = env.generate(question="Show the absolute amount for west orders").json()
+    response = env.approve(pending)
+    assert response.status_code == 400, response.text
+    assert len(env.executions) == 1
+    assert session_manager.query_history[WORKSPACE_ID] == []
+    with database.SessionLocal() as db:
+        assert db.query(PendingQuery).filter_by(parent_id=pending['pending_id']).count() == 0
+
+
+@pytest.mark.parametrize('language', [None, 'hi-IN'])
+def test_long_translated_question_rejected_before_any_provider(env, monkeypatch, language):
+    def forbidden():
+        pytest.fail('No SQL or translation provider may be constructed for an oversized translated question')
+    monkeypatch.setattr(query_router, 'get_sql_client', forbidden)
+    monkeypatch.setattr(query_router, 'SarvamClient', forbidden)
+    response = env.owner.post(f'/api/query/{WORKSPACE_ID}/generate',
+        json={'question': 'अ'*2000 + ' only class 10 in 2025', 'language_code': language},
+        headers=csrf_headers(env.owner))
+    assert response.status_code == 422, response.text
+    assert '2000' in response.json()['detail']
+    assert env.executions == []
+
+def test_long_english_question_is_not_silently_shortened():
+    text = 'x'*3990 + ' only 2025'
+    assert query_router._translate_for_sql(text, None) == text
+
+@pytest.mark.parametrize('missing', ['class', 'date', None])
+def test_repair_keeps_class_and_date_filters_before_automatic_run(env, monkeypatch, missing):
+    with sqlite3.connect(env.source) as conn:
+        conn.execute('ALTER TABLE orders ADD COLUMN class_id INTEGER DEFAULT 10')
+        conn.execute("ALTER TABLE orders ADD COLUMN issued_date TEXT DEFAULT '2025-01-01'")
+        conn.execute("INSERT INTO orders (region,amount,class_id,issued_date) VALUES ('west',?,10,'2025-02-01')", (MIN_INT,))
+    scope = "class_id = 10 AND issued_date >= '2025-01-01'"
+    env.fake.sql = 'SELECT ABS(amount) AS magnitude FROM orders WHERE ' + scope
+    repair_scope = scope
+    if missing == 'class': repair_scope = "issued_date >= '2025-01-01'"
+    if missing == 'date': repair_scope = 'class_id = 10'
+    env.fake.repair_sql = 'SELECT ABS(CAST(amount AS REAL)) AS magnitude FROM orders WHERE ' + repair_scope
+    monkeypatch.setattr(query_router, 'LocalMLXSQLClient', FakeSQLClient)
+    pending_response = env.generate(question='Show absolute order amounts for class 10 since 2025-01-01')
+    assert pending_response.status_code == 200, pending_response.text
+    response = env.approve(pending_response.json())
+    if missing:
+        assert response.status_code == 400, response.text
+        assert len(env.executions) == 1
+    else:
+        assert response.status_code == 200, response.text
+        replacement = response.json()['proposal']
+        executed = env.approve(replacement)
+        assert executed.status_code == 200, executed.text
+        assert len(env.executions) == 2

@@ -26,10 +26,11 @@ from apps.core.llm_client import (
     canonicalize_analytics_question,
     schema_guided_fallback_sql,
 )
+from apps.core.repair_semantics import repair_preserves_query
 from apps.core.verification import get_verifier, verification_unavailable
 from apps.core.question_scope import classify_question_scope
 from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
-from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
+from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError, MAX_TRANSLATION_CHARS
 from apps.core.semantic_layer import (
     build_query_plan,
     parse_schema,
@@ -42,6 +43,7 @@ from apps.core.query_planning import (
     build_plan_sql_request,
     classify_complexity,
     plan_complex_query,
+    parse_plan_json,
     plan_constraint_feedback,
     select_plan_schema,
 )
@@ -165,6 +167,9 @@ def _infer_indic_language(question: str) -> str | None:
 def _translate_for_sql(question: str, language_code: str | None) -> str:
     if not language_code:
         return question
+    if len(question) > MAX_TRANSLATION_CHARS:
+        raise HTTPException(status_code=422, detail=
+            f"Translation supports up to {MAX_TRANSLATION_CHARS} characters. Shorten the complete question without losing filters. No query was run.")
     try:
         return SarvamClient().translate(question, "en-IN", source_language=language_code)
     except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
@@ -536,7 +541,7 @@ def _repair_proposal(
 ) -> Dict[str, Any] | None:
     """Ask the model for a fix and store it as a NEW pending query.
 
-    The repaired SQL is never run here: the user must approve it again.
+    The frontend may automatically run the replacement once; meaning must remain fixed.
     """
 
     client = get_sql_client()
@@ -559,6 +564,17 @@ def _repair_proposal(
     )
     # Guard and database-plan the replacement. It is only proposed, not run.
     guarded_repair = executor.validate_query_plan(repaired_sql)
+    original_question = context.get("processing_question", context.get("question", ""))
+    feedback = local_semantic_feedback(original_question, guarded_repair.sql, schema)
+    saved_plan = context.get("intent_plan", {})
+    if "relevant_tables" in saved_plan:
+        plan = parse_plan_json(json.dumps(saved_plan), schema=schema, original_question=original_question)
+        feedback.extend(plan_constraint_feedback(plan, guarded_repair.sql))
+    else:
+        feedback.extend(plan_semantic_feedback(build_query_plan(schema, original_question), guarded_repair.sql))
+    if feedback or not repair_preserves_query(pending.sql, guarded_repair.sql,
+            dialect=workspace.get("dialect", "sqlite")):
+        raise SQLGenerationError("Automatic repair could not preserve the original query meaning.")
     repaired_context = {
         **context,
         "sql": guarded_repair.sql,
@@ -636,7 +652,7 @@ def approve_pending_query(
                 raise
             return {
                 "status": "repair_pending_approval",
-                "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
+                "message": "The database could not run that query. Puchoo.si prepared a meaning-preserving correction for automatic execution.",
                 "proposal": repaired,
             }
         # The SQL has already run, so the pending approval must be closed even
