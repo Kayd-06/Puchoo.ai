@@ -12,6 +12,7 @@ def latest_complete_backup(backup_dir):
         path
         for path in Path(backup_dir).iterdir()
         if path.is_dir()
+        and not path.name.startswith(".")
         and not path.is_symlink()
         and (path / "manifest.json").is_file()
     )

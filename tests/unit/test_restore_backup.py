@@ -264,3 +264,12 @@ def test_backup_rejects_missing_or_outside_dataset_without_partial_publish(
         )
     assert not (tmp_path / "bad-source").exists()
     assert not list(tmp_path.glob(".puchoo-backup-*"))
+
+
+def test_unpublished_staging_manifest_is_not_selected(snapshot, tmp_path):
+    from scripts.restore_latest_backup import latest_complete_backup
+
+    backups = tmp_path / "backups"
+    shutil.copytree(snapshot[1], backups / ".puchoo-backup-interrupted")
+    with pytest.raises(BackupSafetyError, match="No versioned complete backup"):
+        latest_complete_backup(backups)
