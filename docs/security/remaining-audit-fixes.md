@@ -43,3 +43,5 @@ execution, and structural contracts parsed as SQLite/PostgreSQL/MySQL SQL. They 
 not external provider, managed database, mobile/browser or Oracle ARM validation.
 See the workstream manifest outside the repository for current executed counts and
 remaining audit IDs. Other audit fixes are not claimed complete by this document.
+
+Repair widening is restricted to a final scalar projection without downstream alias references; exact literal representation alone does not prove arithmetic or aggregate type-promotion equivalence. Workspace `postgresql` aliases use the same SQLGlot dialect normalization as the guardrails.
