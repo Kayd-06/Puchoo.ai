@@ -150,7 +150,7 @@ To replace the final call-to-action image, add a file at `frontend/public/cta-vi
 
 ## Configuration
 
-Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. The default SQL provider is the local MLX server, so it needs no model API key for basic SQL generation. Completed queries are verified with Anthropic when `ANTHROPIC_API_KEY` is configured; otherwise Puchoo automatically uses `GROQ_API_KEY` and `GROQ_VERIFIER_MODEL` (or `GROQ_MODEL`).
+Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. The default SQL provider is DeepSeek V4.1 Flash (`deepseek-flash`); set `DEEPSEEK_API_KEY` in your local `.env`. Completed queries are verified with Anthropic when `ANTHROPIC_API_KEY` is configured; otherwise Puchoo automatically uses `DEEPSEEK_API_KEY` and `DEEPSEEK_VERIFIER_MODEL` (or `DEEPSEEK_MODEL`).
 
 To enable voice input, set `SARVAM_API_KEY`. The microphone control records a short clip, and Sarvam auto-detects supported Indian languages and English. Puchoo keeps the transcript and executive answer in the detected language, translating internally only for the English SQL planner.
 
@@ -186,7 +186,7 @@ Model-based SQL generation retrieves up to three relevant approved conversation
 snippets from the current tenant and workspace's persistent ChromaDB memory.
 The original question and live schema stay separate from `retrieved_context`
 in the model's JSON request. This context reaches both complex-query planning
-and SQL generation for the configured local, Groq, or Claude provider.
+and SQL generation for the configured local, DeepSeek, or Claude provider.
 
 Retrieval uses the existing lightweight local token-hash embeddings, not a
 hosted or neural embedding model. Results must also overlap the current

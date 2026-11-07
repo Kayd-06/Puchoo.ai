@@ -252,7 +252,7 @@ export function queryUniversePalette(theme) {
     };
   }
   return {
-    composite: 'lighter',
+    composite: 'source-over',
     motion: 1,
     orbit: '139, 197, 239',
     pulse: '112, 185, 238',
@@ -266,7 +266,7 @@ export function queryUniversePalette(theme) {
   };
 }
 
-function QueryUniverse() {
+export function QueryUniverse() {
   const canvasRef = useRef(null);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
 
@@ -493,10 +493,21 @@ function QueryUniverse() {
     };
     setup();
     frame = window.requestAnimationFrame(draw);
+    // CSS visibility and theme changes can resize the canvas without a
+    // window resize. Otherwise its hidden 1px bitmap stretches across the page.
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(setup) : null;
+    resizeObserver?.observe(canvas);
+    const themeObserver = new MutationObserver(setup);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
     window.addEventListener('resize', setup);
     stage?.addEventListener('pointermove', updatePointer, { passive: true });
     stage?.addEventListener('pointerleave', clearPointer);
     return () => {
+      resizeObserver?.disconnect();
+      themeObserver.disconnect();
       window.cancelAnimationFrame(frame);
       window.removeEventListener('resize', setup);
       stage?.removeEventListener('pointermove', updatePointer);
@@ -675,8 +686,14 @@ export default function AskData() {
         method: 'POST',
         body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
       });
-      if (proposal.status === 'clarification_required') {
-        setClarification(proposal);
+      if (proposal.status === 'cannot_answer' || proposal.status === 'clarification_required') {
+        setClarification({
+          ...proposal,
+          message:
+            proposal.status === 'cannot_answer'
+              ? proposal.message
+              : 'The available data or definitions do not support a reliable answer to this request.',
+        });
         return;
       }
       await executeProposal(proposal);
@@ -1141,10 +1158,10 @@ export default function AskData() {
             <div
               className="ask-clarification animate-fade-slide"
               role="region"
-              aria-label="Clarify your question"
+              aria-label="Answer unavailable"
               aria-live="polite"
             >
-              <h3 style={{ marginBottom: '0.5rem' }}>Choose one detail to continue</h3>
+              <h3 style={{ marginBottom: '0.5rem' }}>Unable to answer from available data</h3>
               <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
                 {clarification.message}
               </p>
@@ -1159,22 +1176,6 @@ export default function AskData() {
                   Assumptions considered: {clarification.assumptions.join('; ')}
                 </p>
               )}
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {clarification.suggestions?.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    className="btn btn-secondary"
-                    disabled={loading}
-                    onClick={() => {
-                      const refinedQuestion = `${question.trim()}\nClarification: ${suggestion}`;
-                      setQuestion(refinedQuestion);
-                      void handleAsk(refinedQuestion);
-                    }}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from apps.core.llm_client import (
-    GroqSQLClient,
+    DeepSeekSQLClient,
     LLMClient,
     LocalMLXSQLClient,
     SQLGenerationError,
@@ -39,7 +39,7 @@ class _FakeClient:
 
 
 class LLMClientTests(unittest.TestCase):
-    def test_groq_planner_uses_strict_json_schema_and_safe_headers(self) -> None:
+    def test_deepseek_planner_uses_json_mode_and_safe_headers(self) -> None:
         class _Response:
             def read(self) -> bytes:
                 return b'{"choices":[{"message":{"content":"{}"}}]}'
@@ -51,41 +51,43 @@ class LLMClientTests(unittest.TestCase):
                 return None
 
         with patch("apps.core.llm_client.urllib.request.urlopen", return_value=_Response()) as urlopen:
-            client = GroqSQLClient(api_key="test-secret", model="test-model")
+            client = DeepSeekSQLClient(api_key="test-secret", model="test-model")
             client.generate_plan(schema="Table: orders\nColumns: id (INTEGER)", question="List orders")
         request = urlopen.call_args.args[0]
         payload = __import__("json").loads(request.data.decode("utf-8"))
-        self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+        self.assertEqual({"type": "json_object"}, payload["response_format"])
+        self.assertEqual("https://api.deepseek.com/chat/completions", request.full_url)
+        self.assertIn("only", payload["messages"][0]["content"])
         self.assertEqual("PuchooAI/1.0", request.headers["User-agent"])
         self.assertNotIn("test-secret", request.data.decode("utf-8"))
 
-    def test_groq_retries_only_transient_generation_rejection(self):
+    def test_deepseek_retries_only_transient_generation_rejection(self):
         import io
         import urllib.error
         response = __import__('contextlib').nullcontext(SimpleNamespace(read=lambda: b'{"choices":[{"message":{"content":"SELECT 1"}}]}'))
         error = urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"json_validate_failed","message":"private schema must not be logged"}}'))
         with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=[error, response]) as send:
-            answer = GroqSQLClient(api_key='test-secret')._chat(system='JSON', user='synthetic request')
+            answer = DeepSeekSQLClient(api_key='test-secret')._chat(system='JSON', user='synthetic request')
         self.assertEqual(answer, 'SELECT 1')
         self.assertEqual(send.call_count, 2)
 
-    def test_groq_generation_retry_is_bounded_and_never_uses_failed_output(self):
+    def test_deepseek_generation_retry_is_bounded_and_never_uses_failed_output(self):
         import io
         import urllib.error
         errors = [urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"structured_generation_failed","failed_generation":"SELECT private_data"}}')) for _ in range(2)]
         with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=errors) as send:
             with self.assertRaises(SQLGenerationError):
-                GroqSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
+                DeepSeekSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
         self.assertEqual(send.call_count, 2)
 
-    def test_groq_invalid_settings_are_not_retried_or_exposed(self):
+    def test_deepseek_invalid_settings_are_not_retried_or_exposed(self):
         import io
         import urllib.error
         from apps.core.llm_client import LocalMLXConfigurationError
         error = urllib.error.HTTPError('https://example.invalid', 400, 'bad request', {}, io.BytesIO(b'{"error":{"code":"invalid_request_error","message":"secret-private-content"}}'))
         with patch('apps.core.llm_client.urllib.request.urlopen', side_effect=error) as send:
             with self.assertRaises(LocalMLXConfigurationError) as raised:
-                GroqSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
+                DeepSeekSQLClient(api_key='test-secret')._chat(system='SQL', user='synthetic request')
         self.assertEqual(send.call_count, 1)
         self.assertEqual(raised.exception.provider_error_code, 'invalid_request_error')
         self.assertNotIn('secret-private-content', str(raised.exception))
@@ -241,6 +243,26 @@ class LLMClientTests(unittest.TestCase):
             "FROM attendance GROUP BY student_id) SELECT * FROM totals WHERE attendance_average > 75",
         )
         self.assertEqual([], feedback)
+
+    def test_attendance_below_threshold_uses_student_average(self):
+        schema = "Table: students\nColumns: student_id (INTEGER), full_name (TEXT)\n\nTable: attendance\nColumns: student_id (INTEGER), attendance_percentage (REAL)"
+        connection = sqlite3.connect(":memory:")
+        connection.executescript("CREATE TABLE students(student_id INTEGER, full_name TEXT); CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL); INSERT INTO students VALUES (1,'Asha'),(2,'Rohan'),(3,'Mira'); INSERT INTO attendance VALUES (1,60),(1,100),(2,60),(2,80),(3,75);")
+        for wording, expected in (("less than", [(2, "Rohan", 70.0)]), ("below", [(2, "Rohan", 70.0)]), ("at most", [(3, "Mira", 75.0), (2, "Rohan", 70.0)])):
+            with self.subTest(wording=wording):
+                question = f"Give me the list of students having attendance {wording} 75%."
+                interpreted = canonicalize_analytics_question(question)
+                self.assertIn("overall attendance", interpreted)
+                sql = schema_guided_fallback_sql(schema, question)
+                self.assertIsNotNone(sql)
+                self.assertEqual(expected, connection.execute(sql).fetchall())
+        connection.close()
+
+    def test_attendance_shortcut_preserves_extra_constraints(self):
+        schema = "Table: students\nColumns: student_id (INTEGER), full_name (TEXT)\n\nTable: attendance\nColumns: student_id (INTEGER), attendance_percentage (REAL)"
+        for question in ("List students with attendance below 75% last month", "List students in class 10 with attendance below 75%", "List students with each attendance record below 75%"):
+            self.assertEqual(question, canonicalize_analytics_question(question))
+            self.assertIsNone(schema_guided_fallback_sql(schema, question))
 
     def test_overall_attendance_threshold_has_executable_schema_guided_fallback(self) -> None:
         schema = """Table: _02_students_students
@@ -663,7 +685,7 @@ class GroundedStudentQueries(unittest.TestCase):
         self.assertFalse(any('amount_due' in item for item in feedback))
 
 
-class GroqReasoningEffortTests(unittest.TestCase):
+class DeepSeekReasoningEffortTests(unittest.TestCase):
     def _payload(self, model: str) -> dict:
         class _Response:
             def read(self) -> bytes:
@@ -676,13 +698,37 @@ class GroqReasoningEffortTests(unittest.TestCase):
                 return None
 
         with patch("apps.core.llm_client.urllib.request.urlopen", return_value=_Response()) as urlopen:
-            GroqSQLClient(api_key="k", model=model)._chat(system="s", user="u")
+            DeepSeekSQLClient(api_key="k", model=model)._chat(system="s", user="u")
         return __import__("json").loads(urlopen.call_args.args[0].data.decode("utf-8"))
 
-    def test_any_qwen3_model_disables_reasoning(self):
-        for model in ("qwen/qwen3.8-27b", "qwen/qwen3-32b"):
-            self.assertEqual("none", self._payload(model)["reasoning_effort"])
+    def test_flash_disables_thinking_for_bounded_sql_output(self):
+        payload = self._payload("deepseek-flash")
+        self.assertEqual({"type": "disabled"}, payload["thinking"])
+        self.assertNotIn("reasoning_effort", payload)
+        self.assertIn("Never invent", payload["messages"][0]["content"])
 
-    def test_gpt_oss_uses_low_and_others_send_nothing(self):
-        self.assertEqual("low", self._payload("openai/gpt-oss-120b")["reasoning_effort"])
-        self.assertNotIn("reasoning_effort", self._payload("llama-3.3-70b-versatile"))
+    def test_default_provider_and_model(self):
+        from apps.core.llm_client import get_sql_client
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}, clear=True), patch("dotenv.load_dotenv"):
+            client = get_sql_client()
+        self.assertIsInstance(client, DeepSeekSQLClient)
+        self.assertEqual("deepseek-flash", client.model)
+        self.assertEqual("deepseek-flash", client.planner_model)
+
+    def test_missing_key_fails_without_using_old_provider(self):
+        from apps.core.llm_client import LocalMLXConfigurationError
+        with patch.dict("os.environ", {"GROQ_API_KEY": "obsolete"}, clear=True), patch("dotenv.load_dotenv"):
+            with self.assertRaisesRegex(LocalMLXConfigurationError, "DEEPSEEK_API_KEY"):
+                DeepSeekSQLClient()
+
+    def test_partial_or_empty_output_is_rejected(self):
+        import contextlib
+        import json
+        for choice in (
+            {"finish_reason": "length", "message": {"content": "SELECT"}},
+            {"finish_reason": "stop", "message": {"content": "   "}},
+        ):
+            response = contextlib.nullcontext(SimpleNamespace(read=lambda: json.dumps({"choices": [choice]}).encode()))
+            with patch("apps.core.llm_client.urllib.request.urlopen", return_value=response):
+                with self.assertRaises(SQLGenerationError):
+                    DeepSeekSQLClient(api_key="test").generate_sql(schema="Table: orders\nColumns: id (INTEGER)", question="List orders")

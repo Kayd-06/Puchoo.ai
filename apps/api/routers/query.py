@@ -286,15 +286,25 @@ def generate_query(
         # guardrail and the user's approval still gate every query.
         scope_warning = scope.warning
         clarification = question_clarification(schema, planning_question)
-        if clarification:
+        use_conventional_metric = bool(clarification and clarification["reason"] in {
+            "ambiguous_metric", "ambiguous_education_metric", "missing_comparison_baseline",
+        })
+        if clarification and not use_conventional_metric:
             return {
-                "status": "clarification_required",
+                "status": "cannot_answer",
                 "question": question,
+                "reason": clarification["reason"],
+                "message": _translate_for_display(
+                    "This request depends on data or a business definition that is not available "
+                    "in this workspace. I cannot give a reliable answer without inventing it. No query was run.",
+                    language_code,
+                ),
                 **({"scope_warning": scope_warning} if scope_warning else {}),
-                **clarification,
             }
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
         decision = classify_complexity(planning_question, schema)
+        if use_conventional_metric:
+            decision = type(decision)("planned", decision.score, decision.reasons)
         client = None if deterministic_sql else get_sql_client()
         retrieved_context = []
         if not deterministic_sql:
@@ -315,6 +325,15 @@ def generate_query(
             selected_tables = [name for name in selected_tables if name in {table.name for table in parse_schema(schema)}]
             intent_plan.tables = selected_tables
             public_plan = intent_plan.as_dict()
+            if "outstanding_fee_amount" in deterministic_sql:
+                public_plan["assumptions"] = [
+                    "Unpaid fees means a positive outstanding balance, including partial payments, "
+                    "across all recorded fees. Students without fee records are not classified as unpaid."
+                ]
+            elif "overall_attendance" in deterministic_sql and "overall attendance" in planning_question.lower():
+                public_plan["assumptions"] = [
+                    "Attendance means average attendance per student across all recorded entries."
+                ]
             structured_plan = None
             decision = type(decision)("deterministic_complex", decision.score, decision.reasons)
         elif decision.route == "planned":
@@ -325,15 +344,17 @@ def generate_query(
                 _log_trace({
                     "route": decision.route, "plan_valid": True,
                     "plan": _plan_trace(structured_plan.as_dict()),
-                    "selected_tables": structured_plan.relevant_tables, "validation_outcome": "clarification",
+                    "selected_tables": structured_plan.relevant_tables, "validation_outcome": "cannot_answer",
                     "retry_count": 0, "latency_ms": round((perf_counter() - started) * 1000),
                 })
                 return {
-                    "status": "clarification_required",
+                    "status": "cannot_answer",
                     "question": question,
-                    "reason": "planner_clarification",
-                    "message": _translate_for_display(structured_plan.clarification_question or "", language_code),
-                    "suggestions": [],
+                    "reason": "insufficient_data",
+                    "message": _translate_for_display(
+                        "The available data or business definitions do not support a reliable answer "
+                        "to this request. No query was run.", language_code,
+                    ),
                     "assumptions": [_translate_for_display(item, language_code) for item in structured_plan.assumptions],
                     "interpreted_request": _translate_for_display(structured_plan.normalized_question, language_code),
                 }
@@ -498,10 +519,10 @@ def generate_query(
         raise HTTPException(status_code=503, detail=detail) from None
     except QueryPlanError:
         logger.warning("query plan could not be completed")
-        raise HTTPException(status_code=422, detail="I could not build a complete, grounded plan for that question. Please specify the metric, filters and comparison period, or split it into smaller questions. No query was run.") from None
+        raise HTTPException(status_code=422, detail="I could not build a complete, grounded plan for that question. The available data or definitions are insufficient. No query was run.") from None
     except (QueryExecutionError, SQLGenerationError, ValueError) as exc:
         logger.exception("query generation failed: %s", type(exc).__name__)
-        raise HTTPException(status_code=400, detail="I could not produce a complete query grounded in this workspace. Please clarify the requested metric or filters. No query was run.") from None
+        raise HTTPException(status_code=400, detail="I could not produce a complete query grounded in this workspace. The available data or definitions are insufficient. No query was run.") from None
 
 class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

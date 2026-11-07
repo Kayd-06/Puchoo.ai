@@ -127,6 +127,26 @@ class QueryPlanningTests(unittest.TestCase):
         feedback = plan_constraint_feedback(plan, sql)
         self.assertFalse(any("LIMIT" in item for item in feedback))
 
+    def test_arbitrary_rank_alias_does_not_trigger_global_limit_repair(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show the three lowest students including ties", relevant_tables=["students"], ranking={"direction": "ascending", "limit": 3})
+        for alias in ("rnk", "attendance_position", '"rank position"'):
+            sql = f"WITH ranked AS (SELECT student_id, RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS {alias} FROM students) SELECT * FROM ranked AS r WHERE r.{alias} <= 3 ORDER BY student_id"
+            with self.subTest(alias=alias):
+                self.assertEqual([], plan_constraint_feedback(plan, sql))
+
+    def test_partitioned_ranking_rejects_global_limit_and_missing_rank_filter(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        base = "WITH ranked AS (SELECT student_id, RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS rnk FROM students) SELECT * FROM ranked"
+        feedback = plan_constraint_feedback(plan, base + " WHERE rnk <= 3 ORDER BY student_id LIMIT 3")
+        self.assertTrue(any("global LIMIT" in item for item in feedback))
+        feedback = plan_constraint_feedback(plan, base + " ORDER BY student_id")
+        self.assertTrue(any("rank" in item for item in feedback))
+        self.assertFalse(any("add LIMIT" in item for item in feedback))
+
+    def test_global_ranking_still_requires_limit(self):
+        plan = StructuredQueryPlan(normalized_question="Show the top three students", relevant_tables=["students"], ranking={"limit": 3})
+        self.assertTrue(any("add LIMIT" in item for item in plan_constraint_feedback(plan, "SELECT * FROM students ORDER BY attendance")))
+
 
 if __name__ == "__main__":
     unittest.main()
