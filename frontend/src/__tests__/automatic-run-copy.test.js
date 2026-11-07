@@ -8,12 +8,13 @@ it('current landing/legal/setup copy never promises mandatory manual SQL approva
     'index.html',
     '../README.md',
     '../.env.example',
+    '../backend/.env.example',
     '../docs/permissions.md',
   ];
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
     expect(text, file).not.toMatch(
-      /nothing runs (?:until|without)|waits for your approval|only after you\s+approve|approval required|approve before execute|explicit human approval step/i,
+      /nothing runs (?:until|without)|waits for (?:your )?approval|only after you\s+approve|approval required|approve before execute|explicit human approval step/i,
     );
   }
   expect(readFileSync('src/pages/Legal.jsx', 'utf8')).toContain(
