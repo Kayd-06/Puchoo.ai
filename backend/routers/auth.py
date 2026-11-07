@@ -607,6 +607,57 @@ def _consume_challenge(db: Session, challenge_id: str, now: datetime) -> bool:
     return result.rowcount == 1
 
 
+def _claim_sensitive_code(
+    db: Session,
+    record: PasswordResetCode | EmailChangeCode | None,
+    raw_code: str,
+) -> tuple[str, datetime]:
+    """Claim once without committing: account changes and revocation commit with it.
+
+    The lookup is read-only. End its transaction before the conditional write so
+    SQLite also works with explicit BEGIN/WAL (no stale read-to-write upgrade).
+    Only immutable lookup values cross that boundary; the UPDATE rechecks all
+    mutable eligibility in the database. Callers reload the user after claiming.
+    """
+
+    if record is None:
+        db.rollback()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    model = type(record)
+    record_id, user_id, code_hash = record.id, record.user_id, record.code_hash
+    correct = tokens_match(code_hash, hash_token(raw_code))
+    db.rollback()
+    now = utcnow()
+    eligible = (
+        model.id == record_id,
+        model.user_id == user_id,
+        model.code_hash == code_hash,
+        model.consumed_at.is_(None),
+        model.expires_at > now,
+        model.attempts < MAX_CHALLENGE_ATTEMPTS,
+    )
+    if not correct:
+        db.execute(
+            update(model).where(*eligible).values(
+                attempts=model.attempts + 1,
+                consumed_at=case(
+                    (model.attempts + 1 >= MAX_CHALLENGE_ATTEMPTS, now),
+                    else_=model.consumed_at,
+                ),
+            ).execution_options(synchronize_session=False)
+        )
+        db.commit()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    result = db.execute(
+        update(model).where(*eligible).values(consumed_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
+    return user_id, now
+
+
 def _revoke_sessions_and_challenges(db: Session, user_id: str, now: datetime) -> None:
     sessions = db.scalars(
         select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
@@ -724,17 +775,17 @@ def reset_password(body: PasswordResetRequest, request: Request, db: Session = D
     _rate_limit("password-reset-verify", request, str(body.email))
     user = db.scalar(select(User).where(User.email == str(body.email)))
     record = db.scalar(select(PasswordResetCode).where(PasswordResetCode.user_id == user.id, PasswordResetCode.consumed_at.is_(None)).order_by(PasswordResetCode.expires_at.desc())) if user else None
-    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= utcnow() or not tokens_match(record.code_hash, hash_token(body.code)):
-        if record is not None:
-            record.attempts += 1
-            db.commit()
-        raise HTTPException(status_code=401, detail=INVALID_CODE)
-    now = utcnow()
-    record.consumed_at = now
-    assert user is not None
-    user.password_hash = hash_password(body.password)
-    _revoke_sessions_and_challenges(db, user.id, now)
-    db.commit()
+    try:
+        user_id, now = _claim_sensitive_code(db, record, body.code)
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail=INVALID_CODE)
+        user.password_hash = hash_password(body.password)
+        _revoke_sessions_and_challenges(db, user.id, now)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"ok": True}
 
 
@@ -804,22 +855,22 @@ def verify_email_change(
         )
         .order_by(EmailChangeCode.created_at.desc())
     )
-    now = utcnow()
-    if record is None or record.attempts >= 5 or as_utc(record.expires_at) <= now or not tokens_match(record.code_hash, hash_token(body.code)):
-        if record is not None:
-            record.attempts += 1
-            if record.attempts >= 5:
-                record.consumed_at = now
-            db.commit()
-        raise HTTPException(status_code=401, detail=INVALID_CODE)
-    existing = db.scalar(select(User.id).where(User.email == new_email, User.id != user.id))
-    if existing is not None:
-        raise HTTPException(status_code=400, detail="That email address is unavailable.")
-    old_email = user.email
-    record.consumed_at = now
-    user.email = new_email
-    _revoke_sessions_and_challenges(db, user.id, now)
-    _issue_session(db, user, response)
+    try:
+        user_id, now = _claim_sensitive_code(db, record, body.code)
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail=INVALID_CODE)
+        existing = db.scalar(select(User.id).where(User.email == new_email, User.id != user.id))
+        if existing is not None:
+            raise HTTPException(status_code=400, detail="That email address is unavailable.")
+        old_email = user.email
+        user.email = new_email
+        _revoke_sessions_and_challenges(db, user.id, now)
+        # _issue_session commits the claim, email update, revocations and new session together.
+        _issue_session(db, user, response)
+    except Exception:
+        db.rollback()
+        raise
     try:
         emailer.send_email_changed_notice(old_email)
     except EmailDeliveryError:
