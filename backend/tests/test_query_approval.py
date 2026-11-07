@@ -350,11 +350,9 @@ def test_unexpected_verifier_error_still_consumes_the_approval(env, monkeypatch)
     monkeypatch.setattr(query_router, "get_verifier", lambda: ExplodingVerifier())
     pending = env.generate().json()
 
-    try:
-        response = env.approve(pending)
-        assert response.status_code != 200
-    except ValueError:
-        pass  # TestClient re-raises server exceptions by default.
+    response = env.approve(pending)
+    assert response.status_code == 200
+    assert response.json()['record']['verification']['status'] == 'UNAVAILABLE'
 
     db = database.SessionLocal()
     try:
@@ -940,3 +938,22 @@ def test_translation_constructor_failure_preserves_executed_answer_and_history(e
     assert len(env.executions) == 1
     assert len(env.owner.get(f'/api/history/{WORKSPACE_ID}').json()) == 1
     assert env.approve(pending).status_code == 409
+
+
+@pytest.mark.parametrize('failure_point', ['factory', 'verify'])
+def test_verifier_exception_body_is_not_returned_logged_or_persisted(env, monkeypatch, caplog, failure_point):
+    secret = 'SYNTHETIC_PRIVATE_TOKEN_89142 https://private-verifier.invalid/internal'
+    def fail(*args, **kwargs):
+        raise RuntimeError(secret)
+    class FailedVerifier:
+        verify = fail
+    monkeypatch.setattr(query_router, 'get_verifier', fail if failure_point == 'factory' else lambda: FailedVerifier())
+    pending = env.generate().json()
+    response = env.approve(pending)
+    assert response.status_code == 200, response.text
+    assert response.json()['record']['verification']['status'] == 'UNAVAILABLE'
+    history = env.owner.get(f'/api/history/{WORKSPACE_ID}')
+    assert secret not in response.text + history.text + caplog.text
+    assert 'SYNTHETIC_PRIVATE_TOKEN' not in response.text + history.text + caplog.text
+    assert 'private-verifier.invalid' not in response.text + history.text + caplog.text
+    assert len(env.executions) == 1

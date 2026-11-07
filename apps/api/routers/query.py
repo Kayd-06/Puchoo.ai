@@ -687,8 +687,10 @@ def approve_pending_query(
                     row_count=result.row_count,
                 )
                 verification_dict = verification.as_dict()
-            except RuntimeError as exc:
-                verification_dict = verification_unavailable(str(exc)).as_dict()
+            except Exception as exc:
+                # This advisory boundary must not discard an already executed result.
+                logger.warning("query_verification_unavailable error=%s", type(exc).__name__)
+                verification_dict = verification_unavailable().as_dict()
 
             if verification_dict.get("status") == "VERIFICATION_MISMATCH":
                 # Non-blocking by design: the verifier is an independent trust
