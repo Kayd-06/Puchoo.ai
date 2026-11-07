@@ -7,7 +7,7 @@ now advertise CSV/XLSX, not XLS. Save a legacy file as XLSX or UTF-8 CSV first.
 
 ## Hard ceilings
 
-Configuration may lower, but cannot raise these unmeasured expansion ceilings:
+Configuration may lower, but cannot raise these conservative preallocation ceilings (not RSS guarantees):
 
 - 25 MiB input for one file **or an entire multi-file collection**; the route reads
   each next part using only the remaining budget. Multipart spooling/proxy limits
@@ -21,7 +21,9 @@ Configuration may lower, but cannot raise these unmeasured expansion ceilings:
   is checked before ZipFile allocates entry objects. ZIP64/multipart/unusual
   compression layouts, encrypted and duplicate parts are rejected.
 - XML: 1,000,000 elements, depth64, 64 attributes per node, 64 KiB lexical token,
-  10,000 style objects, 250,000 shared strings. Repeated/external worksheet targets and reused worksheet relationship IDs are rejected so multiple sheet aliases cannot multiply a once-accounted part. DTD/entities are forbidden. XML is
+  10,000 style objects, 250,000 shared strings. Repeated/external worksheet targets
+  and reused worksheet relationship IDs are rejected so multiple sheet aliases
+  cannot multiply a once-accounted part. DTD/entities are forbidden. XML is
   preflighted by content even under a nonstandard part name: relationship targets
   cannot evade shape/complexity checks by using a `.bin` name. Ordinary non-XML
   images/print settings are ignored, still subject to byte ceilings.
@@ -47,7 +49,7 @@ hard ceilings without new adversarial/resource tests.
 From repository root: `python -m scripts.probe_upload_budgets`.
 
 The probe generates only synthetic fixtures; each of five alternating trials per
-workload is a fresh child process. It checks accepted checksums/field lengths and
+workload is a fresh child process. It checks accepted shapes/checksums/field lengths and
 expected rejection reasons. Timings include input read and parser helper work,
 NOT HTTP latency, SQLite creation, provider calls or concurrent production load.
 Kernel `/proc/self/status` VmHWM supplies per-exec peak RSS; raw ru_maxrss is retained

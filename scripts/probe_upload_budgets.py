@@ -5,6 +5,7 @@ Each measurement is a fresh process. These are workload observations, NOT an
 Oracle/ARM capacity guarantee or an absolute whole-server RSS bound.
 """
 
+import argparse
 import io
 import json
 import os
@@ -29,8 +30,12 @@ started=time.perf_counter();path=Path(sys.argv[1]);status='accepted';shape=None
 try:
  frames=read_tabular(path.name,path.read_bytes(),UploadLimits(32*1024*1024,100,50,1000000,500,250000))
  shape={key:list(value.shape) for key,value in frames.items()}
- if path.name=='max-cells.csv':assert sum(int(frame.sum().sum()) for frame in frames.values())==250000*249999//2
- if path.name=='max-text.csv':assert all(len(value)==32768 for value in next(iter(frames.values())).iloc[:,0])
+ if path.name=='max-cells.csv':
+  assert [tuple(frame.shape) for frame in frames.values()]==[(25000,10)]
+  assert sum(int(frame.sum().sum()) for frame in frames.values())==250000*249999//2
+ if path.name=='max-text.csv':
+  assert [tuple(frame.shape) for frame in frames.values()]==[(500,1)]
+  assert all(len(value)==32768 for value in next(iter(frames.values())).iloc[:,0])
 except UploadLimitError as exc:status='rejected';shape=str(exc)
 elapsed=time.perf_counter()-started
 if profiler:profiler.disable()
@@ -42,6 +47,7 @@ print(json.dumps(record))
 
 
 def main():
+    argparse.ArgumentParser(description=__doc__).parse_args()
     if sys.platform != "linux":
         raise SystemExit("This RSS probe uses Linux ru_maxrss KiB semantics")
     from openpyxl import Workbook
@@ -115,6 +121,13 @@ def main():
                     )
                 )
                 assert result["status"] == expected, result
+                reason = {
+                    "cumulative.xlsx": "cells",
+                    "sparse.xlsx": "rows",
+                    "shared-strings.xlsx": "shared strings",
+                }.get(name)
+                if reason:
+                    assert reason in result["result"], result
                 result["trial"] = trial + 1
                 results.append(result)
         diagnostic = json.loads(
