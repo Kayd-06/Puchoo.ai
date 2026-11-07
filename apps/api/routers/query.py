@@ -276,7 +276,7 @@ def generate_query(
     controls = session_manager.get_guardrails(workspace_id)
 
     try:
-        schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
+        schema = session_manager.get_schema(workspace_id) or get_schema_snapshot(
             workspace["database_uri"], connect_args=workspace.get("connect_args")
         )
         scope = classify_question_scope(schema, planning_question)
@@ -481,8 +481,7 @@ def generate_query(
             "sql": "", "status": "blocked", "created_at": utc_now(), "row_count": 0, "rows": [], "elapsed_ms": 0,
             "verification": {"status": "BLOCKED", "summary": "Blocked before execution.", "details": "The query did not pass the safety policy."},
         }
-        session_manager.query_history.setdefault(workspace_id, []).insert(0, blocked_record)
-        session_manager.save(active_workspace_id=workspace_id)
+        session_manager.append_history(workspace_id, blocked_record)
         raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
 
     except (AnthropicConfigurationError, LocalMLXConfigurationError) as exc:
@@ -543,7 +542,7 @@ def _repair_proposal(
     client = get_sql_client()
     if not isinstance(client, LocalMLXSQLClient):
         return None
-    schema = session_manager.schema_snapshots.get(f"schema_{workspace_id}") or get_schema_snapshot(
+    schema = session_manager.get_schema(workspace_id) or get_schema_snapshot(
         workspace["database_uri"], connect_args=workspace.get("connect_args")
     )
     selected_schema = _schema_for_tables(schema, context.get("selected_tables", []))
@@ -681,8 +680,7 @@ def approve_pending_query(
 
         for transient in ("pending_id", "sql_hash", "expires_at", "repair_of"):
             record.pop(transient, None)
-        session_manager.query_history.setdefault(workspace_id, []).insert(0, record)
-        session_manager.save(active_workspace_id=workspace_id)
+        record = session_manager.append_history(workspace_id, record)
         create_notification(
             db,
             user_id=user.id,
@@ -698,12 +696,13 @@ def approve_pending_query(
         # generated SQL deliberately stay out of vector memory.
         memory_saved = True
         try:
-            get_chat_memory().save_approved_conversation(
+            memory_result = get_chat_memory().save_approved_conversation(
                 tenant_id=tenant_owner_id(user),
                 workspace_id=workspace_id,
                 actor_user_id=user.id,
                 record=record,
             )
+            memory_saved = memory_result is not False
         except ChatMemoryError:
             memory_saved = False
             logger.exception("approved_conversation_memory_write_failed workspace=%s", workspace_id)

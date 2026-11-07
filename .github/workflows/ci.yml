@@ -34,6 +34,7 @@ jobs:
       - run: python -m pytest -q backend/tests/test_schema_upgrade.py --junitxml=reports/migrations.xml
       - run: python -m pytest -q --junitxml=reports/backend.xml
         env:
+          TEST_PERSISTENCE_POSTGRES_URL: postgresql+psycopg://auth_test:auth_test_only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/puchoo_auth_tests
           TEST_AUTH_POSTGRES_URL: postgresql+psycopg://auth_test:auth_test_only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/puchoo_auth_tests
       # chromadb has no fixed release for these advisories. All four are in Chroma's HTTP
       # server (/api/v2 endpoints, RBAC provider); the app only embeds chromadb.PersistentClient

@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 
 from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_capability, require_workspace_admin, tenant_owner_id
@@ -16,7 +17,7 @@ def get_history(
     workspace: Dict = Depends(get_workspace_guard),
     user=Depends(require_capability("view_history")),
 ) -> List[Dict[str, Any]]:
-    return session_manager.query_history.get(workspace_id, [])
+    return session_manager.get_history(workspace_id)
 
 @router.delete("/{workspace_id}")
 def clear_history(
@@ -24,17 +25,21 @@ def clear_history(
     workspace: Dict = Depends(require_workspace_admin),
     user=Depends(current_user),
 ) -> Response:
-    session_manager.query_history[workspace_id] = []
-    session_manager.active_proposals.pop(workspace_id, None)
-    session_manager.save(active_workspace_id=workspace_id)
+    return _delete(workspace_id, tenant_owner_id(user))
+
+
+def _delete(workspace_id, tenant_id, record_id=None):
+    from backend.memory_deletions import retry_deletions
+    intent = session_manager.delete_history(tenant_id, workspace_id, record_id)
     try:
-        get_chat_memory().delete_workspace_memory(
-            tenant_id=tenant_owner_id(user),
-            workspace_id=workspace_id,
-        )
-    except ChatMemoryError as exc:
-        raise HTTPException(status_code=503, detail="Approved conversation memory is temporarily unavailable.") from exc
+        pending = retry_deletions(intent_id=intent, limit=1)
+    except Exception:
+        # Logical deletion already committed; never misreport it as undone.
+        pending = True
+    if pending:
+        return JSONResponse(status_code=202, content={"status": "deleted", "cleanup_pending": True})
     return Response(status_code=204)
+
 
 
 @router.delete("/{workspace_id}/records/{record_id}")
@@ -50,23 +55,9 @@ def delete_history_record(
     inside the selected workspace before its Chroma memory entry is touched.
     """
 
-    records = session_manager.query_history.get(workspace_id, [])
-    record = next((item for item in records if str(item.get("id")) == record_id), None)
-    if record is None:
-        raise HTTPException(status_code=404, detail="History record not found.")
+    # An absent record is an idempotent no-op inside the already authorized workspace.
+    return _delete(workspace_id, tenant_owner_id(user), record_id)
 
-    try:
-        get_chat_memory().delete_approved_conversation(
-            tenant_id=tenant_owner_id(user),
-            workspace_id=workspace_id,
-            record_id=record_id,
-        )
-    except ChatMemoryError as exc:
-        raise HTTPException(status_code=503, detail="Conversation memory is temporarily unavailable; the history record was not deleted.") from exc
-
-    session_manager.query_history[workspace_id] = [item for item in records if str(item.get("id")) != record_id]
-    session_manager.save(active_workspace_id=workspace_id)
-    return Response(status_code=204)
 
 
 @router.get("/{workspace_id}/memory/search")

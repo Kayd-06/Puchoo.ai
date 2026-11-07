@@ -144,7 +144,7 @@ def list_workspaces(user=Depends(require_capability("view_workspaces"))) -> List
     owner_id = _owner_id(user)
     return [
         _public_workspace(workspace)
-        for workspace in session_manager.workspaces.values()
+        for workspace in session_manager.list_workspaces()
         if workspace.get("owner_user_id") == owner_id
     ]
 
@@ -261,22 +261,22 @@ def delete_workspace(workspace_id: str, workspace: Dict = Depends(require_worksp
 
 @router.get("/{workspace_id}/schema")
 def get_schema(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, str]:
-    cache_key = f"schema_{workspace_id}"
-    if cache_key not in session_manager.schema_snapshots:
+    schema = session_manager.get_schema(workspace_id)
+    if schema is None:
         try:
-            session_manager.schema_snapshots[cache_key] = get_schema_snapshot(
-                workspace["database_uri"], connect_args=_source_connect_args(workspace)
-            )
+            schema = get_schema_snapshot(workspace["database_uri"], connect_args=_source_connect_args(workspace))
+            session_manager.set_schema(workspace_id, schema)
         except ValueError as exc:
             logger.exception("workspace schema inspection failed: %s", type(exc).__name__)
             raise HTTPException(status_code=400, detail="The workspace schema could not be inspected.") from None
-    return {"schema": session_manager.schema_snapshots[cache_key]}
+    return {"schema": schema}
+
 
 @router.post("/{workspace_id}/schema/refresh")
 def refresh_schema(workspace_id: str, workspace: Dict = Depends(require_workspace_editor)) -> Dict[str, str]:
     try:
         schema = get_schema_snapshot(workspace["database_uri"], connect_args=_source_connect_args(workspace))
-        session_manager.schema_snapshots[f"schema_{workspace_id}"] = schema
+        session_manager.set_schema(workspace_id, schema)
         return {"schema": schema}
     except ValueError as exc:
         logger.exception("workspace schema refresh failed: %s", type(exc).__name__)
