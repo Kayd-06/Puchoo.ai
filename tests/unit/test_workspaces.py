@@ -85,11 +85,11 @@ class ServerWorkspaceTests(unittest.TestCase):
 
         self.assertEqual("server", workspace.source_type)
         self.assertEqual("postgresql", workspace.dialect)
-        self.assertEqual("postgresql+psycopg://readonly@8.8.8.8:5432/reporting", workspace.database_uri)
+        self.assertEqual("postgresql+psycopg://readonly@db.example.com:5432/reporting", workspace.database_uri)
         self.assertNotIn("?", workspace.database_uri)
         self.assertNotIn(password, workspace.database_uri)
         self.assertNotIn(password, repr(workspace))
-        self.assertEqual("require", workspace.connect_args["sslmode"])
+        self.assertEqual("verify-full", workspace.connect_args["sslmode"])
         self.assertTrue(schema_mock.called)  # type: ignore[attr-defined]
 
     def test_server_rejects_invalid_host_before_connecting(self) -> None:

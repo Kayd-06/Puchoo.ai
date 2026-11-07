@@ -33,7 +33,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-from apps.core.db_connection import materialize_connect_args
+from apps.core.db_connection import create_database_engine, materialize_connect_args
 from apps.core.guardrails import GuardedSQL, SchemaCatalog, SQLGuardrailError, SQLGuardrails
 
 DEFAULT_STATEMENT_TIMEOUT_SECONDS = 15
@@ -169,7 +169,7 @@ class ReadOnlyExecutor:
             # Socket backstop slightly above the server-side limit.
             driver_args.setdefault("read_timeout", self.timeout_seconds + 5)
             driver_args.setdefault("write_timeout", self.timeout_seconds + 5)
-        self.engine = create_engine(database_uri, connect_args=driver_args)
+        self.engine = create_database_engine(database_uri, connect_args=driver_args)
 
     @property
     def is_sqlite(self) -> bool:
