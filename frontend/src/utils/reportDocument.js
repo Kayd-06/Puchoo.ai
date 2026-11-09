@@ -32,7 +32,47 @@ export function reportTable(result) {
   };
 }
 
+export const PDF_REPORT_LIMITS = Object.freeze({
+  rows: 2000,
+  columns: 16,
+  cells: 10000,
+  characters: 250000,
+  fieldCharacters: 8192,
+});
+export function assertPdfReportBounds(result, labels = {}) {
+  const columns = result?.record?.columns || [],
+    rows = result?.record?.rows || [];
+  if (
+    rows.length > PDF_REPORT_LIMITS.rows ||
+    columns.length > PDF_REPORT_LIMITS.columns ||
+    rows.length * columns.length > PDF_REPORT_LIMITS.cells
+  ) {
+    throw new Error('Report exceeds PDF data limits. Download CSV instead.');
+  }
+  let characters = 0;
+  const count = (value) => {
+    const length = String(value ?? '').length;
+    characters += length;
+    if (length > PDF_REPORT_LIMITS.fieldCharacters || characters > PDF_REPORT_LIMITS.characters)
+      throw new Error('Report exceeds PDF text limits. Download CSV instead.');
+  };
+  [
+    labels.executive_summary,
+    labels.rows_returned,
+    result?.record?.question,
+    result?.presentation?.headline,
+    result?.presentation?.detail,
+  ].forEach(count);
+  columns.forEach((column) => count(result?.presentation?.column_labels?.[column] || column));
+  rows.forEach((row, index) =>
+    columns.forEach((column) =>
+      count(result?.presentation?.display_rows?.[index]?.[column] ?? row[column] ?? '—'),
+    ),
+  );
+}
+
 export function createPdfReportDocument(result, labels) {
+  assertPdfReportBounds(result, labels);
   const report = document.createElement('article');
   report.style.cssText =
     'position:fixed;left:-100000px;top:0;width:1040px;background:#fff;color:#172b36;padding:48px;font-family:Arial,"Noto Sans",sans-serif;font-size:13px;line-height:1.45;';
@@ -66,7 +106,8 @@ export function createPdfReportDocument(result, labels) {
 
   const tableData = reportTable(result);
   const table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+  table.style.cssText =
+    'width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px;overflow-wrap:anywhere;word-break:break-word;';
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
   tableData.labels.forEach((label) => {

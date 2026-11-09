@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 
 from apps.core.rag import RAG_INSTRUCTIONS, model_request
+from apps.core.question_text import unquoted_question
 
 
 DEFAULT_SQL_MODEL = "claude-sonnet-5"
@@ -131,7 +132,12 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
         r"\b(doing\s+well|need(?:s)?\s+attention|weakest|most\s+successful|doing\s+badly|performing\s+badly|serious\s+problems?)\b",
         q,
     ))
-    if education_subject and vague_education_outcome:
+    explicit_academic_rule = bool(re.search(
+        r"\b(?:average\s+|overall\s+)?(?:marks?(?:\s+percentage)?|attendance(?:\s+percentage)?)\s*"
+        r"(?:is\s+)?(?:>=|<=|>|<|above|below|over|under|at\s+least|at\s+most)\s*[+-]?\d+(?:\.\d+)?",
+        unquoted_question(q),
+    ))
+    if education_subject and vague_education_outcome and not explicit_academic_rule:
         return {
             "reason": "ambiguous_education_metric",
             "message": "How should student performance be measured: average marks, attendance, fee status, enrollment status, or a combination?",
@@ -158,18 +164,20 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
             "suggestions": ["Define rules using marks and attendance", "Define rules using fees and enrollment"],
         }
 
-    if re.search(r"\bfiscal\s+(?:year|quarter|month)\b", q) and not re.search(
-        r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", q
+    fiscal_wording = unquoted_question(q)
+    fiscal_period = re.search(r"\bfiscal\s+(year|quarter|month)\b", fiscal_wording)
+    if fiscal_period and not re.search(
+        r"fiscal\s+year\s+(?:starts?|beginning)\s+(?:in\s+)?[a-z]+", fiscal_wording
     ):
         return {
             "reason": "missing_time_definition",
             "message": "What month does your fiscal year start? Calendar and fiscal periods can produce different answers.",
-            "suggestions": ["Fiscal year starts in April", "Use calendar year instead"],
+            "suggestions": ["Fiscal year starts in April", f"Use calendar {fiscal_period.group(1)} instead"],
         }
 
     vague_ranking = re.search(r"\b(best|top|worst|strongest|weakest|performance)\b", q)
     ranking_metric = re.search(
-        r"\b(revenue|sales|quantity|amount|profit|margin|cost|expense|attendance|rating|count|total|average|salary|budget)\b",
+        r"\b(revenue|sales|quantity|amount|profit|margin|cost|expense|attendance|marks?|rating|count|total|average|salary|budget)\b",
         q,
     )
     if vague_ranking and not ranking_metric:
@@ -476,13 +484,18 @@ def compact_plan_feedback(error: Exception, sql: str) -> str:
 
 
 _PRODUCT_TERMS = r"(?:product|products|item|items|thing|things|goods)"
-_TOP_SALES_TERMS = (
-    r"(?:"
-    r"(?:best|top|highest|most)[\s-]*(?:selling|sold|sales)"
-    r"|(?:sold|selling|sales)(?:\s+\w+){0,3}\s+(?:most|highest|best|top)"
-    r"|(?:most|highest|best|top)(?:\s+\w+){0,3}\s+(?:sold|selling|sales)"
-    r")"
-)
+
+
+def _top_product_period(question: str) -> str | None:
+    """Recognize a complete supported sentence, never keyword-selected fragments."""
+    match = re.fullmatch(
+        rf"(?:please\s+)?(?:tell\s+me\s+)?(?:which|what)\s+{_PRODUCT_TERMS}\s+"
+        r"(?:sold\s+(?:the\s+)?most|(?:was|were)\s+(?:the\s+)?best[- ]selling)"
+        r"(?:\s+by\s+total\s+quantity)?(?:\s+in\s+my\s+shop)?"
+        r"(?P<period>\s+(?:(?:during|in)\s+)?(?:the\s+)?(?:last|previous)\s+(?:calendar\s+)?month)?[.?!]?",
+        " ".join(question.lower().split()),
+    )
+    return (" during the previous calendar month" if match.group("period") else "") if match else None
 
 
 def canonicalize_analytics_question(question: str) -> str:
@@ -511,26 +524,16 @@ def canonicalize_analytics_question(question: str) -> str:
         r"(?:list )?students who have made any payment, including partial payments[.?!]?", q,
     ):
         return "List students who have made any payment, including partial payments."
-    asks_for_top_product = bool(
-        re.search(rf"\b{_PRODUCT_TERMS}\b", q)
-        and re.search(rf"\b{_TOP_SALES_TERMS}\b", q)
-    )
-    has_additional_metrics = bool(
-        re.search(r"\b(?:revenue|sales value|discount|average|category|each|all|rank)\b", q)
-    )
-    if not asks_for_top_product or has_additional_metrics:
-        return normalized
-
-    period = " during the previous calendar month" if re.search(
-        r"\b(?:last|previous|past)\s+(?:calendar\s+)?month\b", q
-    ) else ""
+    period = _top_product_period(normalized)
+    if period is None:
+        return question.strip()
     return "Which product sold the most by total quantity" + period + "?"
 
 
 def schema_guided_fallback_sql(schema: str, question: str) -> str | None:
     """Build a deterministic query for high-risk analytics the small models miss."""
 
-    q = question.lower()
+    q = " ".join(question.lower().split())
     latest_period_match = re.search(r"\b(?:latest|current)\s+(\d+)\s+days?\b", q)
     prior_period_match = re.search(r"\b(?:prior|previous)\s+(\d+)\s+days?\b", q)
     education_trend = (
@@ -596,9 +599,10 @@ FROM {students} AS s
 WHERE EXISTS (SELECT 1 FROM {fees} AS f WHERE f.student_id = s.student_id AND f.amount_paid > 0)
 ORDER BY s.student_id ASC"""
 
-    expense_category_breakdown = bool(
-        re.search(r"\bexpenses?\b", q)
-        and re.search(r"\b(?:category\s*[- ]?wise|by\s+(?:expense\s+)?category|categor(?:y|ies)\s+breakdown)\b", q)
+    expense_category_breakdown = re.fullmatch(
+        r"(?:please )?(?:show(?: me)?|give(?: me| my)?|list|calculate) (?:my |the )?"
+        r"(?:monthly )?expenses? (?:category[- ]?wise|by (?:expense )?category|category breakdown)"
+        r"(?: by month)?[.?!]?", q,
     )
     if expense_category_breakdown:
         expenses = find_table({"expense_date", "expense_category", "amount"})
@@ -621,11 +625,7 @@ ORDER BY total_expenses DESC, e.expense_category ASC"""
     # closed, schema-verifiable aggregation: one product, total invoice-item
     # quantity, and a deterministic product-id tie break.  This also makes the
     # same question stable when its translation changes singular/plural wording.
-    top_sold_product = bool(
-        re.search(rf"\b{_PRODUCT_TERMS}\b", q)
-        and re.search(rf"\b{_TOP_SALES_TERMS}\b", q)
-        and not re.search(r"\b(?:revenue|sales value|discount|average|category|each|all|rank)\b", q)
-    )
+    top_sold_product = _top_product_period(q) is not None
     if top_sold_product:
         products = find_table({"product_id", "product_name"})
         invoice_items = find_table({"invoice_id", "product_id", "quantity"})
@@ -658,23 +658,20 @@ LIMIT 1"""
         students = find_table({"student_id", "full_name"})
         attendance = find_table({"student_id", "attendance_percentage"})
         if students and attendance:
-            threshold = float(attendance_threshold.group(1))
+            threshold = attendance_threshold.group(1)
             comparison = ">=" if "at least" in attendance_threshold.group(0) else ">"
             return f"""SELECT s.student_id, s.full_name,
        ROUND(AVG(a.attendance_percentage), 2) AS overall_attendance
 FROM {attendance} AS a
 JOIN {students} AS s ON s.student_id = a.student_id
 GROUP BY s.student_id, s.full_name
-HAVING AVG(a.attendance_percentage) {comparison} {threshold:g}
+HAVING AVG(a.attendance_percentage) {comparison} {threshold}
 ORDER BY overall_attendance DESC, s.full_name ASC"""
 
-    comprehensive_student_summary = (
-        bool(re.search(r"\b(?:for\s+)?every\s+student|\ball\s+students\b", q))
-        and "marks" in q
-        and "attendance" in q
-        and bool(re.search(r"\bfees?\b|\bunpaid\s+balance\b", q))
-        and bool(re.search(r"\bfailed\s+assessment|\boverdue\s+(?:book|library|loan)", q))
-        and bool(re.search(r"\brank|ranking|order", q))
+    comprehensive_student_summary = q.rstrip('.?!') == (
+        "for every student, calculate average marks, marks relative to the course average, overall attendance, "
+        "attendance relative to the class average, total fees due, total paid, unpaid balance, failed assessment "
+        "count, overdue library-loan count, and rank students using marks, attendance, and unpaid balance"
     )
     if comprehensive_student_summary:
         students = find_table({"student_id", "full_name", "class_name"})
@@ -763,17 +760,18 @@ SELECT c.*,
 FROM combined AS c
 ORDER BY student_rank"""
 
-    marks_threshold = re.search(
-        r"\b(?:marks?\s+)?(?:greater\s+than|more\s+than|above|over|at\s+least)\s+"
-        r"(\d+(?:\.\d+)?)\s*(?:percent|precent|%)\b",
-        q,
+    marks_threshold = re.fullmatch(
+        r"(?:please )?(?:tell me which|show(?: me)? (?:the names of)?|list|find)\s*students? "
+        r"(?:who )?(?:scored marks?|with marks?|having marks?) "
+        r"(?:greater than|more than|above|over|at least) (\d+(?:\.\d+)?)\s*(?:percent|precent|%)"
+        r"(?: and give their marks and names?)?[.?!]?", q,
     )
-    if re.search(r"\bstudents?\b", q) and marks_threshold and re.search(r"\b(name|names)\b", q):
+    if marks_threshold:
         students = find_table({"student_id", "full_name"})
         grades = find_table({"student_id", "assessment_id", "marks_obtained"})
         assessments = find_table({"assessment_id", "maximum_marks"})
         if students and grades and assessments:
-            threshold = float(marks_threshold.group(1))
+            threshold = marks_threshold.group(1)
             comparison = ">=" if "at least" in marks_threshold.group(0) else ">"
             assessment_columns = table_columns[assessments]
             extra_columns = ""
@@ -788,10 +786,16 @@ FROM {grades} AS g
 JOIN {students} AS s ON s.student_id = g.student_id
 JOIN {assessments} AS a ON a.assessment_id = g.assessment_id
 WHERE a.maximum_marks > 0
-  AND 100.0 * g.marks_obtained / NULLIF(a.maximum_marks, 0) {comparison} {threshold:g}
+  AND 100.0 * g.marks_obtained / NULLIF(a.maximum_marks, 0) {comparison} {threshold}
 ORDER BY marks_percentage DESC, s.full_name"""
 
-    if education_trend:
+    trend_sentence = re.fullmatch(
+        r"compare each student average marks percentage and attendance percentage in the latest \d+ days "
+        r"with the prior \d+ days; average both changes, classify at least \+\d+(?:\.\d+)? points as improving, "
+        r"at most -\d+(?:\.\d+)? as declining, otherwise stable\. "
+        r"classify using marks and attendance only; show fee-payment behavior and enrollment status separately[.?!]?", q,
+    )
+    if education_trend and trend_sentence:
         latest_days = int(latest_period_match.group(1))
         prior_days = int(prior_period_match.group(1))
         upper_days = latest_days + prior_days
@@ -799,7 +803,7 @@ ORDER BY marks_percentage DESC, s.full_name"""
         negative = re.search(r"at\s+most\s+-(\d+(?:\.\d+)?)", q)
         if not positive or not negative:
             return None
-        improving = float(positive.group(1))
+        improving = positive.group(1)
         declining = -float(negative.group(1))
         students = find_table({"student_id", "full_name"})
         attendance = find_table({"student_id", "attendance_date", "attendance_percentage"})
@@ -869,21 +873,16 @@ SELECT student_id, full_name,
        ROUND(attendance_change_points, 2) AS attendance_change_points,
        ROUND(combined_change_points, 2) AS combined_change_points{', total_fees_due, total_fees_paid, outstanding_fee_amount, fee_payment_behavior, enrollment_status' if include_context and fees and enrollments else ''},
        CASE WHEN combined_change_points IS NULL THEN 'insufficient data'
-            WHEN combined_change_points >= {improving:g} THEN 'improving'
-            WHEN combined_change_points <= {declining:g} THEN 'declining'
+            WHEN combined_change_points >= {improving} THEN 'improving'
+            WHEN combined_change_points <= {declining} THEN 'declining'
             ELSE 'stable' END AS trend_classification
 FROM changes
 ORDER BY full_name"""
 
-    required_phrases = (
-        "outstanding invoice balance",
-        "unpaid invoice count",
-        "partial invoice count",
-        "total billed",
-        "total paid",
-        "remaining balance",
-    )
-    if not all(phrase in q for phrase in required_phrases):
+    if not re.fullmatch(
+        r"top (?:10 )?customers by outstanding invoice balance with unpaid invoice count, partial invoice count, "
+        r"total billed amount, total paid amount, and remaining balance[.?!]?", q,
+    ):
         return None
 
     customers = find_table({"customer_id", "customer_name"})

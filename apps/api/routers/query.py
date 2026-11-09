@@ -21,15 +21,15 @@ from apps.core.llm_client import (
     SQLGenerationError,
     get_sql_client,
     local_semantic_feedback,
-    question_clarification,
     compact_plan_feedback,
     canonicalize_analytics_question,
     schema_guided_fallback_sql,
 )
+from apps.core.repair_semantics import repair_preserves_query, RepairMeaningError
 from apps.core.verification import get_verifier, verification_unavailable
 from apps.core.question_scope import classify_question_scope
 from apps.core.workspaces import get_schema_catalog, get_schema_snapshot
-from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError
+from apps.core.sarvam_client import SarvamClient, SarvamConfigurationError, MAX_TRANSLATION_CHARS
 from apps.core.semantic_layer import (
     build_query_plan,
     parse_schema,
@@ -42,6 +42,7 @@ from apps.core.query_planning import (
     build_plan_sql_request,
     classify_complexity,
     plan_complex_query,
+    parse_plan_json,
     plan_constraint_feedback,
     select_plan_schema,
 )
@@ -59,6 +60,7 @@ from apps.api.session import session_manager
 from apps.api.security import get_workspace_guard, require_workspace_editor, tenant_owner_id
 from apps.core.chat_memory import ChatMemoryError, get_chat_memory
 from apps.core.rag import retrieve_context
+from apps.core.clarifications import resolve_clarifications
 from backend.routers.auth import current_user
 from backend.database import get_db
 from backend.notifications import create_notification
@@ -67,11 +69,18 @@ router = APIRouter(prefix="/query", tags=["query"])
 logger = logging.getLogger(__name__)
 _translation_cache: dict[tuple[str, str], str] = {}
 
+class ClarificationAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    reason: str = Field(min_length=1, max_length=80, strict=True)
+    choice: str = Field(min_length=1, max_length=500, strict=True)
+
+
 class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     question: str = Field(min_length=1, max_length=4_000, strict=True)
     language_code: str | None = Field(default=None, max_length=16, strict=True)
+    clarifications: list[ClarificationAnswer] = Field(default_factory=list, max_length=8)
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -165,6 +174,9 @@ def _infer_indic_language(question: str) -> str | None:
 def _translate_for_sql(question: str, language_code: str | None) -> str:
     if not language_code:
         return question
+    if len(question) > MAX_TRANSLATION_CHARS:
+        raise HTTPException(status_code=422, detail=
+            f"Translation supports up to {MAX_TRANSLATION_CHARS} characters. Shorten the complete question without losing filters. No query was run.")
     try:
         return SarvamClient().translate(question, "en-IN", source_language=language_code)
     except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
@@ -209,7 +221,13 @@ def _localize_rows(
     ))
     if not texts:
         return rows
-    client = SarvamClient()
+    try:
+        client = SarvamClient()
+    except (SarvamConfigurationError, RuntimeError, ValueError) as exc:
+        logger.warning("table_translation_unavailable language=%s error=%s", language_code, type(exc).__name__)
+        if failures is not None:
+            failures.extend(texts)
+        return rows
     translations: dict[str, str] = {}
     pending = texts
     for _attempt in range(2):
@@ -285,11 +303,18 @@ def generate_query(
         # Keyword misses (synonyms, translated wording) are advisory only: the
         # guardrail and the user's approval still gate every query.
         scope_warning = scope.warning
-        clarification = question_clarification(schema, planning_question)
+        try:
+            planning_question, clarification = resolve_clarifications(
+                schema, planning_question, [item.model_dump() for item in request.clarifications]
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Clarification no longer matches this question. Please ask again.") from None
         if clarification:
             return {
                 "status": "clarification_required",
                 "question": question,
+                "clarifications": [item.model_dump() for item in request.clarifications],
+                "interpreted_request": planning_question,
                 **({"scope_warning": scope_warning} if scope_warning else {}),
                 **clarification,
             }
@@ -536,7 +561,7 @@ def _repair_proposal(
 ) -> Dict[str, Any] | None:
     """Ask the model for a fix and store it as a NEW pending query.
 
-    The repaired SQL is never run here: the user must approve it again.
+    The frontend may automatically run the replacement once; meaning must remain fixed.
     """
 
     client = get_sql_client()
@@ -559,6 +584,17 @@ def _repair_proposal(
     )
     # Guard and database-plan the replacement. It is only proposed, not run.
     guarded_repair = executor.validate_query_plan(repaired_sql)
+    original_question = context.get("processing_question", context.get("question", ""))
+    feedback = local_semantic_feedback(original_question, guarded_repair.sql, schema)
+    saved_plan = context.get("intent_plan", {})
+    if "relevant_tables" in saved_plan:
+        plan = parse_plan_json(json.dumps(saved_plan), schema=schema, original_question=original_question)
+        feedback.extend(plan_constraint_feedback(plan, guarded_repair.sql))
+    else:
+        feedback.extend(plan_semantic_feedback(build_query_plan(schema, original_question), guarded_repair.sql))
+    if feedback or not repair_preserves_query(pending.sql, guarded_repair.sql,
+            dialect=workspace.get("dialect", "sqlite")):
+        raise RepairMeaningError("Automatic repair could not preserve the original query meaning.")
     repaired_context = {
         **context,
         "sql": guarded_repair.sql,
@@ -636,7 +672,7 @@ def approve_pending_query(
                 raise
             return {
                 "status": "repair_pending_approval",
-                "message": "The database could not run that query. Puchoo.si prepared a corrected query; review it and run it again.",
+                "message": "The database could not run that query. Puchoo.si prepared a meaning-preserving correction for automatic execution.",
                 "proposal": repaired,
             }
         # The SQL has already run, so the pending approval must be closed even
@@ -651,8 +687,10 @@ def approve_pending_query(
                     row_count=result.row_count,
                 )
                 verification_dict = verification.as_dict()
-            except RuntimeError as exc:
-                verification_dict = verification_unavailable(str(exc)).as_dict()
+            except Exception as exc:
+                # This advisory boundary must not discard an already executed result.
+                logger.warning("query_verification_unavailable error=%s", type(exc).__name__)
+                verification_dict = verification_unavailable().as_dict()
 
             if verification_dict.get("status") == "VERIFICATION_MISMATCH":
                 # Non-blocking by design: the verifier is an independent trust
@@ -744,25 +782,34 @@ def approve_pending_query(
         }
         display_rows = _localize_rows(record["rows"], output_language, failures=translation_failures)
 
+        presentation_data = {
+            "headline": headline,
+            "detail": detail,
+            "highlights": highlights,
+            "language_code": output_language,
+            "labels": labels,
+            "column_labels": column_labels,
+            "display_rows": display_rows,
+            "translation_unavailable": bool(translation_failures),
+        }
+        presentation_saved = session_manager.set_history_presentation(
+            tenant_owner_id(user), workspace_id, record, presentation_data
+        )
+        if presentation_saved:
+            record["presentation"] = presentation_data
         return {
             "record": record,
             "approved_memory_saved": memory_saved,
-            "presentation": {
-                "headline": headline,
-                "detail": detail,
-                "highlights": highlights,
-                "language_code": output_language,
-                "labels": labels,
-                "column_labels": column_labels,
-                "display_rows": display_rows,
-                "translation_unavailable": bool(translation_failures),
-            }
+            "presentation": presentation_data,
+            "presentation_saved": presentation_saved,
         }
 
     except SQLGuardrailError as exc:
         finish_pending(db, pending, "blocked")
         logger.warning("approved query blocked on re-validation: %s", type(exc).__name__)
         raise HTTPException(status_code=403, detail=_blocked_detail(exc)) from None
+    except RepairMeaningError:
+        raise HTTPException(status_code=400, detail="The query failed and automatic repair could not preserve the original metric and filters. Please rephrase the question. No replacement query was run.") from None
     except (QueryExecutionError, SQLGenerationError, LocalMLXConfigurationError, ValueError) as exc:
         logger.exception("query execution failed: %s", type(exc).__name__)
         raise HTTPException(status_code=400, detail="The query could not be executed.") from None

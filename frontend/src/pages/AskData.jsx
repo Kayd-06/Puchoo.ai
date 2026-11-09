@@ -1,3 +1,4 @@
+import { universePolicy } from '../utils/universePolicy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -38,7 +39,7 @@ import {
   reportTable,
   createPdfReportDocument,
 } from '../utils/reportDocument';
-import { playAnswerAudio, requestMicrophone } from '../utils/voice';
+import { disposeVoiceCapture, playAnswerAudio, requestMicrophone } from '../utils/voice';
 import '../styles/chatActions.css';
 
 const DEFAULT_RESULT_LABELS = {
@@ -110,16 +111,24 @@ function encodeWav(audioBuffer) {
   return new Blob([output], { type: 'audio/wav' });
 }
 
-async function convertRecordingToWav(blob) {
+async function convertRecordingToWav(blob, signal) {
   const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextConstructor)
     throw new Error('This browser cannot prepare the recording for transcription.');
   const audioContext = new AudioContextConstructor();
+  const close = () => {
+    if (audioContext.state !== 'closed') void audioContext.close().catch(() => {});
+  };
+  signal.addEventListener('abort', close, { once: true });
   try {
-    const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer());
+    const bytes = await blob.arrayBuffer();
+    signal.throwIfAborted();
+    const decoded = await audioContext.decodeAudioData(bytes);
+    signal.throwIfAborted();
     return encodeWav(decoded);
   } finally {
-    await audioContext.close();
+    signal.removeEventListener('abort', close);
+    close();
   }
 }
 
@@ -275,22 +284,27 @@ export function queryUniversePalette(theme) {
   };
 }
 
-function QueryUniverse() {
+export function QueryUniverse() {
   const canvasRef = useRef(null);
   const pointerRef = useRef({ x: 0, y: 0, active: false });
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (!canvas || reducedMotion.matches) return undefined;
-    const context = canvas.getContext('2d', { alpha: true });
-    if (!context) return undefined;
+    if (!canvas) return undefined;
+    let context;
+    let policy = { mode: 'off' };
+    let disposed = false;
+    let intersecting = true;
+    let resizeTimer = 0;
+    let lastPaint = -Infinity;
     let frame = 0;
     let width = 0;
     let height = 0;
     let particles = [];
     const stage = canvas.parentElement;
     const updatePointer = (event) => {
+      if (policy.mode !== 'animated') return;
       const bounds = canvas.getBoundingClientRect();
       pointerRef.current = {
         x: event.clientX - bounds.left,
@@ -303,16 +317,39 @@ function QueryUniverse() {
     };
     const setup = () => {
       const bounds = canvas.getBoundingClientRect();
-      const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
-      width = Math.max(1, bounds.width);
-      height = Math.max(1, bounds.height);
-      canvas.width = Math.round(width * ratio);
-      canvas.height = Math.round(height * ratio);
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const area = width * height;
-      const dustCount = Math.min(4200, Math.max(1200, Math.round(area / 340)));
-      const stillCount = Math.min(6500, Math.max(1800, Math.round(area / 220)));
-      const streamCount = Math.min(3200, Math.max(900, Math.round(area / 450)));
+      policy = universePolicy({
+        width: bounds.width,
+        height: bounds.height,
+        dpr: window.devicePixelRatio,
+        reducedMotion: reducedMotion.matches,
+        hidden: document.hidden || !intersecting,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory,
+        saveData: navigator.connection?.saveData,
+      });
+      if (policy.mode === 'off') {
+        particles = [];
+        canvas.width = canvas.height = 0;
+        return false;
+      }
+      try {
+        context ||= canvas.getContext('2d', { alpha: true });
+      } catch {
+        context = null;
+      }
+      if (!context) {
+        particles = [];
+        canvas.width = canvas.height = 0;
+        return false;
+      }
+      width = bounds.width;
+      height = bounds.height;
+      canvas.width = policy.pixelWidth;
+      canvas.height = policy.pixelHeight;
+      context.setTransform(policy.ratio, 0, 0, policy.ratio, 0, 0);
+      const dustCount = policy.dust,
+        stillCount = policy.still,
+        streamCount = policy.streams;
       const motion = queryUniversePalette(document.documentElement.dataset.theme).motion;
       const cornerPoint = () => {
         const corner = Math.floor(Math.random() * 4);
@@ -349,7 +386,7 @@ function QueryUniverse() {
         phase: Math.random() * Math.PI * 2,
         tail: 0.014 + Math.random() * 0.035,
       }));
-      const clusters = Array.from({ length: 17 }, () => ({
+      const clusters = Array.from({ length: policy.clusters }, () => ({
         kind: 'cluster',
         x: Math.random() * width,
         y: Math.random() * height,
@@ -358,8 +395,9 @@ function QueryUniverse() {
         phase: Math.random() * Math.PI * 2,
       }));
       particles = [...clusters, ...stillStars, ...dust, ...streams];
+      return true;
     };
-    const draw = (time) => {
+    const paint = (time) => {
       context.clearRect(0, 0, width, height);
       context.save();
       // Exclude the whole composer, including its voice and submit controls.
@@ -498,18 +536,88 @@ function QueryUniverse() {
       });
       context.restore();
       context.globalCompositeOperation = 'source-over';
-      frame = window.requestAnimationFrame(draw);
     };
-    setup();
-    frame = window.requestAnimationFrame(draw);
-    window.addEventListener('resize', setup);
+    const tick = (time) => {
+      frame = 0;
+      if (disposed || policy.mode !== 'animated') return;
+      if (time - lastPaint >= 1000 / policy.fps) {
+        try {
+          paint(time);
+        } catch {
+          policy = { mode: 'off' };
+          particles = [];
+          canvas.width = canvas.height = 0;
+          return;
+        }
+        lastPaint = time;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+    const restart = () => {
+      window.cancelAnimationFrame(frame);
+      frame = 0;
+      window.clearTimeout(resizeTimer);
+      resizeTimer = 0;
+      if (disposed) return;
+      clearPointer();
+      lastPaint = -Infinity;
+      if (setup()) {
+        if (policy.mode === 'static') {
+          try {
+            paint(0);
+          } catch {
+            particles = [];
+            canvas.width = canvas.height = 0;
+          }
+        } else frame = window.requestAnimationFrame(tick);
+      }
+    };
+    const resize = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(restart, 100);
+    };
+    restart();
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', restart);
+    if (reducedMotion.addEventListener) reducedMotion.addEventListener('change', restart);
+    else reducedMotion.addListener?.(restart);
+    navigator.connection?.addEventListener?.('change', restart);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize);
+    resizeObserver?.observe(canvas);
+    const intersectionObserver =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            intersecting = entries.some((entry) => entry.isIntersecting);
+            restart();
+          });
+    intersectionObserver?.observe(canvas);
+    const themeObserver = new MutationObserver(restart);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
     stage?.addEventListener('pointermove', updatePointer, { passive: true });
     stage?.addEventListener('pointerleave', clearPointer);
     return () => {
+      disposed = true;
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', setup);
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', restart);
+      if (reducedMotion.removeEventListener) reducedMotion.removeEventListener('change', restart);
+      else reducedMotion.removeListener?.(restart);
+      navigator.connection?.removeEventListener?.('change', restart);
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
+      themeObserver.disconnect();
       stage?.removeEventListener('pointermove', updatePointer);
       stage?.removeEventListener('pointerleave', clearPointer);
+      clearPointer();
+      particles = [];
+      canvas.width = canvas.height = 0;
+      context = null;
     };
   }, []);
 
@@ -617,16 +725,27 @@ export default function AskData() {
     setClarification,
   ]);
 
-  const [voiceState, setVoiceState] = useState('idle');
-  const [voiceError, setVoiceError] = useState('');
+  const [voice, setVoice] = useState({ identity, stage: 'idle', error: '' });
+  const voiceState = voice.identity === identity ? voice.stage : 'idle';
+  const voiceError = voice.identity === identity ? voice.error : '';
   const [exportingPdf, setExportingPdf] = useState(false);
   const [speechState, setSpeechState] = useState('idle');
   const [speechError, setSpeechError] = useState('');
   const [activeHighlight, setActiveHighlight] = useState(-1);
   const queryInFlightRef = useRef(false);
-  const recorderRef = useRef(null);
-  const streamRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const composingRef = useRef(false);
+  useLayoutEffect(() => {
+    composingRef.current = false;
+  }, [identity]);
+  const voiceOperationRef = useRef(null);
+  useLayoutEffect(
+    () => () => {
+      const operation = voiceOperationRef.current;
+      voiceOperationRef.current = null;
+      disposeVoiceCapture(operation);
+    },
+    [identity],
+  );
   const resultRef = useRef(null);
   const speechAudioRef = useRef(null);
   const speechUrlRef = useRef(null);
@@ -679,7 +798,7 @@ export default function AskData() {
     throw new Error('The query could not be executed after an automatic correction.');
   };
 
-  const handleAsk = async (resolvedQuestion) => {
+  const handleAsk = async (resolvedQuestion, clarificationAnswers = []) => {
     const submittedQuestion = typeof resolvedQuestion === 'string' ? resolvedQuestion : question;
     if (
       !submittedQuestion.trim() ||
@@ -701,7 +820,11 @@ export default function AskData() {
         : submittedQuestion.trim();
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
-        body: JSON.stringify({ question: questionForQuery, language_code: questionLanguage }),
+        body: JSON.stringify({
+          question: questionForQuery,
+          language_code: questionLanguage,
+          clarifications: clarificationAnswers,
+        }),
       });
       if (!requestCurrent(token)) return;
       if (proposal.status === 'clarification_required') {
@@ -717,105 +840,121 @@ export default function AskData() {
     }
   };
 
-  const releaseMicrophone = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  };
-
-  const transcribeRecording = async (blob) => {
-    if (!blob.size) {
-      setVoiceError('No audio was captured. Please try recording again.');
-      setVoiceState('idle');
-      return;
-    }
-    try {
-      const audio = new FormData();
-      // Gnani accepts OGG, M4A, and WAV. Unsupported browser recordings are
-      // converted to WAV in startVoiceInput before this request is made.
-      const extension = blob.type.includes('mp4')
-        ? 'm4a'
-        : blob.type.includes('ogg')
-          ? 'ogg'
-          : 'wav';
-      audio.append('file', blob, `puchoo-question.${extension}`);
-      const response = await fetchApi('/voice/transcribe', { method: 'POST', body: audio });
-      const transcript = response?.transcript?.trim();
-      if (!transcript) throw new Error('No speech was detected. Please try again.');
-      setQuestion((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
-      // Follow the language detected from the recording, never a browser default.
-      setQuestionLanguage(response?.language_code || null);
-    } catch (err) {
-      setVoiceError(err.message || 'We could not transcribe that recording. Please try again.');
-    } finally {
-      setVoiceState('idle');
-      recorderRef.current = null;
-    }
-  };
+  const voiceCurrent = (operation) =>
+    voiceOperationRef.current === operation &&
+    !operation.controller.signal.aborted &&
+    currentScope.current === operation.identity;
 
   const startVoiceInput = async () => {
-    setVoiceError('');
+    if (voiceOperationRef.current) return;
+    const operation = {
+      identity,
+      controller: new AbortController(),
+      chunks: [],
+      stream: null,
+      recorder: null,
+    };
+    voiceOperationRef.current = operation;
+    const update = (stage, error = '') => {
+      if (voiceCurrent(operation)) setVoice({ identity, stage, error });
+    };
+    const fail = (error) => {
+      update('idle', error);
+      if (voiceOperationRef.current === operation) voiceOperationRef.current = null;
+      disposeVoiceCapture(operation);
+    };
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setVoiceError(
-        'Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.',
-      );
+      fail('Voice input is not supported by this browser. Try the latest Chrome, Edge, or Safari.');
       return;
     }
-    setVoiceState('requesting');
+    update('requesting');
     try {
-      const stream = await requestMicrophone();
-      streamRef.current = stream;
-      audioChunksRef.current = [];
-      const preferredMimeType = GNANI_RECORDING_MIME_TYPES.find((type) =>
+      const stream = await requestMicrophone(20000, { signal: operation.controller.signal });
+      if (!voiceCurrent(operation)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      operation.stream = stream;
+      const preferred = GNANI_RECORDING_MIME_TYPES.find((type) =>
         MediaRecorder.isTypeSupported(type),
       );
-      const recorder = preferredMimeType
-        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+      const recorder = preferred
+        ? new MediaRecorder(stream, { mimeType: preferred })
         : new MediaRecorder(stream);
-      recorderRef.current = recorder;
+      operation.recorder = recorder;
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        if (voiceCurrent(operation) && event.data.size > 0) operation.chunks.push(event.data);
       };
-      recorder.onerror = () => {
-        releaseMicrophone();
-        setVoiceError('The microphone recording stopped unexpectedly. Please try again.');
-        setVoiceState('idle');
-      };
+      recorder.onerror = () =>
+        fail('The microphone recording stopped unexpectedly. Please try again.');
       recorder.onstop = async () => {
-        setVoiceState('transcribing');
-        let blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        releaseMicrophone();
-        if (!blob.type.includes('ogg') && !blob.type.includes('mp4')) {
-          try {
-            blob = await convertRecordingToWav(blob);
-          } catch {
-            setVoiceError(
-              'We could not prepare that recording for Gnani. Please try again in the latest Chrome, Edge, or Safari.',
-            );
-            setVoiceState('idle');
-            recorderRef.current = null;
-            return;
-          }
+        if (!voiceCurrent(operation)) return;
+        update('transcribing');
+        operation.stream?.getTracks().forEach((track) => track.stop());
+        operation.stream = null;
+        try {
+          let blob = new Blob(operation.chunks, { type: recorder.mimeType || 'audio/webm' });
+          operation.chunks.length = 0;
+          if (!blob.size) throw new Error('No audio was captured. Please try recording again.');
+          if (!blob.type.includes('ogg') && !blob.type.includes('mp4'))
+            blob = await convertRecordingToWav(blob, operation.controller.signal);
+          if (!voiceCurrent(operation)) return;
+          const audio = new FormData();
+          const extension = blob.type.includes('mp4')
+            ? 'm4a'
+            : blob.type.includes('ogg')
+              ? 'ogg'
+              : 'wav';
+          audio.append('file', blob, `puchoo-question.${extension}`);
+          const response = await fetchApi('/voice/transcribe', {
+            method: 'POST',
+            body: audio,
+            signal: operation.controller.signal,
+          });
+          if (!voiceCurrent(operation)) return;
+          const transcript = response?.transcript?.trim();
+          if (!transcript) throw new Error('No speech was detected. Please try again.');
+          setQuestion((current) =>
+            current.trim() ? `${current.trim()} ${transcript}` : transcript,
+          );
+          setQuestionLanguage(response?.language_code || null);
+          update('idle');
+        } catch (error) {
+          update(
+            'idle',
+            error.message || 'We could not transcribe that recording. Please try again.',
+          );
+        } finally {
+          if (voiceOperationRef.current === operation) voiceOperationRef.current = null;
+          disposeVoiceCapture(operation);
         }
-        await transcribeRecording(blob);
       };
       recorder.start();
-      setVoiceState('recording');
-    } catch (err) {
-      releaseMicrophone();
-      setVoiceState('idle');
-      setVoiceError(
-        err.name === 'NotAllowedError'
+      update('recording');
+    } catch (error) {
+      fail(
+        error.name === 'NotAllowedError'
           ? 'Microphone access was blocked. Allow microphone access in your browser, then try again.'
-          : err.message || 'We could not start the microphone. Please try again.',
+          : error.message || 'We could not start the microphone. Please try again.',
       );
     }
   };
 
   const stopVoiceInput = () => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === 'inactive') return;
-    setVoiceState('transcribing');
-    recorder.stop();
+    const operation = voiceOperationRef.current;
+    if (!operation || !voiceCurrent(operation) || operation.recorder?.state === 'inactive') return;
+    setVoice({ identity, stage: 'transcribing', error: '' });
+    try {
+      operation.recorder.stop();
+    } catch {
+      disposeVoiceCapture(operation);
+      voiceOperationRef.current = null;
+      setVoice({
+        identity,
+        stage: 'idle',
+        error: 'The microphone recording stopped unexpectedly. Please try again.',
+      });
+    }
   };
 
   const stopReadingResult = () => {
@@ -902,6 +1041,7 @@ export default function AskData() {
   };
 
   const startNewChat = () => {
+    composingRef.current = false;
     stopReadingResult();
     setContinuation(null);
     setQuestion('');
@@ -909,7 +1049,9 @@ export default function AskData() {
     setResult(null);
     setClarification(null);
     setError('');
-    setVoiceError('');
+    disposeVoiceCapture(voiceOperationRef.current);
+    voiceOperationRef.current = null;
+    setVoice({ identity, stage: 'idle', error: '' });
     window.requestAnimationFrame(() => document.querySelector('.ask-page textarea')?.focus());
   };
 
@@ -938,6 +1080,13 @@ export default function AskData() {
   };
 
   const onComposerKeyDown = (event) => {
+    if (
+      event.isComposing ||
+      event.nativeEvent?.isComposing ||
+      composingRef.current ||
+      event.keyCode === 229
+    )
+      return;
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleAsk();
@@ -1073,6 +1222,12 @@ export default function AskData() {
                   // Typed edits must not inherit a previous recording's language.
                   setQuestionLanguage(null);
                 }}
+                onCompositionStart={() => {
+                  composingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composingRef.current = false;
+                }}
                 onKeyDown={onComposerKeyDown}
                 placeholder={
                   continuation
@@ -1174,17 +1329,15 @@ export default function AskData() {
               aria-live="polite"
             >
               <h3 style={{ marginBottom: '0.5rem' }}>Choose one detail to continue</h3>
-              <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
-                {clarification.message}
-              </p>
+              <p style={{ marginBottom: '1rem' }}>{clarification.message}</p>
               <ScopeWarning message={clarification.scope_warning} />
               {clarification.interpreted_request && (
-                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                <p className="clarification-context" style={{ marginBottom: '0.75rem' }}>
                   Interpreted request: {clarification.interpreted_request}
                 </p>
               )}
               {clarification.assumptions?.length > 0 && (
-                <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                <p className="clarification-context" style={{ marginBottom: '0.75rem' }}>
                   Assumptions considered: {clarification.assumptions.join('; ')}
                 </p>
               )}
@@ -1195,9 +1348,10 @@ export default function AskData() {
                     className="btn btn-secondary"
                     disabled={loading}
                     onClick={() => {
-                      const refinedQuestion = `${question.trim()}\nClarification: ${suggestion}`;
-                      setQuestion(refinedQuestion);
-                      void handleAsk(refinedQuestion);
+                      void handleAsk(question, [
+                        ...(clarification.clarifications || []),
+                        { reason: clarification.reason, choice: suggestion },
+                      ]);
                     }}
                   >
                     {suggestion}

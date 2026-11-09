@@ -114,6 +114,24 @@ class SessionManager:
             self.query_history.setdefault(workspace_id, []).insert(0, record)
         return record
 
+    def set_history_presentation(self, tenant_id, workspace_id, original, presentation):
+        """Patch only the same surviving record, never recreate deleted history.
+
+        Translation happens outside this serialized commit. Generation and claim
+        identity prevent a late result patch from touching a reused record ID.
+        """
+        with self._edit(workspace_id):
+            workspace = self.workspaces.get(workspace_id)
+            if not workspace or workspace.get("owner_user_id") != tenant_id:
+                return False
+            for record in self.query_history.get(workspace_id, []):
+                if (record.get("id") == original.get("id")
+                        and record.get("memory_generation") == original.get("memory_generation")
+                        and record.get("approved_pending_id") == original.get("approved_pending_id")):
+                    record["presentation"] = deepcopy(presentation)
+                    return True
+        return False
+
     def set_guardrails(self, workspace_id, guardrails):
         with self._edit(workspace_id):
             if workspace_id not in self.workspaces:

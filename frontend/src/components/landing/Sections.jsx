@@ -35,10 +35,10 @@ const capabilities = [
   },
   {
     id: 'approve',
-    title: 'Approve before execute',
+    title: 'Automatic guarded execution',
     icon: SquareCheck,
     description:
-      'A Groq-hosted model proposes the SQL and a second model gives an advisory check. You see the SQL and a plain-language explanation. Nothing runs until you approve it.',
+      'Configured model adapters propose SQL and provide advisory verification. You see the SQL and a plain-language explanation. Submitting your question automatically runs a validated read-only query; View query shows the SQL afterward.',
   },
   {
     id: 'guardrail',
@@ -52,14 +52,14 @@ const capabilities = [
     title: 'Explainable results',
     icon: BarChart3,
     description:
-      'After approval, Puchoo.si runs exactly one validated read-only query and returns the results, a chart suggestion, and an explanation in your language.',
+      'After validation, Puchoo.si automatically runs a read-only query and returns the results, a chart suggestion, and an explanation in your language.',
   },
   {
     id: 'audit',
     title: 'Audit trail',
     icon: ScrollText,
     description:
-      'An append-only audit log records every request, the generated SQL, the approval, and the result. Results are masked by policy, and history is kept per workspace.',
+      'Query audit events record execution metadata separately from scoped history. History deletion immediately suppresses recall; physical memory cleanup may finish later.',
   },
 ];
 
@@ -76,8 +76,8 @@ const steps = [
   },
   {
     number: '03',
-    title: 'Approve',
-    text: 'Confirm the query. Nothing runs before this step.',
+    title: 'Run safely',
+    text: 'Submit your question. Guardrails validate and run the query automatically.',
   },
   {
     number: '04',
@@ -130,7 +130,7 @@ const faqs = [
     category: 'General',
     question: 'What is Puchoo.si?',
     answer:
-      'Puchoo.si is a secure, multilingual Text-to-SQL analytics platform. You ask about your data in English or an Indian language, by typing or by voice. It turns the question into SQL, shows that SQL with a plain-language explanation, and runs one read-only query after you approve it.',
+      'Puchoo.si is a secure, multilingual Text-to-SQL analytics platform. You ask about your data in English or an Indian language, by typing or by voice. It turns the question into SQL, shows that SQL with a plain-language explanation, and automatically runs a validated read-only query. View query lets you inspect its SQL.',
   },
   {
     category: 'General',
@@ -148,13 +148,13 @@ const faqs = [
     category: 'Security',
     question: 'When does a query actually run?',
     answer:
-      'Only after an explicit human approval step. FastAPI is the only security boundary. React is presentation-only and holds no secrets.',
+      'Yes, automatically after server-side read-only and scope validation. A safe automatic correction may retry a runtime failure without changing the question’s meaning. FastAPI is the only security boundary. React is presentation-only and holds no secrets.',
   },
   {
     category: 'Security',
     question: 'What is recorded?',
     answer:
-      'An append-only audit log records every request, the generated SQL, the approval, and the result. Results are masked by policy, and history is kept per workspace.',
+      'Query audit events record execution metadata separately from scoped history. History deletion immediately suppresses recall; physical memory cleanup may finish later.',
   },
   {
     category: 'Languages',
@@ -166,7 +166,7 @@ const faqs = [
     category: 'Languages',
     question: 'Which models propose the SQL?',
     answer:
-      'A Groq-hosted model proposes the SQL (DeepSeek is planned next). A second model gives an advisory check before you decide whether to approve it.',
+      'Configured model adapters generate SQL. Model-based verification is advisory, may be unavailable, and does not guarantee correctness.',
   },
   {
     category: 'Accounts',
@@ -195,8 +195,8 @@ export function About() {
           <SectionHeading title="Turn plain-language questions" muted="into governed answers." />
           <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
             Ask in English or an Indian language, by typing or by voice. Puchoo.si proposes SQL,
-            explains it in plain language, and runs one validated read-only query only after you
-            approve it.
+            explains it in plain language, and automatically runs a validated read-only query.
+            Inspect its SQL afterward with View query.
           </p>
           <a
             href="#how-it-works"
@@ -295,7 +295,7 @@ export function Principle() {
       </div>
       <Reveal className="relative mx-auto max-w-4xl">
         <p className="text-[clamp(36px,6vw,72px)] leading-[1.05] font-medium tracking-[-0.04em] text-white italic">
-          No query runs until you approve it.
+          Your question starts automatic, guarded read-only execution.
         </p>
         <p className="mt-6 text-sm text-[#D1D5DB]">A product principle</p>
       </Reveal>
@@ -422,8 +422,8 @@ export function HowItWorks() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeading light title="Four steps," muted="then an answer." />
           <p className="mt-6 max-w-md text-[17px] leading-relaxed text-[#D1D5DB] md:text-[18px]">
-            The question, the SQL, and the approval stay visible. FastAPI runs one read-only query
-            only after you approve it.
+            Your question and result stay visible. FastAPI validates and runs the read-only query
+            automatically; inspect the SQL with View query.
           </p>
         </div>
         <div className="flex flex-col gap-5">
@@ -446,7 +446,7 @@ export function HowItWorks() {
   );
 }
 
-const pipeline = ['Browser', 'FastAPI', 'Guardrail', 'Approval', 'One read-only query'];
+const pipeline = ['Browser', 'FastAPI', 'Guardrail', 'Automatic run', 'Read-only result'];
 
 export function Security() {
   return (
@@ -498,7 +498,7 @@ export function Security() {
           />
           <SecurityCard
             title="Append-only audit log"
-            text="Every request, generated SQL, approval, and result is recorded. Entries are not rewritten."
+            text="Execution audit metadata is recorded separately from workspace history. History deletion suppresses recall while physical cleanup may be pending."
           />
           <SecurityCard
             title="Secrets never reach the browser"
@@ -507,8 +507,8 @@ export function Security() {
           <article className="rounded-3xl border border-black/10 bg-[#F9FAFB] p-6 md:col-span-2">
             <h3 className="text-xl font-medium tracking-[-0.02em] text-[#111827]">Fail closed</h3>
             <p className="mt-3 text-[16px] leading-relaxed text-[#6B7280]">
-              If the guardrail, the approval step, or validation does not pass, the query does not
-              run.
+              If server authorization, the guardrail, or validation does not pass, the query does
+              not run.
             </p>
           </article>
         </div>

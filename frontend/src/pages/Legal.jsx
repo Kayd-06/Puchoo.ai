@@ -6,14 +6,16 @@ const pages = {
     title: 'Privacy',
     paragraphs: [
       'Puchoo.si stores your name, lowercased email, workspace type, and institute name when you create an institute workspace. Passwords are stored only as an argon2 hash. A signed JWT is held only in an HttpOnly cookie; its server-side session binding is stored as a hash for revocation.',
-      'The browser keeps the session in an HttpOnly cookie. React does not store tokens in localStorage and holds no secrets.',
+      'The browser keeps the session in an HttpOnly cookie. React does not store session tokens in localStorage or embed provider keys. Scoped drafts and result views may be retained in sessionStorage, with deletion invalidation metadata in localStorage.',
+      'Questions, schema and, where required, SQL/result text or audio may be processed by configured model, translation and voice services. Only submit information you are permitted to share with those services.',
+      'Successful history deletion immediately suppresses server recall and invalidates scoped browser views. Physical vector cleanup can be pending; exports, already-delivered data and unavailable/offline devices cannot be retroactively erased.',
       'Approved conversation context is saved in local ChromaDB memory, isolated by account or institute and workspace. Result rows, connection strings, passwords, and authentication tokens are not stored in that memory.',
     ],
   },
   terms: {
     title: 'Terms',
     paragraphs: [
-      'Puchoo.si is a college OJT project. It proposes SQL for a question you ask, shows that SQL with a plain-language explanation, and waits for your approval.',
+      'Puchoo.si is a college OJT project. It proposes SQL for a question you ask, shows that SQL with a plain-language explanation, and automatically runs it after server-side validation. You can inspect the SQL with View query; a safe automatic repair may retry a runtime error.',
       'FastAPI is the only security boundary. An AST-based guardrail allows one SELECT statement, limits queries to approved tables and columns, and enforces row limits and timeouts. If those checks fail, the query does not run.',
     ],
   },
