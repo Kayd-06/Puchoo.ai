@@ -7,5 +7,3 @@ Disallow: /settings
 Disallow: /login
 Disallow: /signup
 Disallow: /forgot-password
-
-Sitemap: https://puchoo.ai/sitemap.xml

@@ -58,7 +58,7 @@ class LLMClientTests(unittest.TestCase):
         self.assertEqual({"type": "json_object"}, payload["response_format"])
         self.assertEqual("https://api.deepseek.com/chat/completions", request.full_url)
         self.assertIn("only", payload["messages"][0]["content"])
-        self.assertEqual("PuchooAI/1.0", request.headers["User-agent"])
+        self.assertEqual("PuchooSi/1.0", request.headers["User-agent"])
         self.assertNotIn("test-secret", request.data.decode("utf-8"))
 
     def test_deepseek_retries_only_transient_generation_rejection(self):

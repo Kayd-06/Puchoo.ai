@@ -108,7 +108,7 @@ class Settings:
     session_secret: str = DEFAULT_SESSION_SECRET
     otp_secret: str = DEFAULT_OTP_SECRET
     jwt_algorithm: str = "HS256"
-    jwt_issuer: str = "puchoo.ai"
+    jwt_issuer: str = "puchoo.si"
     smtp_server: str | None = None
     smtp_port: int | None = None
     smtp_username: str | None = None
@@ -151,7 +151,7 @@ def load_settings() -> Settings:
         session_secret=os.getenv("SESSION_SECRET", DEFAULT_SESSION_SECRET),
         otp_secret=os.getenv("OTP_SECRET", DEFAULT_OTP_SECRET),
         jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
-        jwt_issuer=os.getenv("JWT_ISSUER", "puchoo.ai"),
+        jwt_issuer=os.getenv("JWT_ISSUER", "puchoo.si"),
         smtp_server=os.getenv("SMTP_SERVER"),
         smtp_port=parsed_smtp_port,
         smtp_username=os.getenv("SMTP_USERNAME"),

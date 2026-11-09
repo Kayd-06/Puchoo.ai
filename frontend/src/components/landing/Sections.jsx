@@ -24,7 +24,7 @@ const capabilities = [
     title: 'Multilingual questions',
     icon: Languages,
     description:
-      'Ask in English or an Indian language. Sarvam AI translates the question to English before any SQL is proposed, then translates the answer summary back into your language.',
+      'Ask in English or an Indian language. Sarvam AI translates the question to English before SQL is built, then translates the answer summary back into your language.',
   },
   {
     id: 'voice',
@@ -38,7 +38,7 @@ const capabilities = [
     title: 'Automatic guarded execution',
     icon: SquareCheck,
     description:
-      'Configured model adapters propose SQL and provide advisory verification. You see the SQL and a plain-language explanation. Submitting your question automatically runs a validated read-only query; View query shows the SQL afterward.',
+      'Configured model adapters build SQL and provide advisory verification. Submitting your question automatically runs a validated read-only query; View query shows the SQL and a plain-language explanation afterward.',
   },
   {
     id: 'guardrail',
@@ -71,13 +71,13 @@ const steps = [
   },
   {
     number: '02',
-    title: 'Review',
-    text: 'Read the generated SQL and a plain-language explanation.',
+    title: 'Clarify if needed',
+    text: 'Vague questions get short clarification choices with buttons before anything runs.',
   },
   {
     number: '03',
-    title: 'Run safely',
-    text: 'Submit your question. Guardrails validate and run the query automatically.',
+    title: 'Automatic guarded run',
+    text: 'Press Enter. Guardrails validate and run read-only SQL automatically; View query is optional afterward.',
   },
   {
     number: '04',
@@ -164,9 +164,9 @@ const faqs = [
   },
   {
     category: 'Languages',
-    question: 'Which models propose the SQL?',
+    question: 'Which models build the SQL?',
     answer:
-      'Configured model adapters generate SQL. Model-based verification is advisory, may be unavailable, and does not guarantee correctness.',
+      'Configured model adapters generate SQL. DeepSeek is the default. Model-based verification is advisory, may be unavailable, and does not guarantee correctness.',
   },
   {
     category: 'Accounts',
@@ -194,7 +194,7 @@ export function About() {
         <Reveal>
           <SectionHeading title="Turn plain-language questions" muted="into governed answers." />
           <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-[#6B7280] md:text-[18px]">
-            Ask in English or an Indian language, by typing or by voice. Puchoo.si proposes SQL,
+            Ask in English or an Indian language, by typing or by voice. Puchoo.si builds SQL,
             explains it in plain language, and automatically runs a validated read-only query.
             Inspect its SQL afterward with View query.
           </p>
