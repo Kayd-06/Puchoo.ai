@@ -152,6 +152,33 @@ def build_planner_prompt(question: str, schema: str) -> str:
     return PLANNER_SYSTEM_PROMPT + "\n<planner_request>" + payload + "</planner_request>"
 
 
+def _ranking_limit(value: Any) -> int | None:
+    """Return a positive whole-number ranking limit, accepting numeric strings like "3"."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"\s*\d{1,9}\s*", value):
+        return int(value) or None
+    return None
+
+
+def _normalize_ranking(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    ranking = dict(value)
+    raw_limit = ranking.get("limit")
+    if raw_limit is not None:
+        limit = _ranking_limit(raw_limit)
+        if limit is None:
+            raise QueryPlanError("The local planner returned an invalid ranking limit.")
+        ranking["limit"] = limit
+    return ranking
+
+
 def parse_plan_json(content: str, *, schema: str, original_question: str) -> StructuredQueryPlan:
     """Validate planner JSON and reject unknown tables or incomplete contracts."""
 
@@ -205,7 +232,7 @@ def parse_plan_json(content: str, *, schema: str, original_question: str) -> Str
         filters=[str(value) for value in payload["filters"]],
         time_range=str(payload["time_range"]) if payload["time_range"] is not None else None,
         group_by=[str(value) for value in payload["group_by"]],
-        ranking=payload["ranking"] if isinstance(payload["ranking"], dict) else None,
+        ranking=_normalize_ranking(payload["ranking"]),
         joins=[dict(value) for value in payload["joins"] if isinstance(value, dict)],
         assumptions=[str(value) for value in payload["assumptions"]],
         needs_clarification=needs_clarification,
@@ -313,26 +340,44 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
             )
             and isinstance(window.parent, exp.Alias)
         } if statement is not None else set()
-        if rank_aliases and plan.ranking.get("limit"):
-            wanted = plan.ranking["limit"]
+        wanted = _ranking_limit(plan.ranking.get("limit"))
+        if rank_aliases and wanted:
             bounded = False
+
+            def is_rank(node: Any) -> bool:
+                return isinstance(node, exp.Column) and node.name.lower() in rank_aliases
+
+            def whole_number(node: Any) -> int | None:
+                return int(node.this) if isinstance(node, exp.Literal) and node.is_int else None
+
             for where in statement.find_all(exp.Where):
                 predicates = [where.this]
                 while predicates:
                     predicate = predicates.pop()
-                    if isinstance(predicate, exp.And):
+                    if isinstance(predicate, exp.Paren):
+                        predicates.append(predicate.this)
+                    elif isinstance(predicate, exp.And):
                         predicates.extend((predicate.this, predicate.expression))
-                    elif isinstance(predicate, (exp.LTE, exp.LT)):
-                        column, bound = predicate.this, predicate.expression
-                        if isinstance(column, exp.Column) and column.name.lower() in rank_aliases:
-                            if isinstance(bound, exp.Literal) and bound.is_int:
-                                upper = int(bound.this) - int(isinstance(predicate, exp.LT))
-                                bounded = bounded or upper == wanted
+                    elif isinstance(predicate, exp.Between) and is_rank(predicate.this):
+                        # rank BETWEEN 1 AND N (or any lower bound <= 1).
+                        low, high = whole_number(predicate.args.get("low")), whole_number(predicate.args.get("high"))
+                        bounded = bounded or (low is not None and low <= 1 and high == wanted)
+                    elif isinstance(predicate, (exp.LTE, exp.LT, exp.GTE, exp.GT)):
+                        left, right = predicate.this, predicate.expression
+                        # Normalize "N >= rank" / "N + 1 > rank" to "rank <= N" / "rank < N + 1".
+                        if isinstance(predicate, (exp.LTE, exp.LT)) and is_rank(left):
+                            bound, strict = whole_number(right), isinstance(predicate, exp.LT)
+                        elif isinstance(predicate, (exp.GTE, exp.GT)) and is_rank(right):
+                            bound, strict = whole_number(left), isinstance(predicate, exp.GT)
+                        else:
+                            continue
+                        if bound is not None:
+                            bounded = bounded or bound - int(strict) == wanted
             if not bounded:
                 feedback.append("Filter the partitioned rank in an outer query to the requested top N per group.")
             if statement.args.get("limit") is not None:
                 feedback.append("Remove the global LIMIT from the per-group ranking; it can omit groups or ties. The server applies its own safety row cap.")
-        elif plan.ranking.get("limit") and "limit" not in sql_lower:
+        elif wanted and "limit" not in sql_lower:
             feedback.append("The structured plan requires a ranking limit; add LIMIT.")
     return feedback
 

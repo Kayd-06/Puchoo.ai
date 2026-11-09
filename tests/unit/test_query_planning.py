@@ -154,6 +154,33 @@ class QueryPlanningTests(unittest.TestCase):
         feedback = plan_constraint_feedback(plan, "SELECT class_name, 'unterminated FROM students ORDER BY 1")
         self.assertIsInstance(feedback, list)
 
+    def test_partitioned_rank_bound_accepts_both_orientations_and_between(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        base = "WITH ranked AS (SELECT student_id, DENSE_RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS pos FROM students) SELECT * FROM ranked AS r WHERE "
+        for where in ("r.pos <= 3", "pos < 4", "3 >= pos", "4 > r.pos", "pos BETWEEN 1 AND 3", "(pos <= 3) AND student_id > 0"):
+            with self.subTest(where=where):
+                self.assertEqual([], plan_constraint_feedback(plan, base + where + " ORDER BY student_id"))
+        for where in ("pos <= 5", "5 >= pos", "pos BETWEEN 2 AND 3", "pos <= 3 OR pos IS NULL", "pos >= 3"):
+            with self.subTest(where=where):
+                feedback = plan_constraint_feedback(plan, base + where + " ORDER BY student_id")
+                self.assertTrue(any("top N per group" in item for item in feedback))
+
+    def test_numeric_string_ranking_limit_is_coerced(self):
+        payload = valid_payload()
+        payload["ranking"] = {"direction": "descending", "limit": "3"}
+        plan = parse_plan_json(json.dumps(payload), schema=SCHEMA, original_question="Top three customers")
+        self.assertEqual(3, plan.ranking["limit"])
+        sql = ("WITH ranked AS (SELECT customer_id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY total_amount DESC) AS rn "
+               "FROM customers) SELECT * FROM ranked WHERE rn <= 3 ORDER BY customer_id")
+        self.assertFalse(any("top N" in item for item in plan_constraint_feedback(plan, sql)))
+
+    def test_invalid_ranking_limit_is_rejected(self):
+        for limit in ("three", -1, 0, 2.5, True, "3; DROP"):
+            payload = valid_payload()
+            payload["ranking"] = {"direction": "descending", "limit": limit}
+            with self.subTest(limit=limit), self.assertRaises(QueryPlanError):
+                parse_plan_json(json.dumps(payload), schema=SCHEMA, original_question="Top customers")
+
 
 if __name__ == "__main__":
     unittest.main()
