@@ -353,7 +353,6 @@ export default function Landing() {
           operatingSystem: 'Web',
           description:
             'Secure natural-language analytics with automatic guarded read-only SQL and isolated workspaces.',
-          url: 'https://puchoo.ai/',
         })}
       </script>
       <MainHero />
