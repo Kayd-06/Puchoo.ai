@@ -1,5 +1,10 @@
 # Groq and Gnani provider migration
 
+> **Update (2026-11-09):** the language model is now **DeepSeek**
+> (`deepseek-flash`, `PUCHOO_SQL_PROVIDER=deepseek`, `DEEPSEEK_API_KEY`).
+> Groq support has been removed; `PUCHOO_SQL_PROVIDER=groq` stops queries with
+> a configuration error. Groq references below are historical.
+
 > **Decided provider flow (2026-10-19) — this supersedes the Groq-only /
 > Sarvam-removal plan below where they differ:**
 >
@@ -13,8 +18,8 @@
 >   (`/api/sarvam/transcribe`) is removed. Gnani and Sarvam both use BCP-47
 >   `xx-IN` codes; `to_sarvam_language()` in `apps/api/routers/query.py` maps
 >   variants (`hi` → `hi-IN`, `or-IN` → `od-IN`, `hi-en` → `hi-IN`, English → none).
-> - **LLM** = SQL planning, generation, repair and verification. **Groq** is the
->   current provider; **DeepSeek** (OpenAI-compatible) is planned later. It
+> - **LLM** = SQL planning, generation, repair and verification. **DeepSeek**
+>   (OpenAI-compatible) is the provider; Groq was used before and is removed. It
 >   always works on English text.
 
 ## Goal

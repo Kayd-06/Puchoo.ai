@@ -40,7 +40,7 @@ result rows, connection information, and hidden metadata are excluded.
   the user records a voice question.
 - The summary is already in the user's language when it reaches TTS: Sarvam
   translated it back from English (Sarvam is used only for translation).
-- The LLM (Groq now, DeepSeek planned) only sees English text; see the
+- The LLM (DeepSeek; Groq was removed) only sees English text; see the
   provider-migration spec for the full table.
 
 ## UI behavior

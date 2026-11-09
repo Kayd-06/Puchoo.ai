@@ -673,7 +673,7 @@ def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
 def test_deterministic_query_does_not_require_a_provider(env, monkeypatch):
     monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: 'SELECT id, region, amount FROM orders ORDER BY id')
     def unavailable():
-        raise query_router.LocalMLXConfigurationError('Groq unavailable')
+        raise query_router.LocalMLXConfigurationError('DeepSeek unavailable')
     monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
     response = env.generate(question='List all orders')
     assert response.status_code == 200, response.text

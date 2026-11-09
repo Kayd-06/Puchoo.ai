@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom';
 import NodeSphere from './NodeSphere';
 import { PillButton, Reveal, SectionHeading, focusRing } from './ui';
 
-const tools = ['FastAPI', 'React', 'Gnani', 'Sarvam AI', 'Groq', 'PostgreSQL', 'Redis'];
+const tools = ['FastAPI', 'React', 'Gnani', 'Sarvam AI', 'DeepSeek', 'PostgreSQL', 'Redis'];
 
 const capabilities = [
   {
@@ -216,7 +216,7 @@ export function BuiltWith() {
   return (
     <section
       className="mx-3 overflow-hidden rounded-[28px] bg-white py-14 md:mx-4"
-      aria-label="Built with FastAPI, React, Gnani, Sarvam AI, Groq, PostgreSQL, and Redis"
+      aria-label="Built with FastAPI, React, Gnani, Sarvam AI, DeepSeek, PostgreSQL, and Redis"
     >
       <div className="mx-auto max-w-6xl px-5 md:px-8">
         <p className="text-sm font-medium text-[#6B7280]">Built with</p>
