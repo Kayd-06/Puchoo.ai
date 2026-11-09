@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from sqlglot import exp, parse_one
-from sqlglot.errors import ParseError
+from sqlglot.errors import SqlglotError
 
 from apps.core.semantic_layer import parse_schema
 
@@ -300,7 +300,7 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
         # is bounded by its rank predicate, never by an outer LIMIT N.
         try:
             statement = parse_one(sql, read="sqlite")
-        except ParseError:
+        except SqlglotError:  # ParseError and TokenError (e.g. an unterminated quote).
             statement = None  # The SQL guardrail reports syntax errors.
         rank_aliases = {
             window.parent.alias.lower()

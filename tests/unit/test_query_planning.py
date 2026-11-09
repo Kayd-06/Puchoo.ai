@@ -147,6 +147,13 @@ class QueryPlanningTests(unittest.TestCase):
         plan = StructuredQueryPlan(normalized_question="Show the top three students", relevant_tables=["students"], ranking={"limit": 3})
         self.assertTrue(any("add LIMIT" in item for item in plan_constraint_feedback(plan, "SELECT * FROM students ORDER BY attendance")))
 
+    def test_untokenizable_model_sql_returns_feedback_instead_of_raising(self):
+        # An unterminated quote raises sqlglot's TokenError, not ParseError.
+        # The guardrail must report it so the repair loop can run.
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        feedback = plan_constraint_feedback(plan, "SELECT class_name, 'unterminated FROM students ORDER BY 1")
+        self.assertIsInstance(feedback, list)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1090,3 +1090,27 @@ def test_lowest_three_per_class_keeps_all_classes_and_boundary_ties(env, monkeyp
     rows = response.json()["record"]["rows"]
     assert [r["student_id"] for r in rows] == [1, 2, 3, 4, 6, 7, 8]
     assert [r["class_name"] for r in rows] == ["A"] * 4 + ["B"] * 3
+
+
+def test_untokenizable_ranked_model_sql_goes_to_repair_not_500(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('ranking',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(ranking={'direction': 'descending', 'limit': 1})), raising=False)
+    answers = iter([
+        "SELECT region, 'unterminated FROM orders GROUP BY region ORDER BY 1",
+        "SELECT region, SUM(amount) AS total FROM orders GROUP BY region ORDER BY total DESC LIMIT 1",
+    ])
+    calls = []
+    def generate_sql(**kwargs):
+        calls.append(kwargs)
+        return next(answers)
+    monkeypatch.setattr(env.fake, 'generate_sql', generate_sql)
+    # DeepSeekSQLClient is a LocalMLXSQLClient, so it uses the repair loop.
+    monkeypatch.setattr(query_router, 'LocalMLXSQLClient', FakeSQLClient)
+    proposal = env.generate(question='Which region has the highest total amount?')
+    assert proposal.status_code == 200, proposal.text
+    assert len(calls) == 2 and calls[1]['feedback'], 'the malformed SQL must be repaired with feedback'
+    assert env.executions == []
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    assert response.json()['record']['rows'] == [{'region': 'south', 'total': 20}]
