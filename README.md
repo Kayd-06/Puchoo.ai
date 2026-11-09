@@ -45,6 +45,7 @@ Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` t
 | `COOKIE_SECURE` | `true` in production so the session and CSRF cookies are HTTPS-only. With `ENVIRONMENT=production` the server refuses to start unless it is `true`. |
 | `ENVIRONMENT` | `development` or `production`. |
 | `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
+| `JWT_ISSUER` | JWT `iss` claim. Default `puchoo.si`. Changing it invalidates existing session cookies once (fine before launch). |
 | `UPLOAD_XLSX_MAX_UNCOMPRESSED_BYTES` | Max total uncompressed size of an uploaded XLSX archive. Default/hard ceiling `33554432` (32 MiB). Checked from the zip directory before parsing; over the limit returns 413. |
 | `UPLOAD_XLSX_MAX_COMPRESSION_RATIO` | Max uncompressed:compressed ratio of an XLSX (zip-bomb guard). Default `100`; over the limit returns 413. |
 | `UPLOAD_MAX_SHEETS` | Max sheets per workbook. Default `50`. |
@@ -52,7 +53,7 @@ Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` t
 | `UPLOAD_MAX_COLUMNS` | Max columns per sheet or CSV file. Default `500`. |
 | `UPLOAD_MAX_CELLS` | Max cells across all sheets and files in one upload. Default/hard ceiling `250000`. Sheet, row, column and cell limits return 400 with a message naming the limit. |
 | `NOTIFICATION_STREAMS_PER_USER` | Open notification (SSE) streams allowed per user. Default `3`; extra streams get 429 and a slot frees when a stream closes. |
-| `SMTP_FROM` | A verified `no-reply@your-domain` sender. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
+| `SMTP_FROM` | Preferred From mailbox. Required unless `SMTP_USERNAME` is already a mailbox; there is no hardcoded fallback domain. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
 
 ### Run the app (frontend + backend)
 

@@ -72,7 +72,10 @@ def _message(to_email: str) -> MIMEMultipart:
     if not recipient or "@" not in recipient:
         raise EmailDeliveryError("invalid recipient")
     message = MIMEMultipart("alternative")
-    sender = _mailbox(settings.smtp_from or settings.smtp_username or "no-reply@puchoo.ai", "sender")
+    configured_sender = (settings.smtp_from or settings.smtp_username or "").strip()
+    if not configured_sender:
+        raise EmailDeliveryError("SMTP_FROM or SMTP_USERNAME must be set")
+    sender = _mailbox(configured_sender, "sender")
     message["From"] = formataddr((settings.smtp_from_name, sender))
     message["To"] = recipient
     message["Date"] = formatdate(localtime=False)
