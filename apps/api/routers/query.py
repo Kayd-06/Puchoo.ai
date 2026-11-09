@@ -527,7 +527,7 @@ def generate_query(
             429: "The SQL model provider is temporarily rate limited. Please wait briefly and retry.",
             400: "The SQL model provider rejected the configured model request. Ask your administrator to check the SQL and planner model settings.",
         }
-        detail = messages.get(provider_status, "The SQL model service is unavailable or not configured. Please retry later or ask your workspace administrator to check the model service.")
+        detail = getattr(exc, "public_detail", None) or messages.get(provider_status, "The SQL model service is unavailable or not configured. Please retry later or ask your workspace administrator to check the model service.")
         raise HTTPException(status_code=503, detail=detail) from None
     except QueryPlanError:
         logger.warning("query plan could not be completed")

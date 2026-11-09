@@ -67,6 +67,21 @@ class LocalMLXConfigurationError(RuntimeError):
     """Raised when the local MLX SQL server cannot be reached or configured."""
 
 
+class SQLProviderConfigurationError(LocalMLXConfigurationError):
+    """The backend SQL provider settings are missing or no longer supported.
+
+    ``public_detail`` names only setting names, never values, so the API can
+    show administrators exactly what to fix.
+    """
+
+    def __init__(self, public_detail: str) -> None:
+        super().__init__(public_detail)
+        self.public_detail = public_detail
+
+
+_REMOVED_SQL_PROVIDERS = {"groq"}
+
+
 class ClaudeClient(Protocol):
     @property
     def messages(self) -> Any: ...
@@ -1134,9 +1149,12 @@ class DeepSeekSQLClient(LocalMLXSQLClient):
             load_dotenv()
         except ImportError:
             pass
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        self.api_key = (api_key or os.getenv("DEEPSEEK_API_KEY") or "").strip()
         if not self.api_key:
-            raise LocalMLXConfigurationError("DEEPSEEK_API_KEY is not configured in the backend .env file.")
+            raise SQLProviderConfigurationError(
+                "The DeepSeek SQL provider is selected but DEEPSEEK_API_KEY is not set. "
+                "Add DEEPSEEK_API_KEY to the backend .env file and restart the API. No query was run."
+            )
         self.endpoint = endpoint or os.getenv("DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_ENDPOINT)
         self.model = model or os.getenv("DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_SQL_MODEL)
         self.planner_model = os.getenv("DEEPSEEK_PLANNER_MODEL", DEFAULT_DEEPSEEK_PLANNER_MODEL)
@@ -1238,14 +1256,23 @@ def get_sql_client() -> LLMClient | LocalMLXSQLClient | DeepSeekSQLClient:
         load_dotenv()
     except ImportError:
         pass
-    provider = os.getenv("PUCHOO_SQL_PROVIDER", "deepseek").strip().lower()
+    provider = (os.getenv("PUCHOO_SQL_PROVIDER") or "deepseek").strip().lower()
+    if provider in _REMOVED_SQL_PROVIDERS:
+        raise SQLProviderConfigurationError(
+            f"PUCHOO_SQL_PROVIDER={provider} is no longer supported; Puchoo now uses DeepSeek. "
+            "Set PUCHOO_SQL_PROVIDER=deepseek and DEEPSEEK_API_KEY in the backend .env file, "
+            "then restart the API. No query was run."
+        )
     if provider == "local":
         return LocalMLXSQLClient()
     if provider == "deepseek":
         return DeepSeekSQLClient()
     if provider == "claude":
         return LLMClient()
-    raise ValueError("PUCHOO_SQL_PROVIDER must be 'deepseek', 'local', or 'claude'.")
+    raise SQLProviderConfigurationError(
+        "PUCHOO_SQL_PROVIDER must be deepseek, local, or claude. "
+        "Fix it in the backend .env file and restart the API. No query was run."
+    )
 
 
 ClaudeSQLClient = LLMClient
@@ -1258,6 +1285,7 @@ __all__ = [
     "LocalMLXConfigurationError",
     "LocalMLXSQLClient",
     "SQLGenerationError",
+    "SQLProviderConfigurationError",
     "SQLPrompt",
     "build_prompt",
     "english_only_question",

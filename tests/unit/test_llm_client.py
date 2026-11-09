@@ -721,6 +721,33 @@ class DeepSeekReasoningEffortTests(unittest.TestCase):
             with self.assertRaisesRegex(LocalMLXConfigurationError, "DEEPSEEK_API_KEY"):
                 DeepSeekSQLClient()
 
+    def test_removed_groq_provider_names_deepseek_settings(self):
+        from apps.core.llm_client import SQLProviderConfigurationError, get_sql_client
+        env = {"PUCHOO_SQL_PROVIDER": "groq", "GROQ_API_KEY": "obsolete", "DEEPSEEK_API_KEY": "test-key"}
+        with patch.dict("os.environ", env, clear=True), patch("dotenv.load_dotenv"), \
+                patch("apps.core.llm_client.urllib.request.urlopen", side_effect=AssertionError("no provider call")):
+            with self.assertRaises(SQLProviderConfigurationError) as raised:
+                get_sql_client()
+        detail = raised.exception.public_detail
+        self.assertIn("PUCHOO_SQL_PROVIDER=deepseek", detail)
+        self.assertIn("DEEPSEEK_API_KEY", detail)
+        self.assertNotIn("obsolete", detail)
+        self.assertNotIn("test-key", detail)
+
+    def test_unknown_provider_is_a_clear_configuration_error(self):
+        from apps.core.llm_client import SQLProviderConfigurationError, get_sql_client
+        with patch.dict("os.environ", {"PUCHOO_SQL_PROVIDER": "openai"}, clear=True), patch("dotenv.load_dotenv"):
+            with self.assertRaisesRegex(SQLProviderConfigurationError, "deepseek, local, or claude"):
+                get_sql_client()
+
+    def test_missing_deepseek_key_is_actionable(self):
+        from apps.core.llm_client import SQLProviderConfigurationError, get_sql_client
+        for env in ({}, {"PUCHOO_SQL_PROVIDER": ""}, {"PUCHOO_SQL_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": "  "}):
+            with self.subTest(env=env), patch.dict("os.environ", env, clear=True), patch("dotenv.load_dotenv"):
+                with self.assertRaises(SQLProviderConfigurationError) as raised:
+                    get_sql_client()
+                self.assertIn("DEEPSEEK_API_KEY is not set", raised.exception.public_detail)
+
     def test_partial_or_empty_output_is_rejected(self):
         import contextlib
         import json

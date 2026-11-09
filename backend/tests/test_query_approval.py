@@ -1114,3 +1114,25 @@ def test_untokenizable_ranked_model_sql_goes_to_repair_not_500(env, monkeypatch)
     response = env.approve(proposal.json())
     assert response.status_code == 200, response.text
     assert response.json()['record']['rows'] == [{'region': 'south', 'total': 20}]
+
+
+@pytest.mark.parametrize('settings, expected', [
+    ({'PUCHOO_SQL_PROVIDER': 'groq', 'GROQ_API_KEY': 'obsolete-synthetic'}, 'PUCHOO_SQL_PROVIDER=deepseek'),
+    ({'PUCHOO_SQL_PROVIDER': 'deepseek'}, 'DEEPSEEK_API_KEY is not set'),
+])
+def test_provider_misconfiguration_returns_actionable_503_without_provider_call(env, monkeypatch, settings, expected):
+    from apps.core import llm_client
+    monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    for key, value in settings.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr('dotenv.load_dotenv', lambda *a, **k: False)
+    monkeypatch.setattr(llm_client.urllib.request, 'urlopen', lambda *a, **k: pytest.fail('no provider call'))
+    monkeypatch.setattr(query_router, 'get_sql_client', llm_client.get_sql_client)
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: None)
+    response = env.generate(question='Show total amount per region')
+    assert response.status_code == 503, response.text
+    detail = response.json()['detail']
+    assert expected in detail
+    assert 'definitions are insufficient' not in detail
+    assert 'obsolete-synthetic' not in detail
+    assert env.executions == []
