@@ -91,8 +91,8 @@ function ProductDemo() {
           before the result.
         </h2>
         <p>
-          Every interaction stays inspectable: Puchoo.si takes a question, builds guarded
-          SQL, and runs it automatically after server-side validation.
+          Every interaction stays inspectable: Puchoo.si takes a question, builds guarded SQL, and
+          runs it automatically after server-side validation.
         </p>
         <div className="puchoo-demo-tabs">
           {demoSteps.map((item, index) => (
@@ -217,8 +217,8 @@ function LanguageAndVoice() {
             Verified clarity out.
           </h3>
           <p>
-            Voice input supports supported Indian languages and produces the same automatic
-            guarded run and evidence trail as a typed question.
+            Voice input supports supported Indian languages and produces the same automatic guarded
+            run and evidence trail as a typed question.
           </p>
           <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
             Try voice questions <ArrowUpRight size={16} />
