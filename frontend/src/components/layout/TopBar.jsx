@@ -30,7 +30,12 @@ function timeLabel(value) {
 }
 
 export default function TopBar() {
-  const { activeWorkspace } = useAppContext();
+  const {
+    activeWorkspace,
+    activeWorkspaceId,
+    workspaces = [],
+    setActiveWorkspaceId,
+  } = useAppContext();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -163,7 +168,25 @@ export default function TopBar() {
   return (
     <header className="app-topbar">
       <div className="app-topbar-status">
-        <span>{activeWorkspace ? activeWorkspace.name : 'No data source selected'}</span>
+        {workspaces.length ? (
+          <select
+            className="topbar-source-select"
+            aria-label="Active data source"
+            value={activeWorkspaceId || ''}
+            onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
+          >
+            <option value="" disabled>
+              Select data source
+            </option>
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span>{activeWorkspace ? activeWorkspace.name : 'No data source selected'}</span>
+        )}
       </div>
 
       <div className="app-topbar-actions">

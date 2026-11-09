@@ -1,6 +1,7 @@
 """Send transactional verification codes without exposing them in logs."""
 
 import smtplib
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
@@ -96,14 +97,19 @@ def _deliver(message: MIMEMultipart) -> None:
     if settings.smtp_use_ssl and settings.smtp_use_tls:
         raise EmailDeliveryError("SMTP cannot use SSL and STARTTLS together")
 
+    if settings.environment.strip().lower() == "production" and not (settings.smtp_use_ssl or settings.smtp_use_tls):
+        raise EmailDeliveryError("SMTP TLS is required in production")
+
     recipient = message._puchoo_recipient  # type: ignore[attr-defined]
     sender = message._puchoo_sender  # type: ignore[attr-defined]
     try:
         smtp_class = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
-        with smtp_class(settings.smtp_server, settings.smtp_port, timeout=20) as smtp:
+        context = ssl.create_default_context()
+        tls_kwargs = {"context": context} if settings.smtp_use_ssl else {}
+        with smtp_class(settings.smtp_server, settings.smtp_port, timeout=20, **tls_kwargs) as smtp:
             smtp.ehlo()
             if settings.smtp_use_tls:
-                smtp.starttls()
+                smtp.starttls(context=context)
                 smtp.ehlo()
             smtp.login(settings.smtp_username, settings.smtp_password)
             # Deliberately use the SMTP envelope API instead of inferred MIME

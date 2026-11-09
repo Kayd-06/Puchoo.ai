@@ -10236,7 +10236,7 @@ html[data-theme='dark'] .workspace-picker {
   border: 1px solid var(--border-color, #45413a);
   border-radius: 1.25rem;
   background: #171614;
-  color: var(--text-primary);
+  color: #f4efe5;
   text-align: left;
   position: relative;
   z-index: 1;
@@ -10261,4 +10261,37 @@ html[data-theme='light'] .ask-clarification {
     white-space: normal;
     text-align: left;
   }
+}
+
+/* Local semantic colors: global light-palette tokens must not darken this card. */
+.ask-clarification h3,
+.ask-clarification p {
+  color: #f4efe5;
+}
+.ask-clarification .clarification-context {
+  color: #cfc6b6;
+}
+.ask-clarification .btn-secondary {
+  background: #29251f;
+  color: #f4efe5;
+  border-color: #8a7d69;
+}
+.ask-clarification .btn:focus-visible {
+  outline: 2px solid #d49442;
+  outline-offset: 3px;
+}
+html[data-theme='light'] .ask-clarification {
+  color: #25221d;
+}
+html[data-theme='light'] .ask-clarification h3,
+html[data-theme='light'] .ask-clarification p {
+  color: #25221d;
+}
+html[data-theme='light'] .ask-clarification .clarification-context {
+  color: #514b42;
+}
+html[data-theme='light'] .ask-clarification .btn-secondary {
+  background: #ffffff;
+  color: #25221d;
+  border-color: #766b5a;
 }

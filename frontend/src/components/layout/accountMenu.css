@@ -207,3 +207,29 @@ html[data-theme='light'] #root .topbar-account-panel .topbar-logout-button:hover
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* The topbar remains present when the mobile sidebar's source list is hidden. */
+.app-topbar-status {
+  min-width: 0;
+  flex: 1;
+}
+.topbar-source-select {
+  min-width: 0;
+  width: min(100%, 22rem);
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid #8b806e;
+  border-radius: 0.5rem;
+  background: #171614;
+  color: #f4efe5;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+.topbar-source-select:focus-visible {
+  outline: 2px solid #d49442;
+  outline-offset: 2px;
+}
+html[data-theme='light'] .topbar-source-select {
+  background: #faf8f2;
+  color: #25221d;
+}

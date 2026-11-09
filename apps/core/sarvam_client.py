@@ -15,6 +15,9 @@ DEFAULT_STT_MODEL = "saaras:v3"
 DEFAULT_TRANSLATION_MODEL = "sarvam-translate:v1"
 
 
+# Application translation bound: reject oversized text; never drop trailing constraints.
+MAX_TRANSLATION_CHARS = 2_000
+
 class SarvamConfigurationError(RuntimeError):
     """Raised when an optional Sarvam feature has not been configured yet."""
 
@@ -91,9 +94,11 @@ class SarvamClient:
     def translate(self, text: str, target_language: str, *, source_language: str = "en-IN") -> str:
         if not text.strip():
             raise ValueError("Text is required for translation.")
+        if len(text) > MAX_TRANSLATION_CHARS:
+            raise ValueError(f"Translation supports at most {MAX_TRANSLATION_CHARS} characters; shorten the complete text.")
         try:
             response = self._client.text.translate(
-                input=text[:2000], source_language_code=source_language, target_language_code=target_language,
+                input=text, source_language_code=source_language, target_language_code=target_language,
                 model=self.translation_model,
             )
         except HTTPError as exc:

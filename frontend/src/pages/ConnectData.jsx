@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchApi } from '../api/client';
 import { can } from '../auth/capabilities';
 
-const ACCEPTED_FILES = '.csv,.xlsx,.xls';
+const ACCEPTED_FILES = '.csv,.xlsx';
 
 function fileLabel(file) {
   const size =
@@ -372,7 +372,7 @@ export default function ConnectData() {
           )}
         </div>
         <footer className="connect-stage-footer">
-          <span>CSV · XLS · XLSX</span>
+          <span>CSV · XLSX</span>
           <span>Source data is never altered</span>
         </footer>
       </section>

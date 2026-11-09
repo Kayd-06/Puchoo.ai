@@ -75,6 +75,7 @@ def test_viewer_cannot_prompt_upload_connect_or_change_workspace(client, otp_cod
     }
     session_manager.workspace_guardrails[workspace_id] = session_manager.DEFAULT_GUARDRAILS.copy()
     session_manager.query_history[workspace_id] = []
+    session_manager.save(active_workspace_id=workspace_id)
 
     try:
         with TestClient(create_app(include_product=True)) as viewer_client:
@@ -171,13 +172,15 @@ def test_admin_can_delete_only_the_selected_history_record(client, otp_codes, mo
         {"id": "remove-this", "question": "Remove this record"},
         {"id": "keep-this", "question": "Keep this record"},
     ]
+    session_manager.save(active_workspace_id=workspace_id)
     deleted = []
 
     class FakeMemory:
-        def delete_approved_conversation(self, **kwargs):
-            deleted.append(kwargs)
+        def cleanup(self, intent):
+            deleted.append({"tenant_id": intent.tenant_id, "workspace_id": intent.workspace_id, "record_id": intent.record_id})
+            return True, 0
 
-    monkeypatch.setattr("apps.api.routers.history.get_chat_memory", lambda: FakeMemory())
+    monkeypatch.setattr("apps.core.chat_memory.get_chat_memory", lambda: FakeMemory())
     try:
         with TestClient(create_app(include_product=True)) as product_client:
             finish_login(product_client, owner_email, "language10", otp_codes)

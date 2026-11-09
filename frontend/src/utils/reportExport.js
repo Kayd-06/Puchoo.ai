@@ -41,84 +41,129 @@ export function renderPdfHtml(pdf, element, options, timeoutMs = 30000) {
   });
 }
 
-// Capture in a separate document so the hidden export source and app theme cannot
-// move the report outside the canvas. Keep browser fonts for Indian languages.
+// Every capture starts with explicit bounded dimensions. Never rasterize the
+// entire report first: page-sized canvases are released before the next capture.
+export const PDF_CAPTURE_LIMITS = Object.freeze({
+  maxWidth: 1200,
+  maxPages: 30,
+  maxPixels: 1500000,
+  scale: 1.25,
+});
 export async function renderReportPdf(pdf, element, capture) {
   await document.fonts?.ready;
-  const canvas = await capture(element, {
-    scale: 1.5,
-    backgroundColor: '#ffffff',
-    windowWidth: 1200,
-    scrollX: 0,
-    scrollY: 0,
-    onclone: (_document, clone) => {
-      Object.assign(clone.style, {
-        position: 'absolute',
-        left: '0px',
-        top: '0px',
-        margin: '0',
-        transform: 'none',
-        opacity: '1',
-        visibility: 'visible',
-      });
-    },
-  });
-  if (!canvas.width || !canvas.height) throw new Error('The report could not be rendered.');
-  const width = pdf.internal.pageSize.getWidth();
-  const height = pdf.internal.pageSize.getHeight();
-  const margin = 28;
-  const contentWidth = width - margin * 2;
-  const pagePixels = Math.floor(((height - 70) * canvas.width) / contentWidth);
   const origin = element.getBoundingClientRect();
-  const ratio = origin.width ? canvas.width / origin.width : 1;
-  const rows = [...element.querySelectorAll('tr')].map((row) => {
+  const cssWidth = Math.ceil(origin.width),
+    cssHeight = Math.ceil(origin.height);
+  if (
+    !Number.isFinite(cssWidth) ||
+    !Number.isFinite(cssHeight) ||
+    cssWidth <= 0 ||
+    cssHeight <= 0 ||
+    cssWidth > PDF_CAPTURE_LIMITS.maxWidth
+  ) {
+    throw new Error('Unsupported PDF layout. Download CSV instead.');
+  }
+  const width = pdf.internal.pageSize.getWidth(),
+    height = pdf.internal.pageSize.getHeight();
+  const margin = 28,
+    contentWidth = width - margin * 2;
+  const pixelWidth = Math.ceil(cssWidth * PDF_CAPTURE_LIMITS.scale);
+  const pageCss = Math.floor(
+    Math.min(
+      ((height - 70) * cssWidth) / contentWidth,
+      Math.floor(PDF_CAPTURE_LIMITS.maxPixels / pixelWidth) / PDF_CAPTURE_LIMITS.scale,
+    ),
+  );
+  if (!Number.isFinite(pageCss) || pageCss < 1) throw new Error('Unsupported PDF page size.');
+  // Bound page planning before retaining row geometry or invoking a renderer.
+  if (cssHeight > pageCss * PDF_CAPTURE_LIMITS.maxPages)
+    throw new Error('Report exceeds the PDF page budget. Download CSV instead.');
+  const rowNodes = element.querySelectorAll('tr');
+  if (rowNodes.length > 2001)
+    throw new Error('Report exceeds the PDF row budget. Download CSV instead.');
+  const rows = [...rowNodes].map((row) => {
     const bounds = row.getBoundingClientRect();
     return {
-      top: Math.floor((bounds.top - origin.top) * ratio),
-      bottom: Math.ceil((bounds.bottom - origin.top) * ratio),
+      top: Math.floor(bounds.top - origin.top),
+      bottom: Math.ceil(bounds.bottom - origin.top),
     };
   });
   const pages = [];
-  for (let start = 0; start < canvas.height;) {
-    let end = Math.min(start + pagePixels, canvas.height);
+  for (let start = 0; start < cssHeight;) {
+    let end = Math.min(start + pageCss, cssHeight);
     const crossing = rows.find((row) => row.top < end && row.bottom > end);
     if (crossing && crossing.top > start) end = crossing.top;
     pages.push({ start, height: end - start });
     start = end;
+    if (pages.length > PDF_CAPTURE_LIMITS.maxPages)
+      throw new Error('Report exceeds the PDF page budget. Download CSV instead.');
   }
-  const pageCount = pages.length;
-  for (let page = 0; page < pageCount; page += 1) {
-    if (page) pdf.addPage();
-    const slice = document.createElement('canvas');
-    slice.width = canvas.width;
-    slice.height = pages[page].height;
-    const context = slice.getContext('2d');
-    if (!context) throw new Error('PDF rendering is unavailable.');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, slice.width, slice.height);
-    context.drawImage(
-      canvas,
-      0,
-      pages[page].start,
-      slice.width,
-      slice.height,
-      0,
-      0,
-      slice.width,
-      slice.height,
-    );
-    pdf.addImage(
-      slice.toDataURL('image/png'),
-      'PNG',
-      margin,
-      margin,
-      contentWidth,
-      (slice.height * contentWidth) / slice.width,
-    );
-    pdf.setFontSize(9);
-    pdf.setTextColor(85, 105, 125);
-    pdf.text('Puchoo.si | Intelligence report', margin, height - 18);
-    pdf.text(`Page ${page + 1} of ${pageCount}`, width - margin, height - 18, { align: 'right' });
+  for (let page = 0; page < pages.length; page += 1) {
+    let canvas, cloneFrame;
+    try {
+      canvas = await capture(element, {
+        scale: PDF_CAPTURE_LIMITS.scale,
+        width: cssWidth,
+        height: pages[page].height,
+        x: 0,
+        y: pages[page].start,
+        backgroundColor: '#ffffff',
+        windowWidth: 1200,
+        scrollX: 0,
+        scrollY: 0,
+        removeContainer: true,
+        ignoreElements: (node) =>
+          document.body.contains(node) &&
+          node !== element &&
+          !node.contains(element) &&
+          !element.contains(node),
+        imageTimeout: 10000,
+        onclone: (cloneDocument, clone) => {
+          cloneFrame = cloneDocument?.defaultView?.frameElement;
+          Object.assign(clone.style, {
+            position: 'absolute',
+            left: '0px',
+            top: '0px',
+            margin: '0',
+            transform: 'none',
+            opacity: '1',
+            visibility: 'visible',
+          });
+        },
+      });
+      const expectedHeight = Math.floor(pages[page].height * PDF_CAPTURE_LIMITS.scale);
+      if (
+        !canvas.width ||
+        !canvas.height ||
+        canvas.width !== Math.floor(cssWidth * PDF_CAPTURE_LIMITS.scale) ||
+        canvas.height !== expectedHeight ||
+        canvas.width * canvas.height > PDF_CAPTURE_LIMITS.maxPixels
+      ) {
+        throw new Error('PDF renderer exceeded its bounded page dimensions.');
+      }
+      if (page) pdf.addPage();
+      pdf.addImage(
+        canvas.toDataURL('image/png'),
+        'PNG',
+        margin,
+        margin,
+        contentWidth,
+        (canvas.height * contentWidth) / canvas.width,
+      );
+      pdf.setFontSize(9);
+      pdf.setTextColor(85, 105, 125);
+      pdf.text('Puchoo.si | Intelligence report', margin, height - 18);
+      pdf.text(`Page ${page + 1} of ${pages.length}`, width - margin, height - 18, {
+        align: 'right',
+      });
+    } finally {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      // Also remove our renderer's clone if a dependency fails before its cleanup.
+      cloneFrame?.remove();
+    }
   }
   return pdf;
 }

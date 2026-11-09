@@ -1,0 +1,238 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import AskData from '../pages/AskData';
+import { readFileSync } from 'node:fs';
+const styles = readFileSync('src/index.css', 'utf8');
+import { fetchApi } from '../api/client';
+const context = vi.hoisted(() => ({
+  activeWorkspaceId: 'voice',
+  activeWorkspace: { name: 'Voice' },
+  refreshWorkspaces: vi.fn(),
+}));
+vi.mock('../context/AppContext', () => ({ useAppContext: () => context }));
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'mic-user', tenant_id: 'mic-user', workspace_role: 'owner' } }),
+}));
+vi.mock('../api/client', () => ({ fetchApi: vi.fn(), fetchApiBlob: vi.fn() }));
+let sequence = 0;
+let recorders;
+let track;
+let stream;
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+function mount() {
+  return render(
+    <MemoryRouter>
+      <AskData />
+    </MemoryRouter>,
+  );
+}
+beforeEach(() => {
+  context.activeWorkspaceId = `voice-${sequence++}`;
+  sessionStorage.clear();
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+  track = { stop: vi.fn() };
+  stream = { getTracks: () => [track] };
+  recorders = [];
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) } });
+  vi.stubGlobal(
+    'MediaRecorder',
+    class {
+      static isTypeSupported() {
+        return true;
+      }
+      constructor() {
+        this.mimeType = 'audio/ogg';
+        this.state = 'inactive';
+        recorders.push(this);
+      }
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    },
+  );
+  fetchApi.mockReset();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+async function record() {
+  fireEvent.click(screen.getByRole('button', { name: 'Speak your question' }));
+  await screen.findByRole('button', { name: 'Stop recording' });
+  act(() => recorders[0].ondataavailable({ data: new Blob(['audio'], { type: 'audio/ogg' }) }));
+}
+it('stops a stream granted after unmount without constructing a recorder', async () => {
+  const permission = deferred();
+  navigator.mediaDevices.getUserMedia.mockReturnValue(permission.promise);
+  const view = mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Speak your question' }));
+  view.unmount();
+  await act(async () => permission.resolve(stream));
+  expect(track.stop).toHaveBeenCalledOnce();
+  expect(recorders).toHaveLength(0);
+  expect(fetchApi).not.toHaveBeenCalled();
+});
+it('detaches recorder callbacks and stops every track on unmount', async () => {
+  const view = mount();
+  await record();
+  const stop = recorders[0].onstop;
+  view.unmount();
+  expect(recorders[0].state).toBe('inactive');
+  expect(recorders[0].onstop).toBeNull();
+  expect(track.stop).toHaveBeenCalledOnce();
+  await act(async () => stop());
+  expect(fetchApi).not.toHaveBeenCalled();
+});
+it('aborts transcription and ignores a transport response arriving after workspace switch', async () => {
+  const response = deferred();
+  fetchApi.mockReturnValue(response.promise);
+  const view = mount();
+  await record();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledOnce());
+  const options = fetchApi.mock.calls[0][1];
+  context.activeWorkspaceId = `voice-${sequence++}`;
+  view.rerender(
+    <MemoryRouter>
+      <AskData />
+    </MemoryRouter>,
+  );
+  expect(options.signal.aborted).toBe(true);
+  expect(track.stop).toHaveBeenCalledOnce();
+  await act(async () =>
+    response.resolve({ transcript: 'OLD PRIVATE TRANSCRIPT', language_code: 'hi-IN' }),
+  );
+  expect(screen.getByRole('textbox')).toHaveValue('');
+  expect(JSON.stringify({ ...sessionStorage })).not.toContain('OLD PRIVATE TRANSCRIPT');
+});
+it('cancels conversion resources and never starts transcription after unmount', async () => {
+  const decode = deferred();
+  const close = vi.fn().mockResolvedValue();
+  vi.stubGlobal(
+    'AudioContext',
+    class {
+      state = 'running';
+      decodeAudioData = () => decode.promise;
+      close = close;
+    },
+  );
+  vi.spyOn(Blob.prototype, 'arrayBuffer').mockResolvedValue(new ArrayBuffer(1));
+  const view = mount();
+  await record();
+  recorders[0].mimeType = 'audio/webm';
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+  await act(async () => {});
+  view.unmount();
+  expect(close).toHaveBeenCalled();
+  await act(async () => decode.resolve({}));
+  expect(fetchApi).not.toHaveBeenCalled();
+});
+it('accepts a current transcript and releases capture before sending it', async () => {
+  fetchApi.mockResolvedValue({ transcript: 'sales total', language_code: 'en-IN' });
+  mount();
+  await record();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
+  await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('sales total'));
+  expect(track.stop).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: 'Speak your question' })).toBeEnabled();
+});
+
+it('keeps IME composition Enter local, then ordinary Enter executes exactly once', async () => {
+  mount();
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: '売上 合計' } });
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.compositionEnd(input);
+  fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+  fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+  fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+  expect(fetchApi).not.toHaveBeenCalled();
+  fetchApi
+    .mockResolvedValueOnce({ pending_id: 'p', sql_hash: 'h' })
+    .mockResolvedValueOnce({ record: { question: '売上 合計', columns: [], rows: [] } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(2));
+  expect(fetchApi.mock.calls[0][0]).toContain('/generate');
+  expect(fetchApi.mock.calls[1][0]).toContain('/approve');
+});
+
+it.each(['dark', 'light'])(
+  'renders readable clarification text and choices in %s computed styles',
+  async (theme) => {
+    document.documentElement.dataset.theme = theme;
+    const sheet = document.createElement('style');
+    sheet.textContent = styles.slice(styles.indexOf('/* Keep essential query choices'));
+    document.head.append(sheet);
+    try {
+      fetchApi.mockResolvedValue({
+        status: 'clarification_required',
+        message: 'Which metric?',
+        interpreted_request: 'sales',
+        assumptions: ['no hidden filters'],
+        suggestions: ['Revenue'],
+      });
+      mount();
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'best sales' } });
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+      const card = await screen.findByRole('region', { name: 'Clarify your question' });
+      const lum = (color) => {
+        const channels = color
+          .match(/[\d.]+/g)
+          .slice(0, 3)
+          .map(Number)
+          .map((v) => v / 255)
+          .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      for (const node of card.querySelectorAll('h3,p,button')) {
+        const computed = getComputedStyle(node);
+        const bg =
+          node.tagName === 'BUTTON'
+            ? computed.backgroundColor
+            : getComputedStyle(card).backgroundColor;
+        const a = lum(computed.color),
+          b = lum(bg);
+        expect(
+          (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+          `${node.tagName}: ${computed.color} / ${bg}; sheet ${sheet.textContent.length}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    } finally {
+      sheet.remove();
+      delete document.documentElement.dataset.theme;
+    }
+  },
+);
+
+it('drops unfinished composition ownership when workspace changes', async () => {
+  const view = mount();
+  fireEvent.compositionStart(screen.getByRole('textbox'));
+  context.activeWorkspaceId = `voice-${sequence++}`;
+  view.rerender(
+    <MemoryRouter>
+      <AskData />
+    </MemoryRouter>,
+  );
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'new scope' } });
+  fetchApi.mockResolvedValue({
+    status: 'clarification_required',
+    message: 'metric',
+    suggestions: [],
+  });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  await waitFor(() => expect(fetchApi).toHaveBeenCalledOnce());
+  expect(fetchApi.mock.calls[0][0]).toContain(`/query/${context.activeWorkspaceId}/generate`);
+});

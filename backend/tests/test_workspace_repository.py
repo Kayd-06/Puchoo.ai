@@ -1,3 +1,4 @@
+import pytest
 """Relational tenant workspace persistence and legacy import."""
 
 from sqlalchemy.orm import sessionmaker
@@ -209,7 +210,8 @@ def test_session_save_only_writes_the_changed_workspace_and_survives_id_clash(tm
     manager.save(active_workspace_id="a1")
     assert written == ["a1"]
 
-    manager.save(active_workspace_id="clash")  # must not raise
+    with pytest.raises(ValueError, match="another tenant"):
+        manager.save(active_workspace_id="clash")
     with sessions() as db:
         record = WorkspaceRepository(db).get_for_tenant("clash", "owner-b")
         assert record["name"] == "B's"

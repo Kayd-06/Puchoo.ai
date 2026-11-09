@@ -8,6 +8,9 @@ passwords are never written to disk.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from threading import RLock
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,8 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATE_DIRECTORY = PROJECT_ROOT / ".pucho"
 STATE_PATH = STATE_DIRECTORY / "state.json"
+# One API process owns snapshot capture, mutation and publication.
+STATE_LOCK = RLock()
 
 
 def load_local_state() -> dict[str, Any]:
@@ -35,7 +40,7 @@ def load_local_state() -> dict[str, Any]:
     return default
 
 
-def save_local_state(
+def _save_local_state(
     *,
     workspaces: dict[str, dict[str, Any]],
     active_workspace_id: str | None,
@@ -66,6 +71,27 @@ def save_local_state(
         "profile": profile,
     }
     STATE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    temporary_path = STATE_PATH.with_suffix(".tmp")
-    temporary_path.write_text(json.dumps(state, ensure_ascii=False, default=str), encoding="utf-8")
-    temporary_path.replace(STATE_PATH)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=STATE_DIRECTORY,
+                                         prefix=".state-", suffix=".tmp", delete=False) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(state, handle, ensure_ascii=False, default=str)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary_path.replace(STATE_PATH)
+        if os.name == "posix":
+            descriptor = os.open(STATE_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def save_local_state(**kwargs) -> None:
+    # Includes serialization, not just rename. API callers also mutate under this lock.
+    with STATE_LOCK:
+        _save_local_state(**kwargs)

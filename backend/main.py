@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import logging
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -36,12 +37,22 @@ def _validation_detail(exc: RequestValidationError) -> str:
 def create_app(*, include_product: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        init_db()
-        if include_product:
-            from apps.api.session import session_manager
+        from backend.maintenance import api_database_lease
+        with api_database_lease():
+            init_db()
+            if include_product:
+                from apps.api.session import session_manager
 
-            session_manager.hydrate_from_database()
-        yield
+                session_manager.hydrate_from_database()
+                from backend.memory_deletions import deletion_worker
+                stop = asyncio.Event()
+                worker = asyncio.create_task(deletion_worker(stop))
+            try:
+                yield
+            finally:
+                if include_product:
+                    stop.set()
+                    await worker
 
     app = FastAPI(
         title="Puchoo.si API",

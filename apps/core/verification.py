@@ -112,13 +112,8 @@ class ClaudeVerifier:
                 messages=[{"role": "user", "content": payload}],
             )
             return _verification_from_content(response.content[0].text)
-        except Exception as exc:
-            return VerificationResult(
-                status=VerificationStatus.UNAVAILABLE,
-                confidence=None,
-                summary="Independent verification is unavailable.",
-                details=str(exc),
-            )
+        except Exception:
+            return verification_unavailable()
 
 
 class DeepSeekVerifier:
@@ -152,13 +147,8 @@ class DeepSeekVerifier:
                 model=self.model,
             )
             return _verification_from_content(content)
-        except Exception as exc:
-            return VerificationResult(
-                status=VerificationStatus.UNAVAILABLE,
-                confidence=None,
-                summary="Independent verification is unavailable.",
-                details=str(exc),
-            )
+        except Exception:
+            return verification_unavailable()
 
 
 def get_verifier() -> ClaudeVerifier | DeepSeekVerifier:
@@ -174,5 +164,10 @@ def get_verifier() -> ClaudeVerifier | DeepSeekVerifier:
     return DeepSeekVerifier()
 
 
-def verification_unavailable(reason: str) -> VerificationResult:
-    return VerificationResult(VerificationStatus.UNAVAILABLE, None, "Independent verification is unavailable.", reason)
+def verification_unavailable(reason: str | None = None) -> VerificationResult:
+    """Do not expose SDK exception bodies, credentials, endpoints or request data.
+
+    The optional legacy argument is deliberately ignored, never logged/persisted.
+    """
+    return VerificationResult(VerificationStatus.UNAVAILABLE, None, "Independent verification is unavailable.",
+                              "The independent check could not be completed. Database results remain available.")

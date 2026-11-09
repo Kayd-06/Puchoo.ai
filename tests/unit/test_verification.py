@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import json
 from types import SimpleNamespace
 import unittest
@@ -53,3 +55,18 @@ class ClaudeVerifierTests(unittest.TestCase):
         )
         self.assertEqual(VerificationStatus.VERIFIED, result.status)
         self.assertEqual(91, result.confidence)
+
+
+@pytest.mark.parametrize('provider', ['claude', 'deepseek'])
+def test_provider_exception_details_are_not_public(provider):
+    from types import SimpleNamespace
+    from apps.core.verification import ClaudeVerifier, DeepSeekVerifier, verification_unavailable
+    private = 'SYNTHETIC_SECRET_742 https://private.invalid/internal'
+    def fail(**kwargs):
+        raise RuntimeError(private)
+    client = SimpleNamespace(messages=SimpleNamespace(create=fail), _chat=fail)
+    verifier = ClaudeVerifier(client=client) if provider == 'claude' else DeepSeekVerifier(client=client)
+    result = verifier.verify(question='total', sql='SELECT 1', columns=['n'], rows=[{'n': 1}], row_count=1).as_dict()
+    assert result['status'] == 'UNAVAILABLE'
+    assert 'SYNTHETIC_SECRET' not in str(result) and 'private.invalid' not in str(result)
+    assert private not in str(verification_unavailable(private).as_dict())

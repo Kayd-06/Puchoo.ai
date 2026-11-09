@@ -16,7 +16,8 @@ from urllib.parse import quote_plus
 
 import certifi
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy.engine import URL
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import URL, Engine
 
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)"
@@ -34,7 +35,7 @@ HOST_NOT_ALLOWED_ERROR = "That database host is not allowed."
 HOST_UNRESOLVED_ERROR = "Could not resolve the database host."
 # These stay off the HTTP response. Callers return GENERIC_CONNECTION_ERROR instead.
 GENERIC_HOST_ERRORS = frozenset({HOST_NOT_ALLOWED_ERROR, HOST_UNRESOLVED_ERROR})
-POSTGRES_SSL_MODES = frozenset({"require", "verify-ca"})
+POSTGRES_SSL_MODES = frozenset({"require", "verify-ca", "verify-full"})
 # Deprecated IPv4-compatible form (::a.b.c.d). Python can report these as global.
 _IPV4_COMPATIBLE_NETWORK = ipaddress.IPv6Network("::/96")
 # Well-known NAT64 prefix. The last 32 bits are the embedded IPv4 address.
@@ -147,7 +148,10 @@ def db_ssl_required() -> bool:
     value = os.getenv("DB_SSL_REQUIRED")
     if value is None:
         return True
-    return value.strip().lower() not in {"0", "false", "no", "off"}
+    required = value.strip().lower() not in {"0", "false", "no", "off"}
+    if not required and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
+        raise ValueError("Database TLS is required in production.")
+    return required
 
 
 def allowed_db_hosts() -> set[str]:
@@ -278,6 +282,7 @@ def mysql_connect_args(password: str) -> dict:
         args["ssl"] = {"ca": ca_file}
         args["ssl_ca"] = ca_file
         args["ssl_verify_cert"] = True
+        args["ssl_verify_identity"] = True
         args["ssl_disabled"] = False
     else:
         args["ssl_disabled"] = True
@@ -285,23 +290,19 @@ def mysql_connect_args(password: str) -> dict:
 
 
 def db_ssl_mode() -> str:
-    """Return DB_SSL_MODE. Call validate_db_ssl_mode() at startup before using it."""
+    """Legacy require/verify-ca settings are upgraded, never used to weaken TLS."""
 
-    return os.getenv("DB_SSL_MODE", "require").strip().lower() or "require"
+    mode = os.getenv("DB_SSL_MODE", "verify-full").strip().lower() or "verify-full"
+    if mode not in POSTGRES_SSL_MODES:
+        raise ValueError("DB_SSL_MODE must be require, verify-ca or verify-full; all use verify-full.")
+    return "verify-full"
 
 
 def validate_db_ssl_mode() -> None:
-    """Reject a Postgres TLS mode this process cannot use. Run once at startup."""
+    """Validate policy at startup; production cannot opt out of database TLS."""
 
-    mode = db_ssl_mode()
-    if mode == "verify-full":
-        raise ValueError(
-            "DB_SSL_MODE=verify-full cannot be used because the connection uses the resolved IP, not the hostname."
-        )
-    if mode not in POSTGRES_SSL_MODES:
-        raise ValueError("DB_SSL_MODE must be require or verify-ca.")
-    if mode == "verify-ca" and not os.getenv("DB_SSL_ROOT_CERT", "").strip():
-        raise ValueError("DB_SSL_ROOT_CERT is required when DB_SSL_MODE=verify-ca.")
+    db_ssl_required()
+    db_ssl_mode()
 
 
 def postgres_connect_args(password: str) -> dict:
@@ -311,22 +312,63 @@ def postgres_connect_args(password: str) -> dict:
         "options": "-c default_transaction_read_only=on -c statement_timeout=" + str(STATEMENT_TIMEOUT_MS),
     }
     if db_ssl_required():
-        mode = db_ssl_mode()
-        args["sslmode"] = mode
-        if mode == "verify-ca":
-            root_cert = os.getenv("DB_SSL_ROOT_CERT", "").strip()
-            if not root_cert:
-                raise ValueError("DB_SSL_ROOT_CERT is required when DB_SSL_MODE=verify-ca.")
-            args["sslrootcert"] = root_cert
+        args["sslmode"] = db_ssl_mode()
+        args["sslrootcert"] = os.getenv("DB_SSL_ROOT_CERT", "").strip() or certifi.where()
+    else:
+        # Explicit development-only opt-out; do not inherit libpq's prefer mode.
+        args["sslmode"] = "disable"
     return args
 
 
-def connect_args_for(dialect: str, password: str) -> dict:
+def connect_args_for(dialect: str, password: str, *, pinned_ip: str | None = None) -> dict:
     if dialect == "mysql":
-        return mysql_connect_args(password)
+        args = mysql_connect_args(password)
+        if pinned_ip is not None:
+            args["_pinned_ip"] = pinned_ip
+        return args
     if dialect == "postgresql":
-        return postgres_connect_args(password)
+        args = postgres_connect_args(password)
+        if pinned_ip is not None:
+            args["hostaddr"] = pinned_ip
+        return args
     raise ValueError("Dialect must be postgresql or mysql.")
+
+
+def create_database_engine(database_uri: str, *, connect_args: Mapping | None = None) -> Engine:
+    """Keep the URL's original TLS identity separate from the checked endpoint.
+
+    libpq supports host (identity) plus hostaddr (network route). PyMySQL exposes
+    Connection.connect(sock=...), so supply a numeric-address socket while its
+    host/ssl_verify_identity still control SNI and hostname verification. The
+    SQLAlchemy do_connect hook applies to every new pooled connection.
+    """
+
+    args = materialize_connect_args(connect_args)
+    if database_uri.startswith("mysql"):
+        args["local_infile"] = False
+    pinned_ip = args.pop("_pinned_ip", None)
+    if pinned_ip is not None:
+        address = ipaddress.ip_address(pinned_ip)  # Never permit a second hostname resolution.
+        if not database_uri.startswith("mysql+pymysql:"):
+            raise ValueError("Pinned socket is only supported by PyMySQL.")
+    engine = create_engine(database_uri, connect_args=args)
+    if pinned_ip is not None:
+        @event.listens_for(engine, "do_connect")
+        def connect_pinned(dialect, _record, cargs, cparams):
+            connection = dialect.loaded_dbapi.connect(*cargs, **cparams, defer_connect=True)
+            family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            try:
+                sock.settimeout(cparams.get("connect_timeout", CONNECT_TIMEOUT_SECONDS))
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                sock.connect((str(address), cparams.get("port", 3306)))
+                connection.connect(sock=sock)
+                return connection
+            except BaseException:
+                sock.close()
+                raise
+    return engine
 
 
 def materialize_connect_args(connect_args: Mapping | None) -> dict:

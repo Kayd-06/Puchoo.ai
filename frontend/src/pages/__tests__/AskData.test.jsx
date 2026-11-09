@@ -32,19 +32,20 @@ it('distinguishes mismatched, unavailable, and verified answers', async () => {
 });
 
 it('resizes the particle bitmap when a hidden canvas becomes visible', async () => {
-  const { render } = await import('@testing-library/react');
+  const { act, render } = await import('@testing-library/react');
   const { vi } = await import('vitest');
   const { QueryUniverse } = await import('../AskData');
   let width = 0;
   let resize;
   const disconnect = vi.fn();
-  const context = { setTransform: vi.fn() };
+  const context = { setTransform: vi.fn(), clearRect: vi.fn() };
   const canvasContext = vi
     .spyOn(HTMLCanvasElement.prototype, 'getContext')
     .mockReturnValue(context);
   const bounds = vi
     .spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect')
-    .mockImplementation(() => ({ width, height: width ? 400 : 0 }));
+    .mockImplementation(() => ({ width, height: width ? 400 : 0, left: 0, top: 0 }));
+  vi.useFakeTimers();
   vi.stubGlobal('matchMedia', () => ({ matches: false }));
   vi.stubGlobal('devicePixelRatio', 1);
   vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(1));
@@ -62,14 +63,20 @@ it('resizes the particle bitmap when a hidden canvas becomes visible', async () 
   try {
     const { container, unmount } = render(<QueryUniverse />);
     const canvas = container.querySelector('canvas');
-    expect(canvas.width).toBe(1);
+    // A hidden (zero-size) canvas must not keep a stretched bitmap.
+    expect(canvas.width).toBe(0);
     width = 800;
-    resize();
+    act(() => {
+      resize();
+      // Resizes are debounced so layout bursts repaint once.
+      vi.advanceTimersByTime(100);
+    });
     expect(canvas.width).toBe(800);
     expect(canvas.height).toBe(400);
     unmount();
     expect(disconnect).toHaveBeenCalledOnce();
   } finally {
+    vi.useRealTimers();
     canvasContext.mockRestore();
     bounds.mockRestore();
     vi.unstubAllGlobals();

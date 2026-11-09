@@ -45,12 +45,12 @@ Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` t
 | `COOKIE_SECURE` | `true` in production so the session and CSRF cookies are HTTPS-only. With `ENVIRONMENT=production` the server refuses to start unless it is `true`. |
 | `ENVIRONMENT` | `development` or `production`. |
 | `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
-| `UPLOAD_XLSX_MAX_UNCOMPRESSED_BYTES` | Max total uncompressed size of an uploaded XLSX archive. Default `209715200` (200 MB). Checked from the zip directory before parsing; over the limit returns 413. |
+| `UPLOAD_XLSX_MAX_UNCOMPRESSED_BYTES` | Max total uncompressed size of an uploaded XLSX archive. Default/hard ceiling `33554432` (32 MiB). Checked from the zip directory before parsing; over the limit returns 413. |
 | `UPLOAD_XLSX_MAX_COMPRESSION_RATIO` | Max uncompressed:compressed ratio of an XLSX (zip-bomb guard). Default `100`; over the limit returns 413. |
 | `UPLOAD_MAX_SHEETS` | Max sheets per workbook. Default `50`. |
 | `UPLOAD_MAX_ROWS` | Max data rows per sheet or CSV file. Default `1000000`. |
 | `UPLOAD_MAX_COLUMNS` | Max columns per sheet or CSV file. Default `500`. |
-| `UPLOAD_MAX_CELLS` | Max cells across all sheets and files in one upload. Default `10000000`. Sheet, row, column and cell limits return 400 with a message naming the limit. |
+| `UPLOAD_MAX_CELLS` | Max cells across all sheets and files in one upload. Default/hard ceiling `250000`. Sheet, row, column and cell limits return 400 with a message naming the limit. |
 | `NOTIFICATION_STREAMS_PER_USER` | Open notification (SSE) streams allowed per user. Default `3`; extra streams get 429 and a slot frees when a stream closes. |
 | `SMTP_FROM` | A verified `no-reply@your-domain` sender. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
 
@@ -120,7 +120,7 @@ Auth tests:
 
 ### Approved conversation memory
 
-When a user executes a proposed query, that action is treated as approval. Puchoo saves only the question, its interpretation, and verification summary to local persistent ChromaDB. It does not put result rows, generated SQL, connection strings, passwords, or tokens into vector memory. Every ChromaDB read/write is filtered by both the account/institute tenant and workspace ID; institute members can access their shared institute workspace, while personal workspaces remain private. The semantic recall endpoint is `GET /api/history/{workspace_id}/memory/search?q=...`.
+Submitting a question starts automatic guarded execution. After a successful execution, Puchoo saves only the question, its interpretation, and verification summary to local persistent ChromaDB. It does not put result rows, generated SQL, connection strings, passwords, or tokens into vector memory. Every ChromaDB read/write is filtered by both the account/institute tenant and workspace ID; institute members can access their shared institute workspace, while personal workspaces remain private. The semantic recall endpoint is `GET /api/history/{workspace_id}/memory/search?q=...`.
 
 The landing page is `/`. `/login` and `/signup` are the account forms. `/ask` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/ask`.
 
@@ -128,15 +128,15 @@ To replace the final call-to-action image, add a file at `frontend/public/cta-vi
 
 ## Uploading data
 
-- Accepted files: **CSV, XLSX and XLS** only. Each upload is converted into a private SQLite workspace on the server.
+- Accepted files: **CSV and XLSX** only (legacy XLS must be converted first). Each upload is converted into a private SQLite workspace on the server.
 - **SQLite database uploads (`.db`, `.sqlite`, `.sqlite3`) are no longer supported.** An arbitrary database file can carry triggers, views and features the tabular importer never has to trust, so the upload path now accepts spreadsheets only. To use data from an existing SQLite file, export its tables to CSV/XLSX, or connect a PostgreSQL/MySQL server as a data source.
 - Limits: up to `UPLOAD_MAX_FILES` files per upload (default **10**) and `UPLOAD_MAX_BYTES` per file (default 25 MB).
 - Only workspace owners and admins can upload (see `docs/permissions.md`).
 
 ## Safe execution and verification
 
-- **Nothing runs without your approval.** Asking a question generates SQL, validates it, and stores it as a pending query (about 10 minutes). The UI shows the exact SQL with **Run** and **Cancel**. Run sends `POST /api/query/{workspace}/pending/{id}/approve` with the SQL's SHA-256; it is CSRF-protected, works once, only for the user who asked (same tenant and workspace), and is rejected after expiry. The SQL is re-validated against the live schema and current limits, then run byte-for-byte.
-- If the database rejects an approved query, Puchoo.si may propose a corrected query. The correction is a new pending query and needs its own approval ("Run again"); it is never run automatically.
+- **Submitting a question automatically runs guarded read-only SQL.** The server binds a short-lived execution token to the exact SQL hash, authenticated actor, tenant and workspace. The UI immediately consumes the CSRF-protected, one-use `POST /api/query/{workspace}/pending/{id}/approve` endpoint (the legacy endpoint name is not a manual approval screen). The server revalidates live schema, scope and limits before execution. **View query** is optional inspection afterward.
+- A runtime failure can trigger one automatic correction. The replacement must pass the same read-only guards and prove preservation of the original query semantics before automatic execution; unsafe/unproven changes do not run. No mandatory Run/Cancel or second approval UI is part of the normal flow.
 - **Guardrail allowlist.** SQLGlot parses every query. Only one `SELECT` is allowed (CTEs and `UNION`/`INTERSECT`/`EXCEPT` of selects are fine). Only allowlisted functions (aggregates, math, string, date/time, `CASE`/`COALESCE`/`NULLIF`/`CAST`, window functions) may be called, per dialect; anything else, such as `pg_sleep`, `pg_read_file`, `dblink`, `lo_import`, `set_config`, `SLEEP`, `BENCHMARK`, `LOAD_FILE`, `load_extension` or `readfile`, is rejected. Only tables and columns of the active data source may be read; system schemas and catalog tables (`pg_catalog`, `information_schema`, `mysql`, `performance_schema`, `sys`, `sqlite_master`, `pg_*`) are always rejected, as are `SELECT INTO`/`INTO OUTFILE`, `FOR UPDATE`/`FOR SHARE`, session variables, bind parameters, executable comments (`/*! */`, optimizer hints), bare session keywords such as `session_user`, SQLite's `IN table_name` shorthand and invisible Unicode characters. Schema prefixes must name the source's own schema, using the database's own case rules (in PostgreSQL `"Public"` is not `public`). Plain comments are stripped from the SQL that runs.
 - **Database-level limits.** PostgreSQL queries run in a `READ ONLY` transaction with `SET LOCAL statement_timeout`; MySQL/MariaDB use a read-only session and transaction with `max_execution_time` (`max_statement_time` on MariaDB); SQLite sources are opened with `mode=ro` plus `PRAGMA query_only` and a timeout. Results are capped with `fetchmany` and flagged as `truncated` when the cap is reached.
 - **Use a read-only database user.** These controls are defence in depth, not a substitute for least privilege. Connect Postgres and MySQL sources with a dedicated user that can only `SELECT` the tables Puchoo.si should see (for example `GRANT SELECT ON ALL TABLES IN SCHEMA public TO puchoo_readonly;` on Postgres, `GRANT SELECT ON reporting.* TO 'puchoo_readonly'@'%';` on MySQL), with no superuser, `FILE`, `pg_read_server_files`, or `pg_execute_server_program` rights.
@@ -146,7 +146,7 @@ To replace the final call-to-action image, add a file at `frontend/public/cta-vi
 | --- | --- | --- |
 | `QUERY_STATEMENT_TIMEOUT_SECONDS` | `15` | Server-wide ceiling for one query (1–300). Workspace settings can only lower it. |
 | `QUERY_MAX_ROWS` | `5000` | Server-wide ceiling for returned rows (1–100000). Workspace settings can only lower it. |
-| `PENDING_QUERY_TTL_SECONDS` | `600` | How long generated SQL can wait for approval (30–3600). |
+| `PENDING_QUERY_TTL_SECONDS` | `600` | Execution-token lifetime; the UI normally consumes it immediately (30–3600). |
 
 ## Configuration
 
@@ -201,3 +201,5 @@ or database schema. SQL and result rows are excluded from vector memory;
 answers still come from fresh, guarded read-only database queries. If ChromaDB
 is unavailable or there are no relevant matches, generation continues without
 memory. Deterministic schema-based queries do not need the retrieval step.
+
+Tabular import hard ceilings and supported formats: [bounded parser policy](docs/security/upload-parser-bounds.md). Configuration can lower but not raise these safety ceilings; unusual XLSX layouts may need a data-only export. Offline dataset-inclusive recovery: [backup runbook](docs/runbooks/backups.md).

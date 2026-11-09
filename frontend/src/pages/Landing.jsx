@@ -21,13 +21,13 @@ const capabilities = [
   ],
   [
     '02',
-    'Approve with context',
+    'Automatic guarded run',
     'Read the SQL and plain-language reasoning before anything touches your data.',
   ],
   [
     '03',
     'Move with confidence',
-    'Every approved answer is read-only, verified, and isolated to your workspace.',
+    'Queries run read-only within your workspace; advisory verification can flag uncertainty.',
   ],
 ];
 
@@ -43,7 +43,7 @@ const demoSteps = [
     eyebrow: 'Puchoo.si proposes safe SQL',
     value:
       'SELECT department, SUM(amount) AS spend\nFROM expenses\nGROUP BY department\nORDER BY spend DESC LIMIT 5;',
-    note: 'Read-only · approval required',
+    note: 'Read-only · automatic guarded run',
   },
   {
     label: 'Answer',
@@ -92,7 +92,7 @@ function ProductDemo() {
         </h2>
         <p>
           Every interaction is intentionally visible: Puchoo.si takes a question, proposes the
-          logic, and only runs it with your approval.
+          logic, and runs it automatically after server-side validation.
         </p>
         <div className="puchoo-demo-tabs">
           {demoSteps.map((item, index) => (
@@ -418,8 +418,8 @@ export default function Landing() {
           <span>03 / Your data, in control</span>
           <h2>Intelligence that knows its boundaries.</h2>
           <p>
-            Your workspace stays isolated. Read-only guardrails, human approval, and verified
-            responses are built into every question.
+            Your workspace stays isolated. Read-only guardrails, scoped automatic execution, and
+            advisory responses are built into every question.
           </p>
           <a
             href="/signup"

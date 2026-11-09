@@ -71,3 +71,17 @@ class SarvamClientTests(unittest.TestCase):
         client = SarvamClient(client=_Client())
         self.assertEqual("नमस्ते", client.translate("Hello", "hi-IN"))
         self.assertEqual("namaste", client.transliterate("नमस्ते", "en-IN", source_language="hi-IN"))
+
+
+def test_translation_preserves_complete_boundary_input_and_rejects_longer_text():
+    import pytest
+    from apps.core.sarvam_client import MAX_TRANSLATION_CHARS
+    fake = _Client()
+    client = SarvamClient(client=fake)
+    text = "अ" * (MAX_TRANSLATION_CHARS - 8) + " in 2025"
+    client.translate(text, 'en-IN', source_language='hi-IN')
+    assert fake.text.translate_kwargs['input'] == text
+    previous = fake.text.translate_kwargs
+    with pytest.raises(ValueError, match='at most 2000'):
+        client.translate(text + 'x', 'en-IN', source_language='hi-IN')
+    assert fake.text.translate_kwargs is previous
