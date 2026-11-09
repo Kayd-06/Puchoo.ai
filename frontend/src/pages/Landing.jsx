@@ -17,12 +17,12 @@ const capabilities = [
   [
     '01',
     'Ask naturally',
-    'Ask in the language your team already uses. Puchoo.si turns the intent into a safe, readable proposal.',
+    'Ask in the language your team already uses. Puchoo.si turns the intent into guarded read-only SQL and runs it automatically.',
   ],
   [
     '02',
     'Automatic guarded run',
-    'Read the SQL and plain-language reasoning before anything touches your data.',
+    'Server-side guardrails validate the SQL, then run it read-only. View query lets you inspect it afterward.',
   ],
   [
     '03',
@@ -39,11 +39,11 @@ const demoSteps = [
     note: 'English · spoken or typed',
   },
   {
-    label: 'Review',
-    eyebrow: 'Puchoo.si proposes safe SQL',
+    label: 'Run',
+    eyebrow: 'Guarded read-only SQL',
     value:
       'SELECT department, SUM(amount) AS spend\nFROM expenses\nGROUP BY department\nORDER BY spend DESC LIMIT 5;',
-    note: 'Read-only · automatic guarded run',
+    note: 'Automatic run · View query optional',
   },
   {
     label: 'Answer',
@@ -91,8 +91,8 @@ function ProductDemo() {
           before the result.
         </h2>
         <p>
-          Every interaction is intentionally visible: Puchoo.si takes a question, proposes the
-          logic, and runs it automatically after server-side validation.
+          Every interaction stays inspectable: Puchoo.si takes a question, builds guarded
+          SQL, and runs it automatically after server-side validation.
         </p>
         <div className="puchoo-demo-tabs">
           {demoSteps.map((item, index) => (
@@ -217,8 +217,8 @@ function LanguageAndVoice() {
             Verified clarity out.
           </h3>
           <p>
-            Voice input supports supported Indian languages and produces the same proposal, review,
-            and evidence trail as a typed question.
+            Voice input supports supported Indian languages and produces the same automatic
+            guarded run and evidence trail as a typed question.
           </p>
           <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
             Try voice questions <ArrowUpRight size={16} />
@@ -352,7 +352,7 @@ export default function Landing() {
           applicationCategory: 'BusinessApplication',
           operatingSystem: 'Web',
           description:
-            'Secure natural-language analytics with read-only SQL review and isolated workspaces.',
+            'Secure natural-language analytics with automatic guarded read-only SQL and isolated workspaces.',
           url: 'https://puchoo.ai/',
         })}
       </script>
@@ -411,7 +411,7 @@ export default function Landing() {
           </p>
           <div className="puchoo-proof-result">
             <ShieldCheck size={18} />
-            <span>SQL proposed, reviewed and verified before the answer appears.</span>
+            <span>Guarded read-only SQL ran automatically; View query shows what executed.</span>
           </div>
         </div>
         <div className="puchoo-proof-copy">

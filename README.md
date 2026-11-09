@@ -1,8 +1,8 @@
 # Puchoo.si
 
-Puchoo.si is a production-grade secure multilingual Text-to-SQL analytics platform. It turns natural-language analytics questions into transparent SQL proposals using a deliberate **ask → review → run → verify** workflow over your existing databases.
+Puchoo.si is a secure multilingual Text-to-SQL analytics workspace. You type or speak a question, press Enter, and the app automatically builds and runs guarded read-only SQL, with safe automatic repair when a runtime error can be fixed without changing the question's meaning. Vague questions get clarification choices with buttons before anything runs. DeepSeek is the default SQL provider.
 
-It implements a **FastAPI backend as the sole security boundary** and a **React SPA (Vite)** for a premium, secure presentation layer.
+It implements a **FastAPI backend as the sole security boundary** and a **React SPA (Vite)** for presentation only.
 
 ## Architecture
 
