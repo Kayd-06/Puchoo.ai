@@ -340,6 +340,15 @@ def generate_query(
             selected_tables = [name for name in selected_tables if name in {table.name for table in parse_schema(schema)}]
             intent_plan.tables = selected_tables
             public_plan = intent_plan.as_dict()
+            if "outstanding_fee_amount" in deterministic_sql:
+                public_plan["assumptions"] = [
+                    "Unpaid fees means a positive outstanding balance, including partial payments, "
+                    "across all recorded fees. Students without fee records are not classified as unpaid."
+                ]
+            elif "overall_attendance" in deterministic_sql and "overall attendance" in planning_question.lower():
+                public_plan["assumptions"] = [
+                    "Attendance means average attendance per student across all recorded entries."
+                ]
             structured_plan = None
             decision = type(decision)("deterministic_complex", decision.score, decision.reasons)
         elif decision.route == "planned":
@@ -518,7 +527,7 @@ def generate_query(
             429: "The SQL model provider is temporarily rate limited. Please wait briefly and retry.",
             400: "The SQL model provider rejected the configured model request. Ask your administrator to check the SQL and planner model settings.",
         }
-        detail = messages.get(provider_status, "The SQL model service is unavailable or not configured. Please retry later or ask your workspace administrator to check the model service.")
+        detail = getattr(exc, "public_detail", None) or messages.get(provider_status, "The SQL model service is unavailable or not configured. Please retry later or ask your workspace administrator to check the model service.")
         raise HTTPException(status_code=503, detail=detail) from None
     except QueryPlanError:
         logger.warning("query plan could not be completed")

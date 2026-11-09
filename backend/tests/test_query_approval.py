@@ -673,7 +673,7 @@ def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
 def test_deterministic_query_does_not_require_a_provider(env, monkeypatch):
     monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: 'SELECT id, region, amount FROM orders ORDER BY id')
     def unavailable():
-        raise query_router.LocalMLXConfigurationError('Groq unavailable')
+        raise query_router.LocalMLXConfigurationError('DeepSeek unavailable')
     monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
     response = env.generate(question='List all orders')
     assert response.status_code == 200, response.text
@@ -717,7 +717,12 @@ def test_complex_planned_aggregate_returns_known_database_results(env, monkeypat
     assert response.json()['record']['rows'] == [{'region': 'north', 'total': 15}, {'region': 'south', 'total': 20}]
 
 
-def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
+@pytest.mark.parametrize("question", [
+    "give me the list of students with unpaid fee",
+    "Give me the list of students who have not paid the fee.",
+    "Show students who have not paid fees",
+])
+def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch, question):
     from apps.core.llm_client import schema_guided_fallback_sql
     connection = sqlite3.connect(env.source)
     connection.executescript("CREATE TABLE pupils(student_id INTEGER,full_name TEXT); CREATE TABLE charges(student_id INTEGER,amount_due REAL,amount_paid REAL); INSERT INTO pupils VALUES(1,'Part paid'),(2,'Fully paid'); INSERT INTO charges VALUES(1,100,40),(2,100,100);")
@@ -726,7 +731,7 @@ def test_actual_unpaid_fee_route_works_without_model_service(env, monkeypatch):
     def unavailable():
         raise query_router.LocalMLXConfigurationError('Provider unavailable')
     monkeypatch.setattr(query_router, 'get_sql_client', unavailable)
-    proposal = env.generate(question='give me the list of students with unpaid fee')
+    proposal = env.generate(question=question)
     assert proposal.status_code == 200, proposal.text
     assert not env.executions
     response = env.approve(proposal.json())
@@ -1014,3 +1019,120 @@ def test_multi_upload_total_bytes_rejected_before_importer(env, monkeypatch):
     monkeypatch.setattr(route, 'create_tabular_collection_workspace', lambda *a, **k: pytest.fail('oversized collection reached importer'))
     response = env.owner.post('/api/workspaces/upload-multiple', files=[('files', ('one.csv', b'x\n1\n2\n', 'text/csv')), ('files', ('two.csv', b'y\n3\n4\n', 'text/csv'))], headers=csrf_headers(env.owner))
     assert response.status_code == 413, response.text
+
+
+def test_student_attendance_below_threshold_skips_paid_model_and_keeps_approval(env, monkeypatch):
+    from apps.core.llm_client import schema_guided_fallback_sql
+    connection = sqlite3.connect(env.source)
+    connection.executescript(
+        "CREATE TABLE students(student_id INTEGER, full_name TEXT);"
+        "CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL);"
+        "INSERT INTO students VALUES (1, 'Asha'), (2, 'Rohan');"
+        "INSERT INTO attendance VALUES (1, 60), (1, 100), (2, 60), (2, 80);"
+    )
+    connection.close()
+    monkeypatch.setattr(query_router, "schema_guided_fallback_sql", schema_guided_fallback_sql)
+
+    def unexpected_model():
+        pytest.fail("Simple attendance threshold must not call the paid model")
+
+    monkeypatch.setattr(query_router, "get_sql_client", unexpected_model)
+    response = env.generate(question="Give me the list of students having attendance less than 75%.")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "pending_approval"
+    assert "HAVING AVG(a.attendance_percentage) < 75" in body["sql"]
+    assert env.executions == []
+    result = env.approve(body)
+    assert result.status_code == 200, result.text
+    assert result.json()["record"]["rows"] == [{"student_id": 2, "full_name": "Rohan", "overall_attendance": 70.0}]
+
+
+def test_lowest_three_per_class_keeps_all_classes_and_boundary_ties(env, monkeypatch):
+    import json
+    connection = sqlite3.connect(env.source)
+    connection.executescript(
+        "CREATE TABLE students(student_id INTEGER, full_name TEXT, class_name TEXT);"
+        "CREATE TABLE attendance(student_id INTEGER, attendance_percentage REAL);"
+    )
+    connection.executemany("INSERT INTO students VALUES (?, ?, ?)", [
+        (i, f"Student {i}", "A" if i <= 5 else "B") for i in range(1, 11)
+    ])
+    connection.executemany("INSERT INTO attendance VALUES (?, ?)", [
+        (1, 40), (1, 60), (2, 60), (3, 70), (4, 70), (5, 90),
+        (6, 20), (7, 30), (8, 40), (9, 80),
+    ])
+    connection.commit()
+    connection.close()
+    question = "For each class, show the three students with the lowest average attendance. Include ties and exclude students with no attendance records."
+    plan = _order_plan(
+        normalized_question=question, relevant_tables=["students", "attendance"],
+        metrics=["AVG(attendance_percentage)"], group_by=["class_name"],
+        ranking={"direction": "ascending", "limit": 3},
+        joins=[{"left": "students.student_id", "right": "attendance.student_id"}],
+    )
+    monkeypatch.setattr(query_router, "classify_complexity", lambda *_: ComplexityDecision("planned", 5, ("ranking",)))
+    monkeypatch.setattr(env.fake, "generate_plan", lambda **_: json.dumps(plan), raising=False)
+    env.fake.sql = """WITH student_avg AS (
+        SELECT s.class_name, s.student_id, s.full_name, AVG(a.attendance_percentage) AS avg_attendance
+        FROM students AS s JOIN attendance AS a ON s.student_id = a.student_id
+        GROUP BY s.class_name, s.student_id, s.full_name
+    ), ranked AS (
+        SELECT sa.*, RANK() OVER (PARTITION BY sa.class_name ORDER BY sa.avg_attendance ASC) AS rnk
+        FROM student_avg AS sa
+    ) SELECT r.class_name, r.student_id, r.full_name, r.avg_attendance
+    FROM ranked AS r WHERE r.rnk <= 3 ORDER BY r.class_name, r.avg_attendance, r.student_id"""
+    proposal = env.generate(question=question)
+    assert proposal.status_code == 200, proposal.text
+    assert proposal.json()["model_attempts"] == 1
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    rows = response.json()["record"]["rows"]
+    assert [r["student_id"] for r in rows] == [1, 2, 3, 4, 6, 7, 8]
+    assert [r["class_name"] for r in rows] == ["A"] * 4 + ["B"] * 3
+
+
+def test_untokenizable_ranked_model_sql_goes_to_repair_not_500(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('ranking',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(ranking={'direction': 'descending', 'limit': 1})), raising=False)
+    answers = iter([
+        "SELECT region, 'unterminated FROM orders GROUP BY region ORDER BY 1",
+        "SELECT region, SUM(amount) AS total FROM orders GROUP BY region ORDER BY total DESC LIMIT 1",
+    ])
+    calls = []
+    def generate_sql(**kwargs):
+        calls.append(kwargs)
+        return next(answers)
+    monkeypatch.setattr(env.fake, 'generate_sql', generate_sql)
+    # DeepSeekSQLClient is a LocalMLXSQLClient, so it uses the repair loop.
+    monkeypatch.setattr(query_router, 'LocalMLXSQLClient', FakeSQLClient)
+    proposal = env.generate(question='Which region has the highest total amount?')
+    assert proposal.status_code == 200, proposal.text
+    assert len(calls) == 2 and calls[1]['feedback'], 'the malformed SQL must be repaired with feedback'
+    assert env.executions == []
+    response = env.approve(proposal.json())
+    assert response.status_code == 200, response.text
+    assert response.json()['record']['rows'] == [{'region': 'south', 'total': 20}]
+
+
+@pytest.mark.parametrize('settings, expected', [
+    ({'PUCHOO_SQL_PROVIDER': 'groq', 'GROQ_API_KEY': 'obsolete-synthetic'}, 'PUCHOO_SQL_PROVIDER=deepseek'),
+    ({'PUCHOO_SQL_PROVIDER': 'deepseek'}, 'DEEPSEEK_API_KEY is not set'),
+])
+def test_provider_misconfiguration_returns_actionable_503_without_provider_call(env, monkeypatch, settings, expected):
+    from apps.core import llm_client
+    monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    for key, value in settings.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr('dotenv.load_dotenv', lambda *a, **k: False)
+    monkeypatch.setattr(llm_client.urllib.request, 'urlopen', lambda *a, **k: pytest.fail('no provider call'))
+    monkeypatch.setattr(query_router, 'get_sql_client', llm_client.get_sql_client)
+    monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: None)
+    response = env.generate(question='Show total amount per region')
+    assert response.status_code == 503, response.text
+    detail = response.json()['detail']
+    assert expected in detail
+    assert 'definitions are insufficient' not in detail
+    assert 'obsolete-synthetic' not in detail
+    assert env.executions == []

@@ -8,7 +8,7 @@ import json
 from types import SimpleNamespace
 import unittest
 
-from apps.core.verification import ClaudeVerifier, GroqVerifier, VerificationStatus
+from apps.core.verification import ClaudeVerifier, DeepSeekVerifier, VerificationStatus
 
 
 class _Messages:
@@ -24,7 +24,7 @@ class _Client:
         self.messages = _Messages(response)
 
 
-class _GroqClient:
+class _DeepSeekClient:
     def __init__(self, response: str) -> None:
         self.response = response
 
@@ -48,24 +48,24 @@ class ClaudeVerifierTests(unittest.TestCase):
         )
         self.assertEqual(VerificationStatus.VERIFICATION_MISMATCH, result.status)
 
-    def test_groq_fallback_exposes_a_verified_result(self) -> None:
+    def test_deepseek_fallback_exposes_a_verified_result(self) -> None:
         payload = json.dumps({"verdict": "MATCH", "confidence": 91, "summary": "Matches.", "details": "Checked."})
-        result = GroqVerifier(client=_GroqClient(payload)).verify(
+        result = DeepSeekVerifier(client=_DeepSeekClient(payload)).verify(
             question="What is the amount?", sql="SELECT amount FROM metrics", columns=["amount"], rows=[{"amount": 10}], row_count=1
         )
         self.assertEqual(VerificationStatus.VERIFIED, result.status)
         self.assertEqual(91, result.confidence)
 
 
-@pytest.mark.parametrize('provider', ['claude', 'groq'])
+@pytest.mark.parametrize('provider', ['claude', 'deepseek'])
 def test_provider_exception_details_are_not_public(provider):
     from types import SimpleNamespace
-    from apps.core.verification import ClaudeVerifier, GroqVerifier, verification_unavailable
+    from apps.core.verification import ClaudeVerifier, DeepSeekVerifier, verification_unavailable
     private = 'SYNTHETIC_SECRET_742 https://private.invalid/internal'
     def fail(**kwargs):
         raise RuntimeError(private)
     client = SimpleNamespace(messages=SimpleNamespace(create=fail), _chat=fail)
-    verifier = ClaudeVerifier(client=client) if provider == 'claude' else GroqVerifier(client=client)
+    verifier = ClaudeVerifier(client=client) if provider == 'claude' else DeepSeekVerifier(client=client)
     result = verifier.verify(question='total', sql='SELECT 1', columns=['n'], rows=[{'n': 1}], row_count=1).as_dict()
     assert result['status'] == 'UNAVAILABLE'
     assert 'SYNTHETIC_SECRET' not in str(result) and 'private.invalid' not in str(result)

@@ -13,6 +13,9 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
+from sqlglot import exp, parse_one
+from sqlglot.errors import SqlglotError
+
 from apps.core.semantic_layer import parse_schema
 
 
@@ -130,11 +133,16 @@ PLANNER_SYSTEM_PROMPT = """You are a query planner for a read-only SQLite analyt
 Return exactly one JSON object and no SQL, Markdown, or commentary. Preserve every explicit user constraint.
 Use only tables and columns present in the supplied schema. Never invent business facts, definitions,
 relationships, thresholds, or missing data. A valid JSON plan is not proof of a correct interpretation.
-If a metric, policy, comparison period, join relationship, or essential filter is ambiguous or unavailable,
-set needs_clarification true and ask one concise, specific clarification_question. Do not silently choose
-an interpretation that changes the answer. Explain missing inputs when the data cannot answer the request.
-For well-defined questions, set needs_clarification false and clarification_question null. Record only
-non-material conventions in assumptions. Keep all requested metrics, time periods, groups and ranking.
+If a metric, policy, comparison baseline or period, join relationship, or essential filter is ambiguous
+or unavailable, set needs_clarification true and ask one concise, specific clarification_question.
+Do not silently choose an interpretation that changes the answer. Explain missing inputs when the data
+cannot answer the request. Never ask for confirmation to read data. Only these non-material conventions
+may be applied without asking, and must be disclosed in assumptions: no specified time period means all
+recorded data; student attendance means average attendance per student; unpaid fees means a positive
+outstanding balance, including partial payments. Do not count missing fee records as unpaid obligations.
+For well-defined questions, set needs_clarification false and clarification_question null.
+Do not invent eligibility rules, thresholds, fiscal calendars, or unavailable evidence.
+Keep all requested metrics, time periods, groups and ranking.
 The object must contain: normalized_question, relevant_tables, metrics, filters, time_range, group_by,
 ranking, joins, assumptions, needs_clarification, clarification_question."""
 
@@ -142,6 +150,33 @@ ranking, joins, assumptions, needs_clarification, clarification_question."""
 def build_planner_prompt(question: str, schema: str) -> str:
     payload = json.dumps({"original_question": question.strip(), "schema": schema.strip()}, ensure_ascii=False)
     return PLANNER_SYSTEM_PROMPT + "\n<planner_request>" + payload + "</planner_request>"
+
+
+def _ranking_limit(value: Any) -> int | None:
+    """Return a positive whole-number ranking limit, accepting numeric strings like "3"."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"\s*\d{1,9}\s*", value):
+        return int(value) or None
+    return None
+
+
+def _normalize_ranking(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    ranking = dict(value)
+    raw_limit = ranking.get("limit")
+    if raw_limit is not None:
+        limit = _ranking_limit(raw_limit)
+        if limit is None:
+            raise QueryPlanError("The local planner returned an invalid ranking limit.")
+        ranking["limit"] = limit
+    return ranking
 
 
 def parse_plan_json(content: str, *, schema: str, original_question: str) -> StructuredQueryPlan:
@@ -197,7 +232,7 @@ def parse_plan_json(content: str, *, schema: str, original_question: str) -> Str
         filters=[str(value) for value in payload["filters"]],
         time_range=str(payload["time_range"]) if payload["time_range"] is not None else None,
         group_by=[str(value) for value in payload["group_by"]],
-        ranking=payload["ranking"] if isinstance(payload["ranking"], dict) else None,
+        ranking=_normalize_ranking(payload["ranking"]),
         joins=[dict(value) for value in payload["joins"] if isinstance(value, dict)],
         assumptions=[str(value) for value in payload["assumptions"]],
         needs_clarification=needs_clarification,
@@ -287,11 +322,62 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
     if plan.ranking:
         if "order by" not in sql_lower:
             feedback.append("The structured plan requires ranking; add ORDER BY.")
-        has_partitioned_top_n = bool(
-            re.search(r"(?:row_number|rank|dense_rank)\s*\(\s*\)\s*over", sql_lower)
-            and re.search(r"\b(?:rn|rank|row_num|row_number)\b\s*<=?\s*\d+", sql_lower)
-        )
-        if plan.ranking.get("limit") and "limit" not in sql_lower and not has_partitioned_top_n:
+        # Inspect the SQL tree: generated rank aliases are arbitrary (e.g.
+        # rnk or attendance_position), not just rn/rank. A partition's top N
+        # is bounded by its rank predicate, never by an outer LIMIT N.
+        try:
+            statement = parse_one(sql, read="sqlite")
+        except SqlglotError:  # ParseError and TokenError (e.g. an unterminated quote).
+            statement = None  # The SQL guardrail reports syntax errors.
+        rank_aliases = {
+            window.parent.alias.lower()
+            for window in statement.find_all(exp.Window)
+            if window.args.get("partition_by")
+            and (
+                isinstance(window.this, exp.RowNumber)
+                or isinstance(window.this, exp.Anonymous)
+                and window.this.name.upper() in {"RANK", "DENSE_RANK"}
+            )
+            and isinstance(window.parent, exp.Alias)
+        } if statement is not None else set()
+        wanted = _ranking_limit(plan.ranking.get("limit"))
+        if rank_aliases and wanted:
+            bounded = False
+
+            def is_rank(node: Any) -> bool:
+                return isinstance(node, exp.Column) and node.name.lower() in rank_aliases
+
+            def whole_number(node: Any) -> int | None:
+                return int(node.this) if isinstance(node, exp.Literal) and node.is_int else None
+
+            for where in statement.find_all(exp.Where):
+                predicates = [where.this]
+                while predicates:
+                    predicate = predicates.pop()
+                    if isinstance(predicate, exp.Paren):
+                        predicates.append(predicate.this)
+                    elif isinstance(predicate, exp.And):
+                        predicates.extend((predicate.this, predicate.expression))
+                    elif isinstance(predicate, exp.Between) and is_rank(predicate.this):
+                        # rank BETWEEN 1 AND N (or any lower bound <= 1).
+                        low, high = whole_number(predicate.args.get("low")), whole_number(predicate.args.get("high"))
+                        bounded = bounded or (low is not None and low <= 1 and high == wanted)
+                    elif isinstance(predicate, (exp.LTE, exp.LT, exp.GTE, exp.GT)):
+                        left, right = predicate.this, predicate.expression
+                        # Normalize "N >= rank" / "N + 1 > rank" to "rank <= N" / "rank < N + 1".
+                        if isinstance(predicate, (exp.LTE, exp.LT)) and is_rank(left):
+                            bound, strict = whole_number(right), isinstance(predicate, exp.LT)
+                        elif isinstance(predicate, (exp.GTE, exp.GT)) and is_rank(right):
+                            bound, strict = whole_number(left), isinstance(predicate, exp.GT)
+                        else:
+                            continue
+                        if bound is not None:
+                            bounded = bounded or bound - int(strict) == wanted
+            if not bounded:
+                feedback.append("Filter the partitioned rank in an outer query to the requested top N per group.")
+            if statement.args.get("limit") is not None:
+                feedback.append("Remove the global LIMIT from the per-group ranking; it can omit groups or ties. The server applies its own safety row cap.")
+        elif wanted and "limit" not in sql_lower:
             feedback.append("The structured plan requires a ranking limit; add LIMIT.")
     return feedback
 

@@ -127,6 +127,60 @@ class QueryPlanningTests(unittest.TestCase):
         feedback = plan_constraint_feedback(plan, sql)
         self.assertFalse(any("LIMIT" in item for item in feedback))
 
+    def test_arbitrary_rank_alias_does_not_trigger_global_limit_repair(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show the three lowest students including ties", relevant_tables=["students"], ranking={"direction": "ascending", "limit": 3})
+        for alias in ("rnk", "attendance_position", '"rank position"'):
+            sql = f"WITH ranked AS (SELECT student_id, RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS {alias} FROM students) SELECT * FROM ranked AS r WHERE r.{alias} <= 3 ORDER BY student_id"
+            with self.subTest(alias=alias):
+                self.assertEqual([], plan_constraint_feedback(plan, sql))
+
+    def test_partitioned_ranking_rejects_global_limit_and_missing_rank_filter(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        base = "WITH ranked AS (SELECT student_id, RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS rnk FROM students) SELECT * FROM ranked"
+        feedback = plan_constraint_feedback(plan, base + " WHERE rnk <= 3 ORDER BY student_id LIMIT 3")
+        self.assertTrue(any("global LIMIT" in item for item in feedback))
+        feedback = plan_constraint_feedback(plan, base + " ORDER BY student_id")
+        self.assertTrue(any("rank" in item for item in feedback))
+        self.assertFalse(any("add LIMIT" in item for item in feedback))
+
+    def test_global_ranking_still_requires_limit(self):
+        plan = StructuredQueryPlan(normalized_question="Show the top three students", relevant_tables=["students"], ranking={"limit": 3})
+        self.assertTrue(any("add LIMIT" in item for item in plan_constraint_feedback(plan, "SELECT * FROM students ORDER BY attendance")))
+
+    def test_untokenizable_model_sql_returns_feedback_instead_of_raising(self):
+        # An unterminated quote raises sqlglot's TokenError, not ParseError.
+        # The guardrail must report it so the repair loop can run.
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        feedback = plan_constraint_feedback(plan, "SELECT class_name, 'unterminated FROM students ORDER BY 1")
+        self.assertIsInstance(feedback, list)
+
+    def test_partitioned_rank_bound_accepts_both_orientations_and_between(self):
+        plan = StructuredQueryPlan(normalized_question="For each class show three students", relevant_tables=["students"], ranking={"limit": 3})
+        base = "WITH ranked AS (SELECT student_id, DENSE_RANK() OVER (PARTITION BY class_name ORDER BY attendance) AS pos FROM students) SELECT * FROM ranked AS r WHERE "
+        for where in ("r.pos <= 3", "pos < 4", "3 >= pos", "4 > r.pos", "pos BETWEEN 1 AND 3", "(pos <= 3) AND student_id > 0"):
+            with self.subTest(where=where):
+                self.assertEqual([], plan_constraint_feedback(plan, base + where + " ORDER BY student_id"))
+        for where in ("pos <= 5", "5 >= pos", "pos BETWEEN 2 AND 3", "pos <= 3 OR pos IS NULL", "pos >= 3"):
+            with self.subTest(where=where):
+                feedback = plan_constraint_feedback(plan, base + where + " ORDER BY student_id")
+                self.assertTrue(any("top N per group" in item for item in feedback))
+
+    def test_numeric_string_ranking_limit_is_coerced(self):
+        payload = valid_payload()
+        payload["ranking"] = {"direction": "descending", "limit": "3"}
+        plan = parse_plan_json(json.dumps(payload), schema=SCHEMA, original_question="Top three customers")
+        self.assertEqual(3, plan.ranking["limit"])
+        sql = ("WITH ranked AS (SELECT customer_id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY total_amount DESC) AS rn "
+               "FROM customers) SELECT * FROM ranked WHERE rn <= 3 ORDER BY customer_id")
+        self.assertFalse(any("top N" in item for item in plan_constraint_feedback(plan, sql)))
+
+    def test_invalid_ranking_limit_is_rejected(self):
+        for limit in ("three", -1, 0, 2.5, True, "3; DROP"):
+            payload = valid_payload()
+            payload["ranking"] = {"direction": "descending", "limit": limit}
+            with self.subTest(limit=limit), self.assertRaises(QueryPlanError):
+                parse_plan_json(json.dumps(payload), schema=SCHEMA, original_question="Top customers")
+
 
 if __name__ == "__main__":
     unittest.main()

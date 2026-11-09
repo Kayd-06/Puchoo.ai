@@ -270,7 +270,7 @@ export function queryUniversePalette(theme) {
     };
   }
   return {
-    composite: 'lighter',
+    composite: 'source-over',
     motion: 1,
     orbit: '139, 197, 239',
     pulse: '112, 185, 238',
