@@ -6,11 +6,15 @@ import {
   Menu,
   Mic,
   Play,
+  Pause,
+  AudioLines,
   ShieldCheck,
   Volume2,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import '../styles/landingMotion.css';
+import LetterformFooter from '../components/landing/LetterformFooter';
 import { Mark, focusRing } from '../components/landing/brand';
 
 const capabilities = [
@@ -55,8 +59,20 @@ const demoSteps = [
 
 function ProductDemo() {
   const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
   const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setReducedMotion(preference.matches);
+    updatePreference();
+    preference.addEventListener('change', updatePreference);
+    return () => preference.removeEventListener('change', updatePreference);
+  }, []);
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -72,19 +88,18 @@ function ProductDemo() {
   }, []);
 
   useEffect(() => {
-    if (!isVisible || window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-      return undefined;
+    if (paused || !isVisible || reducedMotion) return undefined;
     const timer = window.setInterval(
       () => setActive((current) => (current + 1) % demoSteps.length),
       4300,
     );
     return () => window.clearInterval(timer);
-  }, [isVisible]);
+  }, [isVisible, paused, reducedMotion]);
   const step = demoSteps[active];
   return (
-    <section ref={sectionRef} className="puchoo-demo-section">
-      <div className="puchoo-demo-intro">
-        <span>03 / A guided answer</span>
+    <section id="demo" ref={sectionRef} className="puchoo-demo-section">
+      <div className="puchoo-demo-intro" data-scroll-reveal>
+        <span>04 / A guided answer</span>
         <h2>
           See the path
           <br />
@@ -100,22 +115,31 @@ function ProductDemo() {
               type="button"
               key={item.label}
               onClick={() => setActive(index)}
+              aria-pressed={index === active}
               className={index === active ? 'is-active' : ''}
             >
-              <b>{String(index + 1).padStart(2, '0')}</b>
-              {item.label}
+              <b>{String(index + 1).padStart(2, '0')}</b> {item.label}
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="puchoo-demo-pause"
+          onClick={() => setPaused((value) => !value)}
+          aria-label={paused ? 'Resume guided demo' : 'Pause guided demo'}
+        >
+          {paused ? <Play size={14} /> : <Pause size={14} />}{' '}
+          {paused ? 'Resume walkthrough' : 'Pause walkthrough'}
+        </button>
       </div>
-      <div className="puchoo-demo-screen">
+      <div className="puchoo-demo-screen" data-scroll-reveal>
         <div className="puchoo-demo-window-top">
           <span>
             <i /> Puchoo.si workspace
           </span>
           <span>school_data_management</span>
         </div>
-        <div className="puchoo-demo-body" aria-live="polite">
+        <div className="puchoo-demo-body" aria-live={paused ? 'polite' : 'off'}>
           <div key={step.label} className="puchoo-demo-step">
             <p className="puchoo-demo-eyebrow">{step.eyebrow}</p>
             <p className={`puchoo-demo-value ${active === 1 ? 'is-code' : ''}`}>{step.value}</p>
@@ -149,11 +173,12 @@ function LanguageAndVoice() {
     'ਪੰਜਾਬੀ',
   ];
   const [playing, setPlaying] = useState(false);
+  const [languagesRunning, setLanguagesRunning] = useState(true);
   return (
-    <section className="puchoo-language-section">
-      <div className="puchoo-language-header">
+    <section id="languages" className="puchoo-language-section">
+      <div className="puchoo-language-header" data-scroll-reveal>
         <div>
-          <span>04 / Language belongs in the interface</span>
+          <span>05 / Language belongs in the interface</span>
           <h2>Ask it your way.</h2>
         </div>
         <p>
@@ -162,22 +187,34 @@ function LanguageAndVoice() {
         </p>
       </div>
       <div className="puchoo-language-marquee" aria-label="Supported languages">
-        <div>
+        <div style={{ animationPlayState: languagesRunning ? 'running' : 'paused' }}>
           {[...languages, ...languages].map((language, index) => (
-            <span key={`${language}-${index}`}>
+            <span
+              key={`${language}-${index}`}
+              aria-hidden={index >= languages.length ? true : undefined}
+            >
               {language}
               <i>✦</i>
             </span>
           ))}
         </div>
       </div>
-      <div className="puchoo-voice-grid">
+      <button
+        type="button"
+        className="puchoo-marquee-pause"
+        onClick={() => setLanguagesRunning((value) => !value)}
+        aria-pressed={!languagesRunning}
+      >
+        {languagesRunning ? <Pause size={14} /> : <Play size={14} />}
+        {languagesRunning ? 'Pause language scroll' : 'Resume language scroll'}
+      </button>
+      <div className="puchoo-voice-grid" data-scroll-reveal>
         <div className={`puchoo-voice-card ${playing ? 'is-playing' : ''}`}>
           <div className="puchoo-voice-card-top">
             <span>
               <Mic size={15} /> Voice question
             </span>
-            <span className="puchoo-recording-dot">Listening</span>
+            <span className="puchoo-recording-dot">Visual example</span>
           </div>
           <div className="puchoo-waveform" aria-hidden="true">
             {Array.from({ length: 38 }, (_, index) => (
@@ -197,7 +234,7 @@ function LanguageAndVoice() {
             </span>
             <button
               type="button"
-              aria-label={playing ? 'Pause voice example' : 'Play voice example'}
+              aria-label={playing ? 'Pause waveform animation' : 'Animate voice waveform'}
               aria-pressed={playing}
               onClick={() => setPlaying((value) => !value)}
             >
@@ -217,8 +254,8 @@ function LanguageAndVoice() {
             Verified clarity out.
           </h3>
           <p>
-            Voice input supports supported Indian languages and produces the same automatic guarded
-            run and evidence trail as a typed question.
+            Voice input supports Indian languages and produces the same automatic guarded run and
+            evidence trail as a typed question.
           </p>
           <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
             Try voice questions <ArrowUpRight size={16} />
@@ -248,35 +285,89 @@ function SignalField() {
 
 function MainHero() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeNav, setActiveNav] = useState('home');
+  const menuButton = useRef(null);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function closeMenu(event) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', closeMenu);
+    return () => document.removeEventListener('keydown', closeMenu);
+  }, [menuOpen]);
   return (
-    <section className="puchoo-reference-shell">
+    <section id="home" className="puchoo-reference-shell">
       <div className="puchoo-reference-hero">
         <SignalField />
-        <header className="puchoo-reference-nav">
-          <a
-            href="/"
-            className={`relative z-20 flex items-center gap-2 text-[15px] font-semibold tracking-[-.04em] text-white ${focusRing} rounded-full`}
-          >
-            <Mark className="h-8 w-8" />
-            Puchoo.si
+        <header className="puchoo-reference-nav puchoo-segmented-header">
+          <div className="puchoo-nav-left">
+            <a
+              href="#home"
+              className="puchoo-nav-brand"
+              aria-label="Puchoo.si home"
+              onClick={() => setActiveNav('home')}
+            >
+              <Mark className="h-9 w-9" />
+            </a>
+            <nav aria-label="Primary navigation" className="puchoo-nav-segments">
+              {[
+                ['home', 'Home'],
+                ['how', 'How it works'],
+                ['gnani', 'Gnani'],
+                ['faq', 'FAQs'],
+              ].map(([id, label]) => (
+                <a
+                  key={id}
+                  href={`#${id}`}
+                  onClick={() => setActiveNav(id)}
+                  aria-current={activeNav === id ? 'location' : undefined}
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
+          </div>
+          <div className="puchoo-nav-note">
+            <span>
+              <i /> Data intelligence
+            </span>
+            <span>Read-only by design</span>
+          </div>
+          <a href="/signup" className="puchoo-nav-action">
+            Get started <ArrowUpRight size={16} />
           </a>
-          <span className="hidden text-xs font-medium tracking-[.01em] text-[#e1e8f5] sm:block">
-            Data intelligence
-          </span>
           <button
             type="button"
-            className={`relative z-20 grid h-10 w-10 place-items-center rounded-full border border-white/10 text-white transition hover:bg-white/10 ${focusRing}`}
+            className="puchoo-nav-mobile-toggle"
             onClick={() => setMenuOpen((value) => !value)}
-            aria-label="Open navigation"
+            ref={menuButton}
+            aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-controls="landing-navigation"
             aria-expanded={menuOpen}
           >
             {menuOpen ? <X size={18} /> : <Menu size={19} />}
           </button>
         </header>
         {menuOpen && (
-          <nav className="puchoo-reference-menu">
+          <nav
+            id="landing-navigation"
+            aria-label="Landing navigation"
+            className="puchoo-reference-menu"
+          >
             <a href="#how" onClick={() => setMenuOpen(false)}>
               How it works
+            </a>
+            <a href="#demo" onClick={() => setMenuOpen(false)}>
+              Product walkthrough
+            </a>
+            <a href="#gnani" onClick={() => setMenuOpen(false)}>
+              Gnani voice
+            </a>
+            <a href="#faq" onClick={() => setMenuOpen(false)}>
+              Questions & answers
             </a>
             <a href="/login" onClick={() => setMenuOpen(false)}>
               Log in
@@ -286,7 +377,7 @@ function MainHero() {
             </a>
           </nav>
         )}
-        <main className="puchoo-reference-copy">
+        <div className="puchoo-reference-copy">
           <p className="puchoo-eyebrow puchoo-reveal puchoo-reveal-1">
             Puchoo.si / trusted analytics
           </p>
@@ -302,7 +393,7 @@ function MainHero() {
               Start asking <ArrowUpRight size={16} />
             </a>
           </div>
-        </main>
+        </div>
         <div className="puchoo-hero-telemetry" aria-hidden="true">
           <span>NODE / 07</span>
           <i />
@@ -324,7 +415,177 @@ function MainHero() {
   );
 }
 
+function GnaniSection() {
+  return (
+    <section id="gnani" className="puchoo-gnani-section" aria-labelledby="gnani-title">
+      <div className="puchoo-gnani-heading" data-scroll-reveal>
+        <span className="puchoo-section-kicker">06 / The voice behind the question</span>
+        <div className="puchoo-gnani-badge">
+          <AudioLines size={17} /> Speech powered by Gnani
+        </div>
+        <h2 id="gnani-title">
+          Your voice. <br />
+          Powered by Gnani.
+        </h2>
+        <p>
+          A question should start with a thought, not a keyboard. Gnani brings speech to your
+          Puchoo.si workspace, from the first spoken question to an answer you can hear.
+        </p>
+        <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
+          Find your voice <ArrowUpRight size={16} />
+        </a>
+      </div>
+      <div className="puchoo-gnani-flow" data-scroll-reveal>
+        <div className="puchoo-gnani-flow-top">
+          <span>ONE QUESTION. A CONNECTED FLOW.</span>
+          <AudioLines size={20} />
+        </div>
+        <ol>
+          <li>
+            <span className="puchoo-gnani-icon">
+              <Mic size={22} />
+            </span>
+            <div>
+              <span className="puchoo-gnani-label">01 / SPEAK</span>
+              <h3>Start in your language.</h3>
+              <p>Gnani transcribes your recorded question into text in the language you spoke.</p>
+            </div>
+          </li>
+          <li>
+            <span className="puchoo-gnani-icon">
+              <Languages size={22} />
+            </span>
+            <div>
+              <span className="puchoo-gnani-label">02 / UNDERSTAND</span>
+              <h3>Keep the meaning.</h3>
+              <p>
+                Sarvam AI translates the question to English and the answer back. Puchoo.si
+                validates and runs the read-only query.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span className="puchoo-gnani-icon">
+              <Volume2 size={22} />
+            </span>
+            <div>
+              <span className="puchoo-gnani-label">03 / LISTEN</span>
+              <h3>Hear the answer.</h3>
+              <p>Gnani turns answer text into speech so you can listen as well as read.</p>
+            </div>
+          </li>
+        </ol>
+        <div className="puchoo-gnani-flow-bottom">
+          <ShieldCheck size={16} />
+          <span>Same workspace. Same read-only guardrails.</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CommonQuestions() {
+  return (
+    <section id="faq" className="puchoo-faq-section">
+      <div data-scroll-reveal>
+        <span className="puchoo-section-kicker">07 / A little more clarity</span>
+        <h2>
+          Good questions.
+          <br />
+          Clear answers.
+        </h2>
+        <p>Everything starts with understanding what happens to your question.</p>
+      </div>
+      <div className="puchoo-faq-list" data-scroll-reveal>
+        {[
+          [
+            'Do I need to know SQL?',
+            'No. Ask in plain language, by typing or speaking. Puchoo.si proposes the SQL and shows the reasoning alongside the result.',
+          ],
+          [
+            'Can a question change my data?',
+            'Analytics queries run through server-side validation with read-only guardrails. Your workspace scopes access to the data sources available to you.',
+          ],
+          [
+            'What do Gnani and Sarvam AI do?',
+            'Gnani handles speech transcription and spoken answers. Sarvam AI handles translation, while Puchoo.si manages the analytics workflow.',
+          ],
+          [
+            'Where do I start?',
+            'Create a workspace, connect a data source, and ask your first question. You can inspect the proposed SQL and the returned evidence in the app.',
+          ],
+        ].map(([question, answer]) => (
+          <details key={question}>
+            <summary>
+              {question}
+              <ArrowUpRight size={18} />
+            </summary>
+            <p>{answer}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Reveal once, without hiding content when observers or motion are unavailable.
+function useLandingMotion(pageRef) {
+  useEffect(() => {
+    const page = pageRef.current;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let observer;
+    let frame = 0;
+    function configureReveals() {
+      observer?.disconnect();
+      if (preference.matches || !('IntersectionObserver' in window)) return;
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('puchoo-scroll-arrived');
+            observer.unobserve(entry.target);
+          });
+        },
+        { threshold: 0.12 },
+      );
+      page.querySelectorAll('[data-scroll-reveal]').forEach((element) => observer.observe(element));
+    }
+    function updateScroll() {
+      frame = 0;
+      const distance = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = distance > 0 ? Math.min(1, Math.max(0, window.scrollY / distance)) : 0;
+      page.style.setProperty('--reading-progress', progress);
+      page.style.setProperty(
+        '--hero-drift',
+        preference.matches ? '0px' : `${Math.min(window.scrollY * 0.12, 90)}px`,
+      );
+    }
+    function requestUpdate() {
+      if (!frame) frame = window.requestAnimationFrame(updateScroll);
+    }
+    configureReveals();
+    updateScroll();
+    function onPreferenceChange() {
+      configureReveals();
+      requestUpdate();
+    }
+    preference.addEventListener('change', onPreferenceChange);
+    window.addEventListener('scroll', requestUpdate, { passive: true });
+    window.addEventListener('resize', requestUpdate);
+    return () => {
+      observer?.disconnect();
+      window.cancelAnimationFrame(frame);
+      preference.removeEventListener('change', onPreferenceChange);
+      window.removeEventListener('scroll', requestUpdate);
+      window.removeEventListener('resize', requestUpdate);
+    };
+  }, [pageRef]);
+}
+
 export default function Landing() {
+  const pageRef = useRef(null);
+  const [globePaused, setGlobePaused] = useState(false);
+  useLandingMotion(pageRef);
   const [PrivacyNotice, setPrivacyNotice] = useState(null);
 
   useEffect(() => {
@@ -343,7 +604,8 @@ export default function Landing() {
   }, []);
 
   return (
-    <div id="main-content" className="puchoo-reference-page">
+    <div ref={pageRef} className="puchoo-reference-page">
+      <div className="puchoo-reading-progress" aria-hidden="true" />
       <script type="application/ld+json">
         {JSON.stringify({
           '@context': 'https://schema.org',
@@ -355,110 +617,115 @@ export default function Landing() {
             'Secure natural-language analytics with automatic guarded read-only SQL and isolated workspaces.',
         })}
       </script>
-      <MainHero />
-      <section id="how" className="puchoo-editorial-intro">
-        <div className="puchoo-section-kicker">01 / About Puchoo.si</div>
-        <div className="puchoo-editorial-grid">
-          <h2>
-            From a question
-            <br />
-            to a decision.
-          </h2>
-          <div>
-            <p>
-              Puchoo.si is the secure analytics workspace for people who should not have to become
-              SQL experts to understand their own data.
+      <main id="main-content">
+        <MainHero />
+        <section
+          id="how"
+          className={`puchoo-editorial-intro${globePaused ? ' is-motion-paused' : ''}`}
+        >
+          <div className="puchoo-section-kicker">01 / About Puchoo.si</div>
+          <div className="puchoo-editorial-grid" data-scroll-reveal>
+            <h2>
+              From a question
+              <br />
+              to a decision.
+            </h2>
+            <div>
+              <p>
+                Puchoo.si is the secure analytics workspace for people who should not have to become
+                SQL experts to understand their own data.
+              </p>
+              <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
+                Explore your workspace <ArrowUpRight size={16} />
+              </a>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="puchoo-globe-pause"
+            aria-pressed={globePaused}
+            onClick={() => setGlobePaused((paused) => !paused)}
+          >
+            {globePaused ? <Play size={13} /> : <Pause size={13} />}
+            {globePaused ? 'Resume globe animation' : 'Pause globe animation'}
+          </button>
+          <div className="puchoo-editorial-globe" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <i />
+          </div>
+        </section>
+        <section className="puchoo-capability-section">
+          <div className="puchoo-section-heading" data-scroll-reveal>
+            <span>02 / The Puchoo.si method</span>
+            <p>Built to make sophisticated data workflows feel direct, deliberate, and human.</p>
+          </div>
+          <div className="puchoo-capability-list" data-scroll-reveal>
+            {capabilities.map(([number, title, body]) => (
+              <article key={number}>
+                <span>{number}</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+                <div className="puchoo-capability-line" />
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="puchoo-proof-section">
+          <div className="puchoo-proof-card" data-scroll-reveal>
+            <div className="puchoo-proof-top">
+              <span>LIVE WORKSPACE</span>
+              <span>
+                <Check size={14} /> Guardrails active
+              </span>
+            </div>
+            <p className="puchoo-proof-question">
+              “Which departments changed spending most this quarter?”
             </p>
-            <a href="/signup" className={`puchoo-text-link ${focusRing}`}>
-              Explore your workspace <ArrowUpRight size={16} />
+            <div className="puchoo-proof-result">
+              <ShieldCheck size={18} />
+              <span>Guarded read-only SQL ran automatically; View query shows what executed.</span>
+            </div>
+          </div>
+          <div className="puchoo-proof-copy" data-scroll-reveal>
+            <span>03 / Your data, in control</span>
+            <h2>Intelligence that knows its boundaries.</h2>
+            <p>
+              Your workspace stays isolated. Read-only guardrails, scoped automatic execution, and
+              advisory responses are built into every question.
+            </p>
+            <a
+              href="/signup"
+              className={`puchoo-reference-cta puchoo-reference-cta-light ${focusRing}`}
+            >
+              Create a workspace <ArrowUpRight size={16} />
             </a>
           </div>
-        </div>
-        <div className="puchoo-editorial-globe" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <i />
-        </div>
-      </section>
-      <section className="puchoo-capability-section">
-        <div className="puchoo-section-heading">
-          <span>02 / The Puchoo.si method</span>
-          <p>Built to make sophisticated data workflows feel direct, deliberate, and human.</p>
-        </div>
-        <div className="puchoo-capability-list">
-          {capabilities.map(([number, title, body]) => (
-            <article key={number}>
-              <span>{number}</span>
-              <h3>{title}</h3>
-              <p>{body}</p>
-              <div className="puchoo-capability-line" />
-            </article>
-          ))}
-        </div>
-      </section>
-      <section className="puchoo-proof-section">
-        <div className="puchoo-proof-card">
-          <div className="puchoo-proof-top">
-            <span>LIVE WORKSPACE</span>
-            <span>
-              <Check size={14} /> Guardrails active
-            </span>
+        </section>
+        <ProductDemo />
+        <LanguageAndVoice />
+        <GnaniSection />
+        <CommonQuestions />
+        <section className="puchoo-closing-section">
+          <SignalField />
+          <div data-scroll-reveal>
+            <span>08 / Start with one question</span>
+            <h2>
+              Make your next decision
+              <br />a little more certain.
+            </h2>
+            <p>
+              Connect a source, ask in plain language, and stay in control from the first question
+              to the final answer.
+            </p>
+            <a href="/signup" className={`puchoo-reference-cta ${focusRing}`}>
+              Create your workspace <ArrowUpRight size={16} />
+            </a>
           </div>
-          <p className="puchoo-proof-question">
-            “Which departments changed spending most this quarter?”
-          </p>
-          <div className="puchoo-proof-result">
-            <ShieldCheck size={18} />
-            <span>Guarded read-only SQL ran automatically; View query shows what executed.</span>
-          </div>
-        </div>
-        <div className="puchoo-proof-copy">
-          <span>03 / Your data, in control</span>
-          <h2>Intelligence that knows its boundaries.</h2>
-          <p>
-            Your workspace stays isolated. Read-only guardrails, scoped automatic execution, and
-            advisory responses are built into every question.
-          </p>
-          <a
-            href="/signup"
-            className={`puchoo-reference-cta puchoo-reference-cta-light ${focusRing}`}
-          >
-            Create a workspace <ArrowUpRight size={16} />
-          </a>
-        </div>
-      </section>
-      <ProductDemo />
-      <LanguageAndVoice />
-      <section className="puchoo-closing-section">
-        <SignalField />
-        <div>
-          <span>05 / Start with one question</span>
-          <h2>
-            Make your next decision
-            <br />a little more certain.
-          </h2>
-          <p>
-            Connect a source, ask in plain language, and stay in control from the first question to
-            the final answer.
-          </p>
-          <a href="/signup" className={`puchoo-reference-cta ${focusRing}`}>
-            Create your workspace <ArrowUpRight size={16} />
-          </a>
-        </div>
-      </section>
-      <footer className="puchoo-reference-footer">
-        <a href="/" className="flex items-center gap-2 font-semibold tracking-[-.04em]">
-          <Mark className="h-8 w-8" />
-          Puchoo.si
-        </a>
-        <span>© {new Date().getFullYear()} Puchoo.si</span>
-        <div>
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
-          <a href="/login">Log in</a>
-        </div>
-      </footer>
+        </section>
+      </main>
+      <LetterformFooter />
       {PrivacyNotice && <PrivacyNotice />}
     </div>
   );

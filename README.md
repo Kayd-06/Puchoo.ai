@@ -1,206 +1,193 @@
 # Puchoo.si
 
-Puchoo.si is a secure multilingual Text-to-SQL analytics workspace. You type or speak a question, press Enter, and the app automatically builds and runs guarded read-only SQL, with safe automatic repair when a runtime error can be fixed without changing the question's meaning. Vague questions get clarification choices with buttons before anything runs. DeepSeek is the default SQL provider.
+Puchoo.si is a multilingual analytics workspace built with React and FastAPI. Users connect a data source, ask a question by typing or speaking, and receive results from guarded read-only SQL. The public landing page includes a product walkthrough, language and Gnani sections, FAQs, and an interactive letterform footer.
 
-It implements a **FastAPI backend as the sole security boundary** and a **React SPA (Vite)** for presentation only.
+**Submitting a question automatically runs guarded read-only SQL.** SQL inspection is available afterward through **View query**. No mandatory Run/Cancel or second approval UI is part of the normal flow. Verification is advisory: distinguish a verified result from a mismatch or unavailable verification.
 
-## Architecture
+## Requirements
 
-- **Backend (`apps/core/` & `apps/api/`)**: FastAPI exposes the core Python execution, verification, and guardrail logic. It handles all authentication, session state, and security. No credentials are leaked to the client.
-- **Frontend (`frontend/`)**: Vite + React SPA handling presentation only. Rich Vanilla CSS design system.
+- Python **3.11 or newer** and a virtual environment.
+- Node.js **22 or newer**, with npm.
+- SMTP access for account verification and recovery emails.
+- Provider credentials for the features you enable; see [Configuration](#configuration).
 
-### Complex-query intelligence
+Run commands from the repository root. CI currently checks Python 3.11 and Node.js 22.
 
-- Simple supported questions keep the fast deterministic schema-guided path.
-- Complex questions are routed through two sequential calls to the same local Qwen2.5-Coder-7B chat model: JSON planning, then SQLite SQL generation.
-- The planner can request clarification instead of guessing a metric, timeframe, comparison baseline, or business policy.
-- Only 3-6 relevant schema tables are normally sent to the model; no raw database rows are included.
-- Failed safe SELECT statements can be repaired by Qwen using the original question, plan, selected schema, previous SQL, and database error. Unsafe SQL is never retried.
-- SQLCoder and the `LOCAL_SQL_REPAIR_MODEL_*` settings are no longer used.
+## Local setup
 
-## Website and accounts
-
-The public site is a React landing page. Accounts live in `backend/` and are the only place passwords and session tokens are handled. React never stores a token in `localStorage`. FastAPI remains the security boundary.
-
-### Setup
-
-Use Python 3.11 or newer and Node.js 20 or newer.
-
-```powershell
-python -m venv venv
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
-.\scripts\migrate.ps1
-cd frontend
-npm install
-```
-
-### Environment
-
-Copy `.env.example` to `.env` at the repo root, or copy `backend/.env.example` to `backend/.env`. Do not commit either file.
-
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | SQLAlchemy URL. Defaults to a local SQLite file at `backend/puchoo_auth.db`. Use a Postgres URL when you have one. |
-| `FRONTEND_ORIGINS` | Comma-separated origins allowed to call the API with credentials. Default `http://localhost:5173,http://127.0.0.1:5173`. |
-| `COOKIE_SECURE` | `true` in production so the session and CSRF cookies are HTTPS-only. With `ENVIRONMENT=production` the server refuses to start unless it is `true`. |
-| `ENVIRONMENT` | `development` or `production`. |
-| `SESSION_SECRET` | Secret for the analytics session middleware. Replace it outside local development. |
-| `JWT_ISSUER` | JWT `iss` claim. Default `puchoo.si`. Changing it invalidates existing session cookies once (fine before launch). |
-| `UPLOAD_XLSX_MAX_UNCOMPRESSED_BYTES` | Max total uncompressed size of an uploaded XLSX archive. Default/hard ceiling `33554432` (32 MiB). Checked from the zip directory before parsing; over the limit returns 413. |
-| `UPLOAD_XLSX_MAX_COMPRESSION_RATIO` | Max uncompressed:compressed ratio of an XLSX (zip-bomb guard). Default `100`; over the limit returns 413. |
-| `UPLOAD_MAX_SHEETS` | Max sheets per workbook. Default `50`. |
-| `UPLOAD_MAX_ROWS` | Max data rows per sheet or CSV file. Default `1000000`. |
-| `UPLOAD_MAX_COLUMNS` | Max columns per sheet or CSV file. Default `500`. |
-| `UPLOAD_MAX_CELLS` | Max cells across all sheets and files in one upload. Default/hard ceiling `250000`. Sheet, row, column and cell limits return 400 with a message naming the limit. |
-| `NOTIFICATION_STREAMS_PER_USER` | Open notification (SSE) streams allowed per user. Default `3`; extra streams get 429 and a slot frees when a stream closes. |
-| `SMTP_FROM` | Preferred From mailbox. Required unless `SMTP_USERNAME` is already a mailbox; there is no hardcoded fallback domain. Configure SPF, DKIM, and DMARC with the SMTP provider to keep OTPs out of spam. |
-
-### Run the app (frontend + backend)
-
-Install the Python and frontend dependencies once, then open **two terminals at the
-repository root**. These project commands work on macOS, Linux, and Windows:
+### macOS / Linux
 
 ```bash
-# Terminal 1 — FastAPI backend at http://127.0.0.1:8000
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+npm ci --prefix frontend
+```
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+npm ci --prefix frontend
+```
+
+Create `.env` only if it does not already exist; preserve existing local configuration. Set the required credentials in that uncommitted file. Never put provider keys in frontend variables or source files.
+
+Open two terminals at the repository root:
+
+```bash
+# Terminal 1: FastAPI, http://127.0.0.1:8000
 npm run dev:backend
 ```
 
 ```bash
-# Terminal 2 — Vite frontend at http://localhost:5173
+# Terminal 2: Vite, http://localhost:5173
 npm run dev:frontend
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite development server
-proxies `/api` requests to the backend on port 8000, so login, OTP, uploads, and
-workspace APIs use the same origin.
-
-If you prefer to start the services directly, use the matching commands below.
-
-**macOS / Linux**
+The backend launcher detects `.venv` (or the legacy Windows `venv` directory). On macOS/Linux it falls back to `python3` if `.venv` is absent. Backend startup applies Alembic migrations. For a manual migration with the virtual environment activated:
 
 ```bash
-# Terminal 1
-./.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Terminal 2
-npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
+python -m alembic -c backend/alembic.ini upgrade head
 ```
 
-**Windows PowerShell**
-
-```powershell
-# Terminal 1
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Terminal 2
-npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
-```
-
-Verify the backend independently with:
+Open [localhost:5173](http://localhost:5173). Vite proxies `/api` to `127.0.0.1:8000`. Check backend health with:
 
 ```bash
 curl http://127.0.0.1:8000/api/health
 ```
 
-Auth tests:
+To create the frontend production bundle:
 
-```powershell
-.\venv\Scripts\python.exe -m pytest backend/tests -q
+```bash
+npm --prefix frontend run build
 ```
 
-### How auth works
-
-- `POST /api/v1/auth/signup` accepts `full_name`, `email`, `password`, `confirm_password`, and `workspace_type` (`personal` or `institute`). Institute workspaces also require `institute_name`. Email is stored in lowercase. Passwords need at least 10 characters, including a letter and a number, and are hashed with argon2. A duplicate email gets a generic error.
-- `POST /api/v1/auth/login` checks the email and password. The error is always `Invalid email or password`. A correct password does not open a session yet. It emails a 6-digit code that expires in 10 minutes. `POST /api/v1/auth/login/verify` checks that code and then creates the session. SMTP uses `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, and `SMTP_PASSWORD`.
-- A successful signup or login creates a signed JWT with a unique session ID (`jti`). The browser receives it only in an HttpOnly `puchoo_session` cookie with `SameSite=Lax` (and `Secure` when `COOKIE_SECURE=true`); React never receives or stores it. A SHA-256 hash of the JWT is bound to a server-side session record, so logout and revocation take effect immediately. Sessions last 7 days and rotate on authenticated requests.
-- `POST /api/v1/auth/logout` revokes that session and clears the cookie. `GET /api/v1/auth/me` returns the current user, or 401.
-- Changing an account email requires the current password, then a 6-digit OTP delivered to the new address. The address is updated only after `POST /api/v1/auth/email/change/verify` validates that OTP.
-- State-changing auth requests need a double-submit CSRF token: the non-HttpOnly `csrf_token` cookie and the same value in the `X-CSRF-Token` header.
-- Login and signup are limited to 5 attempts per 15 minutes for each IP and each email. The limit returns 429.
-- Passwords and tokens are not written to logs.
-
-### Approved conversation memory
-
-Submitting a question starts automatic guarded execution. After a successful execution, Puchoo saves only the question, its interpretation, and verification summary to local persistent ChromaDB. It does not put result rows, generated SQL, connection strings, passwords, or tokens into vector memory. Every ChromaDB read/write is filtered by both the account/institute tenant and workspace ID; institute members can access their shared institute workspace, while personal workspaces remain private. The semantic recall endpoint is `GET /api/history/{workspace_id}/memory/search?q=...`.
-
-The landing page is `/`. `/login` and `/signup` are the account forms. `/ask` is the signed-in workspace. Logged-in visitors are sent from the account forms to `/ask`.
-
-To replace the final call-to-action image, add a file at `frontend/public/cta-visual.png`.
-
-## Uploading data
-
-- Accepted files: **CSV and XLSX** only (legacy XLS must be converted first). Each upload is converted into a private SQLite workspace on the server.
-- **SQLite database uploads (`.db`, `.sqlite`, `.sqlite3`) are no longer supported.** An arbitrary database file can carry triggers, views and features the tabular importer never has to trust, so the upload path now accepts spreadsheets only. To use data from an existing SQLite file, export its tables to CSV/XLSX, or connect a PostgreSQL/MySQL server as a data source.
-- Limits: up to `UPLOAD_MAX_FILES` files per upload (default **10**) and `UPLOAD_MAX_BYTES` per file (default 25 MB).
-- Only workspace owners and admins can upload (see `docs/permissions.md`).
-
-## Safe execution and verification
-
-- **Submitting a question automatically runs guarded read-only SQL.** The server binds a short-lived execution token to the exact SQL hash, authenticated actor, tenant and workspace. The UI immediately consumes the CSRF-protected, one-use `POST /api/query/{workspace}/pending/{id}/approve` endpoint (the legacy endpoint name is not a manual approval screen). The server revalidates live schema, scope and limits before execution. **View query** is optional inspection afterward.
-- A runtime failure can trigger one automatic correction. The replacement must pass the same read-only guards and prove preservation of the original query semantics before automatic execution; unsafe/unproven changes do not run. No mandatory Run/Cancel or second approval UI is part of the normal flow.
-- **Guardrail allowlist.** SQLGlot parses every query. Only one `SELECT` is allowed (CTEs and `UNION`/`INTERSECT`/`EXCEPT` of selects are fine). Only allowlisted functions (aggregates, math, string, date/time, `CASE`/`COALESCE`/`NULLIF`/`CAST`, window functions) may be called, per dialect; anything else, such as `pg_sleep`, `pg_read_file`, `dblink`, `lo_import`, `set_config`, `SLEEP`, `BENCHMARK`, `LOAD_FILE`, `load_extension` or `readfile`, is rejected. Only tables and columns of the active data source may be read; system schemas and catalog tables (`pg_catalog`, `information_schema`, `mysql`, `performance_schema`, `sys`, `sqlite_master`, `pg_*`) are always rejected, as are `SELECT INTO`/`INTO OUTFILE`, `FOR UPDATE`/`FOR SHARE`, session variables, bind parameters, executable comments (`/*! */`, optimizer hints), bare session keywords such as `session_user`, SQLite's `IN table_name` shorthand and invisible Unicode characters. Schema prefixes must name the source's own schema, using the database's own case rules (in PostgreSQL `"Public"` is not `public`). Plain comments are stripped from the SQL that runs.
-- **Database-level limits.** PostgreSQL queries run in a `READ ONLY` transaction with `SET LOCAL statement_timeout`; MySQL/MariaDB use a read-only session and transaction with `max_execution_time` (`max_statement_time` on MariaDB); SQLite sources are opened with `mode=ro` plus `PRAGMA query_only` and a timeout. Results are capped with `fetchmany` and flagged as `truncated` when the cap is reached.
-- **Use a read-only database user.** These controls are defence in depth, not a substitute for least privilege. Connect Postgres and MySQL sources with a dedicated user that can only `SELECT` the tables Puchoo.si should see (for example `GRANT SELECT ON ALL TABLES IN SCHEMA public TO puchoo_readonly;` on Postgres, `GRANT SELECT ON reporting.* TO 'puchoo_readonly'@'%';` on MySQL), with no superuser, `FILE`, `pg_read_server_files`, or `pg_execute_server_program` rights.
-- No credentials or source data are stored in the React UI. The FastAPI layer maintains strict session and tenant boundaries.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `QUERY_STATEMENT_TIMEOUT_SECONDS` | `15` | Server-wide ceiling for one query (1–300). Workspace settings can only lower it. |
-| `QUERY_MAX_ROWS` | `5000` | Server-wide ceiling for returned rows (1–100000). Workspace settings can only lower it. |
-| `PENDING_QUERY_TTL_SECONDS` | `600` | Execution-token lifetime; the UI normally consumes it immediately (30–3600). |
+The output is `frontend/dist`. A production host must serve SPA routes and forward `/api` requests to FastAPI; the Vite development proxy is not a production proxy.
 
 ## Configuration
 
-Copy `.env.example` to a local, uncommitted `.env` when credentials are ready. The default SQL provider is DeepSeek V4.1 Flash (`deepseek-flash`); set `DEEPSEEK_API_KEY` in your local `.env`. If DeepSeek is selected without that key, or `PUCHOO_SQL_PROVIDER` is still set to the removed `groq` value, questions that need the model stop with a configuration error naming the setting to fix; no query is run. Allowed values are `deepseek` (default), `local`, and `claude`. DeepSeek receives the English question, the workspace schema summary, and for verification the SQL plus up to 50 result rows. Completed queries are verified with Anthropic when `ANTHROPIC_API_KEY` is configured; otherwise Puchoo automatically uses `DEEPSEEK_API_KEY` and `DEEPSEEK_VERIFIER_MODEL` (or `DEEPSEEK_MODEL`).
+Use `.env.example` as the configuration inventory. Backend configuration reads the root `.env`, then `backend/.env`; the latter wins for duplicate file values. Existing process environment variables take precedence over both files.
 
-To enable voice input, set `SARVAM_API_KEY`. The microphone control records a short clip, and Sarvam auto-detects supported Indian languages and English. Puchoo keeps the transcript and executive answer in the detected language, translating internally only for the English SQL planner.
+| Settings                                                                  | Purpose                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUCHOO_SQL_PROVIDER`                                                     | `deepseek` by default; also supports `local` and `claude`. The removed `groq` provider is rejected.                                                                                             |
+| `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_PLANNER_MODEL`            | Default hosted SQL generation/planning. The example model is `deepseek-flash`.                                                                                                                  |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_VERIFIER_MODEL`                           | Independent verification when configured. Otherwise verification falls back to DeepSeek, with optional `DEEPSEEK_VERIFIER_MODEL`.                                                               |
+| `LOCAL_SQL_MODEL_URL`, `LOCAL_SQL_MODEL_NAME`, `LOCAL_SQL_REQUEST_STYLE`  | Local OpenAI-compatible model endpoint when `PUCHOO_SQL_PROVIDER=local`. Additional attempt, token, and schema limits are in `.env.example`.                                                    |
+| `GNANI_API_KEY`                                                           | Gnani/Vachana speech transcription and spoken answers.                                                                                                                                          |
+| `SARVAM_API_KEY`, `SARVAM_TRANSLATION_MODEL`                              | Text translation: questions to English, then answer text, labels, and cells back to the selected language. Sarvam does not handle speech.                                                       |
+| `DATABASE_URL`                                                            | Application accounts, workspace metadata, and history. Defaults to SQLite at `backend/puchoo_auth.db`; PostgreSQL is also supported.                                                            |
+| `FRONTEND_ORIGINS`                                                        | Allowed frontend origins; local defaults include `localhost:5173` and `127.0.0.1:5173`.                                                                                                         |
+| `JWT_ISSUER`                                                              | JWT issuer; defaults to `puchoo.si`. Changing it invalidates existing session cookies.                                                                                                          |
+| `SESSION_SECRET`, `OTP_SECRET`                                            | Session signing and OTP protection. Replace all shipped placeholders.                                                                                                                           |
+| `ENVIRONMENT`, `COOKIE_SECURE`                                            | Production requires `ENVIRONMENT=production`, `COOKIE_SECURE=true`, HTTPS, and non-default secrets.                                                                                             |
+| `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | Delivery of signup/login verification and recovery emails. Set an authorized `SMTP_FROM` mailbox unless `SMTP_USERNAME` is already a mailbox; there is no hardcoded fallback sender domain.     |
+| `SMTP_USE_TLS`, `SMTP_USE_SSL`                                            | STARTTLS (usually port 587) or implicit TLS (usually 465); enable only one. TLS validates certificates and server identity.                                                                     |
+| `ALLOWED_DB_HOSTS`                                                        | Explicitly allowed private/loopback database destinations. Leave empty unless intentionally connecting to one.                                                                                  |
+| `DB_SSL_REQUIRED`, `DB_SSL_ROOT_CERT`, `DB_SSL_CA`                        | Workspace database TLS and trusted CA bundles. PostgreSQL uses hostname-verifying `verify-full`; legacy accepted `DB_SSL_MODE` values normalize to it. MySQL verifies certificate identity too. |
 
-For a Windows-hosted OpenAI-compatible Qwen server, set:
+A selected hosted SQL provider without its required credentials returns a configuration error for model-dependent questions. English typed questions do not need the speech/translation providers. Non-English queries need translation configured; voice and spoken playback need Gnani.
 
-```env
-LOCAL_SQL_MODEL_URL=http://127.0.0.1:8080/v1/chat/completions
-LOCAL_SQL_MODEL_NAME=your-finetuned-qwen-sql-7b
-LOCAL_SQL_REQUEST_STYLE=chat
-LOCAL_SQL_MAX_TOKENS=450
-LOCAL_SQL_MAX_ATTEMPTS=2
-LOCAL_SQL_SCHEMA_MAX_TABLES=6
-LOCAL_SQL_SCHEMA_MAX_CHARS=12000
+### Data flow and persistence
+
+- The configured SQL model receives the question and a selected schema summary. Verification can send SQL and up to 50 result rows to the verifier provider.
+- Gnani receives recorded audio or answer text requested for playback. Sarvam receives text requested for translation.
+- Persistent Chroma memory stores scoped question/interpretation/verification context, excluding result rows, generated SQL, connection strings, and secrets. Retrieval is filtered by tenant and workspace; it remains untrusted background for fresh queries.
+- Relational history and browser chat state can retain displayed results. Clearing the visible chat and deleting saved history are separate actions.
+- Server database credentials remain in process memory; server sources require reconnection after restart.
+- Runtime state lives under configured paths, including the application database and `.pucho`. Keep these private and outside the served frontend directory.
+
+## Accounts and roles
+
+Signup and login use email verification before opening an authenticated session. Sessions use signed JWTs in HttpOnly cookies with server-side revocation; the frontend does not store session tokens in local storage. State-changing requests require the CSRF cookie/header pair. API authorization remains authoritative regardless of UI visibility.
+
+| Role          | Access                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Owner / admin | Manage data sources, guardrails, invite codes and members; ask questions and review history.                     |
+| Editor        | Ask questions, inspect SQL/results, and review shared history; cannot upload or administer data sources/members. |
+| Viewer        | Review shared history/results and manage their own account; cannot submit queries or administer sources.         |
+
+Foreign-tenant workspace resources return 404; insufficient same-tenant permissions return 403. Invalid or absent sessions return 401.
+
+## Data sources and execution limits
+
+Upload **CSV or XLSX** files, or connect a supported PostgreSQL/MySQL server. XLS and arbitrary SQLite database uploads are unsupported; export those tables as CSV/XLSX first. Only owners/admins can upload or manage sources. Tabular imports produce managed private SQLite datasets.
+
+| Setting                              | Default / hard ceiling                                                |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `UPLOAD_MAX_FILES`                   | 10 files per request                                                  |
+| `UPLOAD_MAX_BYTES`                   | 26,214,400 bytes per file (25 MiB)                                    |
+| `UPLOAD_XLSX_MAX_UNCOMPRESSED_BYTES` | 33,554,432 bytes (32 MiB)                                             |
+| `UPLOAD_XLSX_MAX_COMPRESSION_RATIO`  | 100                                                                   |
+| `UPLOAD_MAX_SHEETS`                  | 50                                                                    |
+| `UPLOAD_MAX_ROWS`                    | 1,000,000 per sheet/CSV                                               |
+| `UPLOAD_MAX_COLUMNS`                 | 500                                                                   |
+| `UPLOAD_MAX_CELLS`                   | 250,000 across all sheets/files                                       |
+| `QUERY_STATEMENT_TIMEOUT_SECONDS`    | 15 seconds; workspace settings can only lower the configured ceiling  |
+| `QUERY_MAX_ROWS`                     | 5,000 returned rows; capped results are flagged as truncated          |
+| `PENDING_QUERY_TTL_SECONDS`          | 600 seconds; the UI normally consumes the execution token immediately |
+
+Upload configuration can lower, but cannot raise, the parser's hard safety ceilings. Preflight checks reject oversized/unsupported content before full frame allocation.
+
+SQLGlot validates read-only statements, functions, tables, and columns. System catalogs, writes, executable comments, and unsafe functions are rejected. Execution tokens bind the SQL to the authenticated actor, tenant, and workspace and are single-use. Failed queries may receive one guarded correction only when safety and semantic-preservation checks succeed.
+
+Use dedicated read-only database accounts with access only to the intended tables. PostgreSQL, MySQL/MariaDB, and managed SQLite execution also enforce read-only modes, timeouts, and result limits.
+
+## Backup and recovery
+
+Run **one API process/worker**. Multi-process cache/state coordination and deployment recovery require separate validation.
+
+The included offline backup supports a **SQLite application database**, its authority/deletion state, referenced managed uploaded SQLite datasets, and the paired Chroma directory. It excludes `.env`, server credentials, unreferenced uploads, and PostgreSQL servers. PostgreSQL authority requires a separately validated backup procedure.
+
+Stop **all API, indexing, and maintenance writers** before creating a snapshot. Use the actual configured database, Chroma, and upload paths, with a trusted private backup destination outside the repository/web root:
+
+```bash
+python -m scripts.create_backup --database /srv/puchoo/auth.db \
+  --chroma /srv/puchoo/chroma --uploads /srv/puchoo/uploads \
+  --destination /secure/backups/2026-11-10T180000 --writers-stopped
 ```
 
-Use the Windows machine's LAN IP instead of `127.0.0.1` only when the app runs on another machine, and restrict port 8080 to the trusted LAN in Windows Firewall.
+Before restoring, reconcile the newest deletion/privacy ledger with the snapshot. Older snapshots cannot know about later deletions. The acknowledgement below records an operator review; it does not perform reconciliation. If evidence is unavailable, keep restored data offline until privacy review and any necessary purge/rebuild are complete.
 
-Example llama.cpp server command (replace the model path with your merged/fine-tuned Qwen 7B GGUF):
-
-```powershell
-.\llama-server.exe -m "C:\models\qwen2.5-coder-7b-instruct-q4_k_m.gguf" --host 127.0.0.1 --port 8080 -ngl 99 -c 8192
+```bash
+python -m scripts.restore_latest_backup --backup-dir /secure/backups \
+  --destination /srv/recovery/reviewed-2026-11-10 --acknowledge-privacy-review
 ```
 
-Start Puchoo with the two commands in [Run the app (frontend + backend)](#run-the-app-frontend--backend).
+The restore destination must not exist. Only versioned manifested snapshots qualify; corrupt latest snapshots do not silently fall back. After a successful restore, configure `DATABASE_URL` for `destination/auth.db`, `CHROMA_PATH` for `destination/chroma`, and `PUCHOO_UPLOAD_DIRECTORY` for `destination/datasets`. Verify startup, accounts, source scope, history, and deletion suppression before reconnecting users. Reconnect server sources manually.
 
-## Plan-aware training data
+Keep backups private, encrypted, access-controlled, and subject to a retention policy. Never delete a `.maintenance.lock` sidecar while a writer or backup may hold it; it can invalidate process coordination.
 
-`model_training/data_v7_complex_plans/` documents the JSONL contract for QLoRA training examples. Each record contains a complex question, strict plan JSON, relevant schema, expected SQLite SQL or clarification, and optional failed-SQL repair context. Keep adapters, model weights, downloaded corpora, and generated outputs outside Git. Evaluate on at least 100 held-out real hard questions using execution success, result correctness, constraint coverage, clarification accuracy, and safety.
+## Testing and repository layout
 
-### Retrieval-augmented generation (RAG)
+With the Python virtual environment activated:
 
-Model-based SQL generation retrieves up to three relevant approved conversation
-snippets from the current tenant and workspace's persistent ChromaDB memory.
-The original question and live schema stay separate from `retrieved_context`
-in the model's JSON request. This context reaches both complex-query planning
-and SQL generation for the configured local, DeepSeek, or Claude provider.
+```bash
+python -m pytest -q
+npm --prefix frontend test -- --run
+npm --prefix frontend run lint
+npm --prefix frontend run build
+npm --prefix frontend run format:check
+```
 
-Retrieval uses the existing lightweight local token-hash embeddings, not a
-hosted or neural embedding model. Results must also overlap the current
-question's meaningful terms and pass a distance threshold. Context is limited
-to 4,000 characters and proposal metadata records the retrieved source IDs.
-New memories include the English planning question, allowing translated
-questions to be retrieved alongside their original wording. Existing memories
-remain searchable without a migration.
+Some integration tests require the `TEST_AUTH_POSTGRES_URL` / `TEST_PERSISTENCE_POSTGRES_URL` variables and a disposable PostgreSQL database. TLS fixtures require OpenSSL and permission to bind loopback listeners. Tests use synthetic credentials; do not point fixtures at production services.
 
-Historical context is untrusted background, not instructions, current facts,
-or database schema. SQL and result rows are excluded from vector memory;
-answers still come from fresh, guarded read-only database queries. If ChromaDB
-is unavailable or there are no relevant matches, generation continues without
-memory. Deterministic schema-based queries do not need the retrieval step.
+CI runs migration checks, Python tests, frontend tests/lint/build/formatting, and dependency audits. It currently retains documented Chroma HTTP-server advisory exceptions in `.github/workflows/ci.yml`; review those before release. Automated checks do not replace real-provider, mobile, deployment, or recovery validation.
 
-Tabular import hard ceilings and supported formats: [bounded parser policy](docs/security/upload-parser-bounds.md). Configuration can lower but not raise these safety ceilings; unusual XLSX layouts may need a data-only export. Offline dataset-inclusive recovery: [backup runbook](docs/runbooks/backups.md).
+| Path                      | Purpose                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| `frontend/`               | React/Vite landing page, accounts, analytics UI, component tests, and assets.         |
+| `backend/`                | FastAPI application, authentication, persistence, migrations, and integration tests.  |
+| `apps/api/`, `apps/core/` | Product routes, query planning/execution, providers, guardrails, and memory.          |
+| `tests/unit/`             | Python regression coverage for core logic and operational scripts.                    |
+| `scripts/`                | Backend launcher, migrations, offline backup/restore, and Linux upload-budget probes. |
+| `.github/`                | CI and dependency-update configuration.                                               |
+
+Generated verification output under `reports/`, Python caches, dependencies, local environment files, and runtime data are ignored by Git. This README is the repository's consolidated setup and maintenance guide.
+
+The presentation/video script is [gnani_script.md](gnani_script.md). Keep this file during repository cleanups.

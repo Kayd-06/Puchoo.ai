@@ -273,13 +273,30 @@ html[data-theme='light'],
   min-width: 40px;
   min-height: 40px;
 }
+/* The walkthrough sits on a light surface in both app themes. */
 #root .puchoo-demo-tabs button {
-  color: #cbd8e1;
+  color: #42536a;
+  background: #f5f7fa;
+  border-color: #a7b5c4;
   border-radius: 8px;
 }
+#root .puchoo-demo-tabs button:hover {
+  color: #213c59;
+  background: #dce6f0;
+  border-color: #728ba5;
+}
 #root .puchoo-demo-tabs button.is-active {
-  color: #211c16;
-  background: #dfc6a6;
+  color: #ffffff;
+  background: #14263b;
+  border-color: #14263b;
+}
+#root .puchoo-demo-tabs button.is-active:hover {
+  background: #213c59;
+  border-color: #213c59;
+}
+#root .puchoo-demo-tabs button:focus-visible {
+  outline: 3px solid #315f96;
+  outline-offset: 3px;
 }
 #root .site :is(button, a.puchoo-reference-cta, .ui-action):focus-visible {
   outline: 2px solid #9ccae0;

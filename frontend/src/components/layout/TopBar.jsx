@@ -11,7 +11,6 @@ import {
   Moon,
   Sun,
 } from 'lucide-react';
-import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../api/client';
 import ThemeToggle from '../ThemeToggle';
@@ -30,12 +29,6 @@ function timeLabel(value) {
 }
 
 export default function TopBar() {
-  const {
-    activeWorkspace,
-    activeWorkspaceId,
-    workspaces = [],
-    setActiveWorkspaceId,
-  } = useAppContext();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -167,28 +160,6 @@ export default function TopBar() {
 
   return (
     <header className="app-topbar">
-      <div className="app-topbar-status">
-        {workspaces.length ? (
-          <select
-            className="topbar-source-select"
-            aria-label="Active data source"
-            value={activeWorkspaceId || ''}
-            onChange={(event) => setActiveWorkspaceId(event.target.value || null)}
-          >
-            <option value="" disabled>
-              Select data source
-            </option>
-            {workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span>{activeWorkspace ? activeWorkspace.name : 'No data source selected'}</span>
-        )}
-      </div>
-
       <div className="app-topbar-actions">
         <ThemeToggle />
         <div ref={notificationRef} className="topbar-menu-anchor">

@@ -13,6 +13,7 @@ import {
 import { useAppContext } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { can } from '../../auth/capabilities';
+import './sidebar.css';
 
 const NAV_ITEMS = [
   {

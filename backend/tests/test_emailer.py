@@ -149,4 +149,3 @@ def test_smtp_from_is_preferred_over_smtp_username(monkeypatch):
 
     assert delivered["from"] == "no-reply@example.test"
     assert delivered["to"] == ["person@example.test"]
-

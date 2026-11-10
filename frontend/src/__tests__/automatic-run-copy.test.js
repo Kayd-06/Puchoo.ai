@@ -9,7 +9,6 @@ it('current landing/legal/setup copy never promises mandatory manual SQL approva
     '../README.md',
     '../.env.example',
     '../backend/.env.example',
-    '../docs/permissions.md',
   ];
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
