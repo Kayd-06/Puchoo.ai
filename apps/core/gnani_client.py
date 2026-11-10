@@ -105,7 +105,7 @@ class GnaniClient:
                 "X-API-Key-ID": self.api_key,
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
                 "Accept": "application/json",
-                "User-Agent": "PuchooAI/1.0",
+                "User-Agent": "PuchooSi/1.0",
             },
             method="POST",
         )
@@ -210,7 +210,7 @@ class GnaniClient:
                 "X-API-Key-ID": self.api_key,
                 "Content-Type": "application/json",
                 "Accept": "audio/wav",
-                "User-Agent": "PuchooAI/1.0",
+                "User-Agent": "PuchooSi/1.0",
             },
             method="POST",
         )

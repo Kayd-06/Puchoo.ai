@@ -15,7 +15,7 @@ const pages = {
   terms: {
     title: 'Terms',
     paragraphs: [
-      'Puchoo.si is a college OJT project. It proposes SQL for a question you ask, shows that SQL with a plain-language explanation, and automatically runs it after server-side validation. You can inspect the SQL with View query; a safe automatic repair may retry a runtime error.',
+      'Puchoo.si is a college OJT project. It turns a question into SQL, shows that SQL with a plain-language explanation, and automatically runs it after server-side validation. You can inspect the SQL with View query; a safe automatic repair may retry a runtime error.',
       'FastAPI is the only security boundary. An AST-based guardrail allows one SELECT statement, limits queries to approved tables and columns, and enforces row limits and timeouts. If those checks fail, the query does not run.',
     ],
   },

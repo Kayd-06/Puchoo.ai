@@ -1,1 +1,1 @@
-"""Puchoo.ai authentication service."""
+"""Puchoo.si authentication service."""

@@ -20,7 +20,7 @@ it('lets visitors pause the guided demo and select a step', () => {
   render(<Landing />);
   fireEvent.click(screen.getByRole('button', { name: 'Pause guided demo' }));
   expect(screen.getByRole('button', { name: 'Resume guided demo' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /02 Review/ }));
+  fireEvent.click(screen.getByRole('button', { name: /02 Run/ }));
   expect(screen.getByText(/SELECT department/)).toBeInTheDocument();
 });
 

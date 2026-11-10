@@ -87,6 +87,8 @@ def test_email_change_notice_uses_consistent_puchoo_si_branding(monkeypatch):
     """The account-security notice must not reintroduce the retired brand."""
 
     delivered = []
+    monkeypatch.setattr(emailer.settings, "smtp_from", None)
+    monkeypatch.setattr(emailer.settings, "smtp_username", "sender@example.test")
     monkeypatch.setattr(emailer, "_deliver", lambda message: delivered.append(message.as_string()))
 
     emailer.send_email_changed_notice("person@example.test")
@@ -96,3 +98,54 @@ def test_email_change_notice_uses_consistent_puchoo_si_branding(monkeypatch):
     assert message["Subject"] == "Your Puchoo.si email address was changed"
     assert "Puchoo.si" in body
     assert "Puchoo.ai" not in body
+
+
+def test_message_requires_configured_sender(monkeypatch):
+    """Do not invent an unowned no-reply@ domain when SMTP_FROM and SMTP_USERNAME are empty."""
+
+    monkeypatch.setattr(emailer.settings, "smtp_from", None)
+    monkeypatch.setattr(emailer.settings, "smtp_username", None)
+    with pytest.raises(EmailDeliveryError, match="SMTP_FROM or SMTP_USERNAME must be set"):
+        emailer.send_otp_email("person@example.test", "123456")
+
+
+def test_smtp_from_is_preferred_over_smtp_username(monkeypatch):
+    delivered = {}
+
+    class FakeSMTP:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def ehlo(self):
+            return None
+
+        def starttls(self, *, context):
+            return None
+
+        def login(self, *_args):
+            return None
+
+        def sendmail(self, from_addr, to_addrs, msg):
+            delivered["from"] = from_addr
+            delivered["to"] = to_addrs
+            return {}
+
+    monkeypatch.setattr(emailer.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(emailer.settings, "smtp_server", "smtp.example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_port", 587)
+    monkeypatch.setattr(emailer.settings, "smtp_username", "sender@example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_password", "not-a-real-password")
+    monkeypatch.setattr(emailer.settings, "smtp_from", "no-reply@example.test")
+    monkeypatch.setattr(emailer.settings, "smtp_use_ssl", False)
+    monkeypatch.setattr(emailer.settings, "smtp_use_tls", True)
+
+    emailer.send_otp_email("person@example.test", "123456")
+
+    assert delivered["from"] == "no-reply@example.test"
+    assert delivered["to"] == ["person@example.test"]

@@ -1185,7 +1185,7 @@ class DeepSeekSQLClient(LocalMLXSQLClient):
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "PuchooAI/1.0",
+                "User-Agent": "PuchooSi/1.0",
             },
             method="POST",
         )
