@@ -30,3 +30,6 @@ model_training/models/
 
 # Persistent OS maintenance lease sidecars (never unlink a live lock).
 *.maintenance.lock
+
+# Regenerated local/CI verification output (CI uploads it as an artifact).
+/reports/

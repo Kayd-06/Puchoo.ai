@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AppProvider } from '../context/AppContext';
 import TopBar from '../components/layout/TopBar';
+import Sidebar from '../components/layout/Sidebar';
 import AskData from '../pages/AskData';
 import { fetchApi } from '../api/client';
 const auth = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ function mount() {
     <MemoryRouter>
       <AppProvider>
         <TopBar />
+        <Sidebar />
         <AskData />
       </AppProvider>
     </MemoryRouter>,
@@ -55,15 +57,17 @@ it.each(['owner', 'editor', 'viewer'])(
       return {};
     });
     const view = mount();
-    const select = await screen.findByRole('combobox', { name: 'Active data source' });
-    await waitFor(() => expect(select).toHaveValue(`${role}-0`));
-    expect(select.options).toHaveLength(21);
+    expect(screen.queryByRole('combobox', { name: 'Active data source' })).not.toBeInTheDocument();
+    const select = await screen.findByRole('button', { name: /select active data source/i });
+    await waitFor(() => expect(select).toHaveTextContent(sources[0].name.trim()));
+    fireEvent.click(select);
+    expect(screen.getAllByRole('option')).toHaveLength(20);
     if (role !== 'viewer')
       fireEvent.change(screen.getByRole('textbox'), {
         target: { value: 'PRIVATE SOURCE A FILTER' },
       });
-    fireEvent.change(select, { target: { value: `${role}-1` } });
-    expect(select).toHaveValue(`${role}-1`);
+    fireEvent.click(screen.getByRole('option', { name: sources[1].name.trim() }));
+    expect(select).toHaveTextContent(sources[1].name.trim());
     expect(localStorage.getItem('pucho_active_workspace')).toBe(`${role}-1`);
     if (role === 'viewer') {
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
@@ -83,7 +87,9 @@ it.each(['owner', 'editor', 'viewer'])(
     view.unmount();
     mount();
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Active data source' })).toHaveValue(`${role}-1`),
+      expect(screen.getByRole('button', { name: /select active data source/i })).toHaveTextContent(
+        sources[1].name.trim(),
+      ),
     );
   },
 );

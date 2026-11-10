@@ -233,3 +233,8 @@ html[data-theme='light'] .topbar-source-select {
   background: #faf8f2;
   color: #25221d;
 }
+
+/* Keep header actions aligned after removing the duplicate source selector. */
+.app-topbar > .app-topbar-actions {
+  margin-left: auto;
+}
