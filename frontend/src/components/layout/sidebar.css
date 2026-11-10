@@ -1,0 +1,31 @@
+/* The mobile sidebar stays in the page flow; expand sources below the navigation. */
+@media (max-width: 720px) {
+  .app-sidebar .app-sidebar-bottom {
+    display: block;
+    min-width: 0;
+    margin-top: 1rem;
+    padding: 1rem 1rem 0;
+  }
+
+  .app-sidebar .app-sidebar-bottom .app-sidebar-section-label {
+    display: block;
+  }
+
+  .app-sidebar .workspace-picker {
+    display: block;
+    min-width: 0;
+  }
+
+  .app-sidebar .workspace-picker-menu {
+    position: static;
+    max-height: min(18rem, 45dvh);
+    margin-top: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform-origin: top center;
+  }
+
+  .app-sidebar .workspace-picker-option {
+    min-height: 44px;
+  }
+}
