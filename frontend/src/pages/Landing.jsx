@@ -61,7 +61,18 @@ function ProductDemo() {
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
   const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setReducedMotion(preference.matches);
+    updatePreference();
+    preference.addEventListener('change', updatePreference);
+    return () => preference.removeEventListener('change', updatePreference);
+  }, []);
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -77,14 +88,13 @@ function ProductDemo() {
   }, []);
 
   useEffect(() => {
-    if (paused || !isVisible || window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-      return undefined;
+    if (paused || !isVisible || reducedMotion) return undefined;
     const timer = window.setInterval(
       () => setActive((current) => (current + 1) % demoSteps.length),
       4300,
     );
     return () => window.clearInterval(timer);
-  }, [isVisible, paused]);
+  }, [isVisible, paused, reducedMotion]);
   const step = demoSteps[active];
   return (
     <section id="demo" ref={sectionRef} className="puchoo-demo-section">
