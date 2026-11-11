@@ -134,3 +134,14 @@ it('keeps the data-source background word outline-only and highlights it only on
     /\.connect-tablist,[\s\S]*?\.connect-submit,[\s\S]*?\{[^}]*pointer-events:\s*auto/s,
   );
 });
+
+it('shares workspace geometry and typography between themes', () => {
+  const css = source('src/styles/lightPalette.css');
+  const blocks = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  for (const [, selector, declarations] of blocks) {
+    if (!selector.includes("data-theme='light'") || !selector.includes('#root')) continue;
+    expect(declarations).not.toMatch(
+      /(?:^|;)\s*(?:font(?:-[\w-]+)?|line-height|letter-spacing|padding(?:-[\w-]+)?|margin(?:-[\w-]+)?|(?:min-|max-)?(?:width|height)|align-(?:self|items))\s*:/,
+    );
+  }
+});

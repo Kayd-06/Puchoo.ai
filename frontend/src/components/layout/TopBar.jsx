@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell,
+  Menu,
   CheckCheck,
   ChevronDown,
   LogOut,
@@ -28,7 +29,7 @@ function timeLabel(value) {
   return date.toLocaleDateString();
 }
 
-export default function TopBar() {
+export default function TopBar({ onOpenNavigation }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -160,6 +161,19 @@ export default function TopBar() {
 
   return (
     <header className="app-topbar">
+      {onOpenNavigation && (
+        <button
+          type="button"
+          className="workspace-menu-trigger"
+          onClick={onOpenNavigation}
+          aria-label="Open workspace menu"
+          aria-haspopup="dialog"
+          aria-controls="workspace-navigation"
+        >
+          <Menu size={20} />
+          <span>Workspace</span>
+        </button>
+      )}
       <div className="app-topbar-actions">
         <ThemeToggle />
         <div ref={notificationRef} className="topbar-menu-anchor">

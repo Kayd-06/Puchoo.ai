@@ -1,4 +1,5 @@
 import { universePolicy } from '../utils/universePolicy';
+import '../styles/askComposer.css';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -272,15 +273,15 @@ export function queryUniversePalette(theme) {
   return {
     composite: 'source-over',
     motion: 1,
-    orbit: '139, 197, 239',
-    pulse: '112, 185, 238',
-    cluster: '131, 199, 255',
-    clusterEdge: '56, 126, 196',
-    dust: '224, 240, 255',
-    dustSpark: '205, 231, 255',
-    stream: '173, 218, 251',
-    star: '230, 244, 255',
-    starSpark: '185, 225, 255',
+    orbit: '190, 190, 190',
+    pulse: '180, 180, 180',
+    cluster: '210, 210, 210',
+    clusterEdge: '160, 160, 160',
+    dust: '240, 240, 240',
+    dustSpark: '225, 225, 225',
+    stream: '210, 210, 210',
+    star: '250, 250, 250',
+    starSpark: '235, 235, 235',
   };
 }
 
@@ -1238,6 +1239,17 @@ export default function AskData() {
                 aria-describedby={loading ? 'query-processing-status' : undefined}
                 rows="3"
               />
+              {loading && (
+                <div className="ask-composer-status" role="status">
+                  <span
+                    id="query-processing-status"
+                    className="ask-query-mode ask-query-processing"
+                  >
+                    <i aria-hidden="true" />
+                    Analyzing data…
+                  </span>
+                </div>
+              )}
               <div className="ask-prompt-controls">
                 <div className="ask-prompt-meta">
                   <span>
@@ -1279,18 +1291,6 @@ export default function AskData() {
                   </span>
                 </div>
                 <div className="ask-prompt-actions">
-                  {loading ? (
-                    <span
-                      id="query-processing-status"
-                      className="ask-query-mode ask-query-processing"
-                    >
-                      <i /> Analyzing data
-                    </span>
-                  ) : (
-                    <span className="ask-query-mode">
-                      Verified query <ChevronDown size={14} />
-                    </span>
-                  )}
                   {question && (
                     <button
                       className="ask-clear-button"
@@ -1552,7 +1552,12 @@ export default function AskData() {
                   )}
                 </div>
               </div>
-              <div className="result-table-scroll">
+              <div
+                className="result-table-scroll"
+                role="region"
+                aria-label="Scrollable query results"
+                tabIndex={0}
+              >
                 {result.record.rows && result.record.rows.length > 0 ? (
                   <table className="result-table">
                     <thead>

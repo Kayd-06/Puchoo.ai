@@ -115,17 +115,17 @@
   background: #382530;
 }
 html[data-theme='light'] #root .topbar-account-button {
-  background: #faf7f0;
+  background: #e5e9ee;
   border-color: #e2dfd8;
   color: #3a3730;
 }
 html[data-theme='light'] #root .topbar-account-button:hover,
 html[data-theme='light'] #root .topbar-account-button.is-active {
-  background: #f3f0e9;
+  background: #e5e9ee;
   border-color: #b1aea7;
 }
 html[data-theme='light'] #root .topbar-account-panel {
-  background: #faf8f2;
+  background: #f2f4f6;
   border-color: #e7e4dd;
   color: #3a3730;
   box-shadow: 0 16px 40px #20304020;
@@ -143,7 +143,7 @@ html[data-theme='light'] #root .account-menu-links button {
   color: #423f38;
 }
 html[data-theme='light'] #root .account-menu-links button:hover {
-  background: #f8f5ee;
+  background: #e5e9ee;
 }
 html[data-theme='light'] #root .topbar-account-panel .topbar-logout-button {
   color: #a72c44;
@@ -230,7 +230,7 @@ html[data-theme='light'] #root .topbar-account-panel .topbar-logout-button:hover
   outline-offset: 2px;
 }
 html[data-theme='light'] .topbar-source-select {
-  background: #faf8f2;
+  background: #f2f4f6;
   color: #25221d;
 }
 

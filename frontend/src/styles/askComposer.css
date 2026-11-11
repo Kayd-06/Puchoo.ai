@@ -1,0 +1,312 @@
+/* Explicit, paired theme tokens for the Ask entry surface. */
+/* ask dark palette */
+#root .app-container .ask-page {
+  --ask-stage-bg: #000000;
+  --ask-surface: #000000;
+  --ask-text: #edf3fa;
+  --ask-muted: #b9b9b9;
+  --ask-border: #454545;
+  --ask-focus: #e5e5e5;
+  --ask-glow: 229, 229, 229;
+  --ask-button-bg: #eeeeee;
+  --ask-button-fg: #111111;
+  --ask-disabled-bg: #202020;
+  --ask-disabled-fg: #b9b9b9;
+  --ask-voice-bg: #141414;
+  --ask-voice-fg: #eeeeee;
+  --ask-badge-bg: #181818;
+  --ask-badge-fg: #d5d5d5;
+}
+/* ask light palette */
+html[data-theme='light'] #root .app-container .ask-page {
+  --ask-stage-bg: #e8ebef;
+  --ask-surface: #f2f4f6;
+  --ask-text: #27313d;
+  --ask-muted: #566270;
+  --ask-border: #a9b4c2;
+  --ask-focus: #3f5f86;
+  --ask-glow: 63, 95, 134;
+  --ask-button-bg: #3f5f86;
+  --ask-button-fg: #ffffff;
+  --ask-disabled-bg: #e2e9f0;
+  --ask-disabled-fg: #53667b;
+  --ask-voice-bg: #e5eaf0;
+  --ask-voice-fg: #2e4e6e;
+  --ask-badge-bg: #e0e7ef;
+  --ask-badge-fg: #315573;
+}
+#root .app-container .ask-page .ask-stage {
+  background: var(--ask-stage-bg);
+}
+#root .app-container .ask-page .ask-universe {
+  opacity: 1;
+}
+#root .app-container .ask-page .ask-stage h1 {
+  color: var(--ask-text);
+}
+#root .app-container .ask-page .ask-stage h1 em {
+  color: inherit;
+  font-style: normal;
+}
+#root .app-container .ask-page .ask-stage-content > p {
+  color: var(--ask-muted);
+  line-height: 1.65;
+}
+#root .app-container .ask-page .ask-prompt-shell {
+  position: relative;
+  padding: 20px;
+  border: 1px solid var(--ask-border);
+  border-radius: 20px;
+  background: var(--ask-surface);
+  box-shadow: 0 12px 35px #00000012;
+}
+#root .app-container .ask-page .ask-prompt-shell:focus-within {
+  border-color: var(--ask-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ask-focus) 18%, transparent);
+}
+#root .app-container .ask-page .ask-prompt-shell textarea {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  max-height: min(320px, 45dvh);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ask-text);
+  font: 400 16px/1.6 var(--font-sans);
+  resize: vertical;
+  outline: none;
+  box-shadow: none;
+}
+#root .app-container .ask-page .ask-prompt-shell textarea::placeholder {
+  color: var(--ask-muted);
+  opacity: 1;
+}
+#root .app-container .ask-page .ask-prompt-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--ask-border) 45%, transparent);
+}
+#root .app-container .ask-page :is(.ask-prompt-meta, .ask-prompt-actions) {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: auto;
+}
+#root .app-container .ask-page .ask-prompt-meta > span:first-child {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--ask-badge-fg);
+  background: var(--ask-badge-bg);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+#root .app-container .ask-page :is(.ask-prompt-divider, .voice-provider) {
+  display: none;
+}
+#root .app-container .ask-page .voice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 10px;
+  gap: 6px;
+  border: 1px solid var(--ask-border);
+  border-radius: 10px;
+  background: var(--ask-voice-bg);
+  color: var(--ask-voice-fg);
+  box-shadow: none;
+}
+#root .app-container .ask-page .voice-button span {
+  display: inline;
+  font-size: 12px;
+}
+#root .app-container .ask-page .voice-button:hover:not(:disabled) {
+  border-color: var(--ask-focus);
+  background: var(--ask-badge-bg);
+  color: var(--ask-badge-fg);
+}
+#root .app-container .ask-page .voice-button.is-recording {
+  border-color: #ba506d;
+  background: #922e49;
+  color: #ffffff;
+}
+#root .app-container .ask-page .ask-clear-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  color: var(--ask-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+}
+#root .app-container .ask-page .ask-submit-button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--ask-button-bg);
+  color: var(--ask-button-fg);
+  box-shadow: none;
+}
+#root .app-container .ask-page .ask-submit-button:hover:not(:disabled) {
+  background: var(--ask-button-bg);
+  color: var(--ask-button-fg);
+  filter: brightness(1.08);
+  transform: none;
+}
+#root .app-container .ask-page :is(.ask-submit-button, .voice-button):disabled {
+  opacity: 1;
+  border: 1px solid var(--ask-border);
+  border-style: solid;
+  background: var(--ask-disabled-bg);
+  color: var(--ask-disabled-fg);
+  cursor: not-allowed;
+}
+#root .app-container .ask-page .ask-prompt-shell button:focus-visible {
+  outline: 2px solid var(--ask-focus);
+  outline-offset: 3px;
+}
+#root .app-container .ask-page .ask-composer-status {
+  margin-top: 10px;
+  text-align: left;
+}
+#root .app-container .ask-page .ask-composer-status .ask-query-processing {
+  display: inline-flex;
+  margin: 0;
+  color: var(--ask-muted);
+  font-size: 12px;
+}
+#root .app-container .ask-page .ask-stage-footer {
+  color: var(--ask-muted);
+  line-height: 1.6;
+}
+#root .app-container .ask-page .ask-stage-footer span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1023px) {
+  #root .app-container .ask-page {
+    min-height: 0;
+  }
+  #root .app-container .ask-page .ask-stage {
+    min-height: 0;
+    padding: 44px 20px 32px;
+    place-items: start center;
+  }
+  #root .app-container .ask-page .ask-stage-content {
+    width: 100%;
+    max-width: 720px;
+    padding: 0;
+  }
+  #root .app-container .ask-page .ask-stage h1 {
+    font: 500 clamp(34px, 6vw, 48px)/1.08 var(--font-sans);
+    letter-spacing: -0.045em;
+  }
+  #root .app-container .ask-page .ask-stage-content > p {
+    max-width: 520px;
+    margin: 18px auto 0;
+    font-size: 15px;
+  }
+  #root .app-container .ask-page .ask-prompt-shell {
+    margin-top: 28px;
+  }
+  #root .app-container .ask-page .ask-stage-footer {
+    margin-top: 22px;
+    font-size: 10px;
+    letter-spacing: 0.07em;
+  }
+}
+@media (max-width: 600px) {
+  #root .app-container .ask-page .ask-stage {
+    padding: 36px 8px 28px;
+  }
+  #root .app-container .ask-page .ask-prompt-shell {
+    padding: 16px;
+    border-radius: 18px;
+  }
+  #root .app-container .ask-page .ask-prompt-shell textarea {
+    min-height: 112px;
+  }
+  #root .app-container .ask-page .ask-prompt-controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  #root .app-container .ask-page .ask-prompt-meta {
+    flex-wrap: wrap;
+  }
+  #root .app-container .ask-page .ask-prompt-actions {
+    justify-content: flex-end;
+  }
+}
+@media (max-width: 360px) {
+  #root .app-container .ask-page .voice-button span {
+    display: none;
+  }
+  #root .app-container .ask-page .ask-prompt-shell {
+    padding: 12px;
+  }
+}
+
+/* Focus belongs to the rounded composer, not a second rectangle inside it. */
+#root .app-container .ask-page .ask-prompt-shell textarea:is(:focus, :focus-visible) {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+/* The existing request state starts and stops the glow for click and keyboard sends. */
+#root .app-container .ask-page .ask-prompt-shell.is-loading {
+  border-color: var(--ask-focus);
+  animation: ask-composer-glow 1.6s ease-in-out infinite;
+}
+#root .app-container .ask-page .ask-prompt-shell.is-loading::before {
+  display: none;
+  animation: none;
+}
+#root .app-container .ask-page .ask-prompt-shell.is-loading .ask-submit-button {
+  border-color: var(--ask-focus);
+  color: var(--ask-text);
+  box-shadow: 0 0 18px rgba(var(--ask-glow), 0.24);
+}
+
+@keyframes ask-composer-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(var(--ask-glow), 0.16),
+      0 0 18px rgba(var(--ask-glow), 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(var(--ask-glow), 0.24),
+      0 0 32px rgba(var(--ask-glow), 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root .app-container .ask-page .ask-prompt-shell.is-loading {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(var(--ask-glow), 0.18);
+  }
+}

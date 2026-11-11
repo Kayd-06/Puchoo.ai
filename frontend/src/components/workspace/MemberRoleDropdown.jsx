@@ -15,11 +15,13 @@ export default function MemberRoleDropdown({ value, options, label, onChange }) 
   };
   const show = () => {
     const rect = trigger.current.getBoundingClientRect();
-    const width = Math.max(160, rect.width);
-    const height = options.length * 42 + 16;
+    const width = Math.min(Math.max(160, rect.width), Math.max(0, window.innerWidth - 16));
+    const height = Math.min(options.length * 44 + 16, Math.max(0, window.innerHeight - 16));
     setPosition({
       left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
       width,
+      maxHeight: Math.max(0, window.innerHeight - 16),
+      overflowY: 'auto',
       top:
         rect.bottom + height + 8 > window.innerHeight
           ? Math.max(8, rect.top - height - 6)
@@ -34,7 +36,15 @@ export default function MemberRoleDropdown({ value, options, label, onChange }) 
       if (!menu.current?.contains(event.target) && !trigger.current?.contains(event.target))
         setOpen(false);
     };
-    const hide = () => setOpen(false);
+    const hide = (event) => {
+      if (
+        event.type === 'scroll' &&
+        event.target instanceof Node &&
+        menu.current?.contains(event.target)
+      )
+        return;
+      setOpen(false);
+    };
     document.addEventListener('pointerdown', dismiss);
     window.addEventListener('resize', hide);
     window.addEventListener('scroll', hide, true);

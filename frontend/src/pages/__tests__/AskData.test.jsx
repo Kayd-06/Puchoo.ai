@@ -82,3 +82,12 @@ it('resizes the particle bitmap when a hidden canvas becomes visible', async () 
     vi.unstubAllGlobals();
   }
 });
+
+it('uses neutral white particles in the pitch-black theme', () => {
+  const palette = queryUniversePalette('dark');
+  for (const key of ['dust', 'stream', 'star', 'cluster', 'orbit']) {
+    const channels = palette[key].split(',').map(Number);
+    expect(channels[0]).toBe(channels[1]);
+    expect(channels[1]).toBe(channels[2]);
+  }
+});
