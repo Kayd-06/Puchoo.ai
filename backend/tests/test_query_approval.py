@@ -662,11 +662,13 @@ def test_rag_context_reaches_generation_with_owner_and_workspace_scope(env, monk
     assert env.executions == []
 
 
-def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
-    monkeypatch.setenv('PUCHOO_AUTONOMOUS_MODE', 'true')
+def test_routine_ranking_uses_a_disclosed_schema_backed_default(env, monkeypatch):
+    import json
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(assumptions=['Best region means highest total recorded order amount.'])), raising=False)
     response = env.generate(question='Show the best region')
-    assert response.status_code == 200
-    assert response.json()['status'] == 'clarification_required'
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'pending_approval'
+    assert response.json()['assumptions'] == ['Best region means highest total recorded order amount.']
     assert env.executions == []
 
 
@@ -1136,3 +1138,26 @@ def test_provider_misconfiguration_returns_actionable_503_without_provider_call(
     assert 'definitions are insufficient' not in detail
     assert 'obsolete-synthetic' not in detail
     assert env.executions == []
+
+def test_missing_campaign_data_returns_direct_answer_without_sql(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(answer_status='unavailable', limitations=['Campaign attribution is not recorded.'], unavailable_reason='The available data cannot determine whether the campaign caused additional profit.')), raising=False)
+    response = env.generate(question='Did the latest campaign change regional amounts?')
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'answer_unavailable'
+    assert 'cannot determine' in response.json()['message']
+    assert 'pending_id' not in response.json()
+    assert env.executions == []
+
+
+def test_partial_plan_preserves_limitations_through_execution(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(answer_status='partial', limitations=['Refund amounts are not recorded; totals exclude refunds.'])), raising=False)
+    response = env.generate(question='Compare regional amounts including refunds')
+    assert response.status_code == 200, response.text
+    assert response.json()['answer_status'] == 'partial'
+    approved = env.approve(response.json())
+    assert approved.status_code == 200, approved.text
+    assert approved.json()['record']['limitations'] == ['Refund amounts are not recorded; totals exclude refunds.']

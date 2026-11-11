@@ -310,3 +310,47 @@ html[data-theme='light'] #root .app-container .ask-page {
     box-shadow: 0 0 0 2px rgba(var(--ask-glow), 0.18);
   }
 }
+.analysis-selector {
+  margin: 20px auto;
+  max-width: 1050px;
+  padding: 18px;
+  border: 1px solid var(--border-color, #49566b);
+  border-radius: 12px;
+  color: inherit;
+}
+.analysis-selector p {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.analysis-selector > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.analysis-selector button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  flex: 1 1 240px;
+  min-width: 0;
+  text-align: left;
+  padding: 12px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-color, #49566b);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.analysis-selector button[aria-pressed='true'] {
+  border-color: #5599ed;
+  background: rgba(85, 153, 237, 0.13);
+}
+.analysis-selector small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.8;
+}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import '../styles/landingMotion.css';
+import '../styles/landingHeader.css';
 import LetterformFooter from '../components/landing/LetterformFooter';
 import { Mark, focusRing } from '../components/landing/brand';
 
@@ -99,7 +100,7 @@ function ProductDemo() {
   return (
     <section id="demo" ref={sectionRef} className="puchoo-demo-section">
       <div className="puchoo-demo-intro" data-scroll-reveal>
-        <span>04 / A guided answer</span>
+        <span>05 / A guided answer</span>
         <h2>
           See the path
           <br />
@@ -178,7 +179,7 @@ function LanguageAndVoice() {
     <section id="languages" className="puchoo-language-section">
       <div className="puchoo-language-header" data-scroll-reveal>
         <div>
-          <span>05 / Language belongs in the interface</span>
+          <span>06 / Language belongs in the interface</span>
           <h2>Ask it your way.</h2>
         </div>
         <p>
@@ -287,6 +288,12 @@ function MainHero() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState('home');
   const menuButton = useRef(null);
+  const headerRef = useRef(null);
+  const menuRef = useRef(null);
+  function selectSection(id) {
+    setActiveNav(id);
+    setMenuOpen(false);
+  }
   useEffect(() => {
     if (!menuOpen) return undefined;
     function closeMenu(event) {
@@ -295,34 +302,49 @@ function MainHero() {
         menuButton.current?.focus();
       }
     }
+    function outside(event) {
+      if (!headerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    }
+    function resize() {
+      if (window.innerWidth > 900) setMenuOpen(false);
+    }
     document.addEventListener('keydown', closeMenu);
-    return () => document.removeEventListener('keydown', closeMenu);
+    document.addEventListener('pointerdown', outside);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('keydown', closeMenu);
+      document.removeEventListener('pointerdown', outside);
+      window.removeEventListener('resize', resize);
+    };
   }, [menuOpen]);
   return (
     <section id="home" className="puchoo-reference-shell">
       <div className="puchoo-reference-hero">
         <SignalField />
-        <header className="puchoo-reference-nav puchoo-segmented-header">
+        <header ref={headerRef} className="puchoo-reference-nav puchoo-segmented-header">
           <div className="puchoo-nav-left">
             <a
               href="#home"
               className="puchoo-nav-brand"
               aria-label="Puchoo.si home"
-              onClick={() => setActiveNav('home')}
+              onClick={() => selectSection('home')}
             >
               <Mark className="h-9 w-9" />
+              <span>Puchoo.si</span>
             </a>
             <nav aria-label="Primary navigation" className="puchoo-nav-segments">
               {[
                 ['home', 'Home'],
-                ['how', 'How it works'],
                 ['gnani', 'Gnani'],
+                ['how', 'How it works'],
                 ['faq', 'FAQs'],
               ].map(([id, label]) => (
                 <a
                   key={id}
                   href={`#${id}`}
-                  onClick={() => setActiveNav(id)}
+                  onClick={() => selectSection(id)}
                   aria-current={activeNav === id ? 'location' : undefined}
                 >
                   {label}
@@ -330,15 +352,14 @@ function MainHero() {
               ))}
             </nav>
           </div>
-          <div className="puchoo-nav-note">
-            <span>
-              <i /> Data intelligence
-            </span>
-            <span>Read-only by design</span>
+          <div className="puchoo-nav-actions">
+            <a href="/login" className="puchoo-nav-login">
+              Log in
+            </a>
+            <a href="/signup" className="puchoo-nav-action">
+              Get started <ArrowUpRight size={16} aria-hidden="true" />
+            </a>
           </div>
-          <a href="/signup" className="puchoo-nav-action">
-            Get started <ArrowUpRight size={16} />
-          </a>
           <button
             type="button"
             className="puchoo-nav-mobile-toggle"
@@ -353,20 +374,21 @@ function MainHero() {
         </header>
         {menuOpen && (
           <nav
+            ref={menuRef}
             id="landing-navigation"
             aria-label="Landing navigation"
             className="puchoo-reference-menu"
           >
-            <a href="#how" onClick={() => setMenuOpen(false)}>
-              How it works
-            </a>
-            <a href="#demo" onClick={() => setMenuOpen(false)}>
-              Product walkthrough
-            </a>
-            <a href="#gnani" onClick={() => setMenuOpen(false)}>
+            <a href="#gnani" onClick={() => selectSection('gnani')}>
               Gnani voice
             </a>
-            <a href="#faq" onClick={() => setMenuOpen(false)}>
+            <a href="#how" onClick={() => selectSection('how')}>
+              How it works
+            </a>
+            <a href="#demo" onClick={() => selectSection('demo')}>
+              Product walkthrough
+            </a>
+            <a href="#faq" onClick={() => selectSection('faq')}>
               Questions & answers
             </a>
             <a href="/login" onClick={() => setMenuOpen(false)}>
@@ -407,7 +429,7 @@ function MainHero() {
           <i />
           <span>100</span>
         </div>
-        <a href="#how" className={`puchoo-reference-scroll ${focusRing}`}>
+        <a href="#gnani" className={`puchoo-reference-scroll ${focusRing}`}>
           Scroll down <ArrowDown size={14} />
         </a>
       </div>
@@ -419,7 +441,7 @@ function GnaniSection() {
   return (
     <section id="gnani" className="puchoo-gnani-section" aria-labelledby="gnani-title">
       <div className="puchoo-gnani-heading" data-scroll-reveal>
-        <span className="puchoo-section-kicker">06 / The voice behind the question</span>
+        <span className="puchoo-section-kicker">01 / The voice behind the question</span>
         <div className="puchoo-gnani-badge">
           <AudioLines size={17} /> Speech powered by Gnani
         </div>
@@ -619,11 +641,12 @@ export default function Landing() {
       </script>
       <main id="main-content">
         <MainHero />
+        <GnaniSection />
         <section
           id="how"
           className={`puchoo-editorial-intro${globePaused ? ' is-motion-paused' : ''}`}
         >
-          <div className="puchoo-section-kicker">01 / About Puchoo.si</div>
+          <div className="puchoo-section-kicker">02 / About Puchoo.si</div>
           <div className="puchoo-editorial-grid" data-scroll-reveal>
             <h2>
               From a question
@@ -658,7 +681,7 @@ export default function Landing() {
         </section>
         <section className="puchoo-capability-section">
           <div className="puchoo-section-heading" data-scroll-reveal>
-            <span>02 / The Puchoo.si method</span>
+            <span>03 / The Puchoo.si method</span>
             <p>Built to make sophisticated data workflows feel direct, deliberate, and human.</p>
           </div>
           <div className="puchoo-capability-list" data-scroll-reveal>
@@ -689,7 +712,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="puchoo-proof-copy" data-scroll-reveal>
-            <span>03 / Your data, in control</span>
+            <span>04 / Your data, in control</span>
             <h2>Intelligence that knows its boundaries.</h2>
             <p>
               Your workspace stays isolated. Read-only guardrails, scoped automatic execution, and
@@ -705,7 +728,6 @@ export default function Landing() {
         </section>
         <ProductDemo />
         <LanguageAndVoice />
-        <GnaniSection />
         <CommonQuestions />
         <section className="puchoo-closing-section">
           <SignalField />

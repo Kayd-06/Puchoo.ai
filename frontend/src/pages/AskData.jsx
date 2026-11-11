@@ -1,6 +1,8 @@
+import { splitAnalyses } from '../utils/splitAnalyses';
+import { chartExportData, defaultChart } from '../utils/resultCharts';
 import { universePolicy } from '../utils/universePolicy';
 import '../styles/askComposer.css';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -42,6 +44,9 @@ import {
 } from '../utils/reportDocument';
 import { disposeVoiceCapture, playAnswerAudio, requestMicrophone } from '../utils/voice';
 import '../styles/chatActions.css';
+import '../styles/queryReport.css';
+
+const ResultCharts = lazy(() => import('../components/ResultCharts'));
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -698,6 +703,17 @@ export default function AskData() {
   const [loading, setLoading] = useChatState(scope, activeWorkspaceId, 'loading', false, false);
   const [result, setResult] = useChatState(scope, activeWorkspaceId, 'result', null);
   const [error, setError] = useState('');
+  const [analysisState, setAnalysisState] = useState({ identity, items: [] });
+  const analyses = analysisState.identity === identity ? analysisState.items : [];
+  const setAnalyses = (next) =>
+    setAnalysisState((previous) => ({
+      identity,
+      items:
+        typeof next === 'function'
+          ? next(previous.identity === identity ? previous.items : [])
+          : next,
+    }));
+  const [selectedAnalysis, setSelectedAnalysis] = useState(0);
   const continuationRouteRef = useRef(null);
   const [clarification, setClarification] = useChatState(
     scope,
@@ -748,6 +764,7 @@ export default function AskData() {
     [identity],
   );
   const resultRef = useRef(null);
+  const chartSectionRef = useRef(null);
   const speechAudioRef = useRef(null);
   const speechUrlRef = useRef(null);
   const speechRequestRef = useRef(0);
@@ -771,7 +788,7 @@ export default function AskData() {
   const requestCurrent = (token) =>
     currentScope.current === scopeKey(token.scope) && tokenCurrent(token);
 
-  const executeProposal = async (proposal, token) => {
+  const executeProposal = async (proposal, token, show = true) => {
     let currentProposal = proposal;
     // A runtime-only database error can produce one corrected, fully guarded
     // proposal. Run that correction in the same user action instead of asking
@@ -791,8 +808,8 @@ export default function AskData() {
       if (!requestCurrent(token)) return;
       if (response?.status !== 'repair_pending_approval') {
         stopReadingResult();
-        setResult(response);
-        return;
+        if (show) setResult(response);
+        return response;
       }
       currentProposal = response.proposal;
     }
@@ -815,10 +832,54 @@ export default function AskData() {
     stopReadingResult();
     setResult(null);
     setClarification(null);
+    setAnalyses([]);
+    setSelectedAnalysis(0);
     try {
       const questionForQuery = continuationMatches(scope, continuation)
         ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${submittedQuestion.trim()}`
         : submittedQuestion.trim();
+      const questions =
+        clarificationAnswers.length || continuationMatches(scope, continuation)
+          ? [questionForQuery]
+          : splitAnalyses(questionForQuery);
+      if (questions.length > 1) {
+        const items = [];
+        for (const part of questions) {
+          if (!requestCurrent(token)) return;
+          try {
+            const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
+              method: 'POST',
+              body: JSON.stringify({
+                question: part,
+                language_code: questionLanguage,
+                clarifications: [],
+              }),
+            });
+            if (!requestCurrent(token)) return;
+            if (['clarification_required', 'answer_unavailable'].includes(proposal.status)) {
+              items.push({ question: part, notice: proposal });
+            } else {
+              const answer = await executeProposal(proposal, token, false);
+              if (!requestCurrent(token)) return;
+              items.push({ question: part, result: answer });
+            }
+          } catch (partError) {
+            items.push({
+              question: part,
+              notice: {
+                status: 'answer_unavailable',
+                message: partError.message || 'This analysis could not be completed.',
+              },
+            });
+          }
+        }
+        if (!requestCurrent(token)) return;
+        setAnalyses(items);
+        const first = items[0];
+        if (first.result) setResult(first.result);
+        else setClarification(first.notice);
+        return;
+      }
       const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
         method: 'POST',
         body: JSON.stringify({
@@ -828,7 +889,7 @@ export default function AskData() {
         }),
       });
       if (!requestCurrent(token)) return;
-      if (proposal.status === 'clarification_required') {
+      if (['clarification_required', 'answer_unavailable'].includes(proposal.status)) {
         setClarification(proposal);
         return;
       }
@@ -1042,6 +1103,8 @@ export default function AskData() {
   };
 
   const startNewChat = () => {
+    setAnalyses([]);
+    setSelectedAnalysis(0);
     composingRef.current = false;
     stopReadingResult();
     setContinuation(null);
@@ -1097,7 +1160,30 @@ export default function AskData() {
   const downloadReportCsv = () => {
     if (!result) return;
     const table = reportTable(result);
-    const csv = buildCsv([table.labels, ...table.rows]);
+    const chart = chartExportData(result.record, result.chartConfig);
+    const chartLabels = result.presentation?.column_labels || {};
+    const chartRows = chart
+      ? [
+          [],
+          [
+            'Chart data',
+            chart.type,
+            `Aggregation: ${chart.aggregation}`,
+            `Shown: ${chart.data.length} of ${chart.total}`,
+          ],
+          [
+            chartLabels[chart.x] || chart.x,
+            chart.aggregation === 'count' ? 'Row count' : chartLabels[chart.y] || chart.y,
+            ...(chart.secondary ? [chartLabels[chart.secondary] || chart.secondary] : []),
+          ],
+          ...chart.data.map((point) => [
+            point.label,
+            point.value,
+            ...(chart.secondary ? [point.secondary] : []),
+          ]),
+        ]
+      : [];
+    const csv = buildCsv([table.labels, ...table.rows, ...chartRows]);
     saveBlob(
       new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }),
       reportFilename(result.record.question, 'csv'),
@@ -1115,6 +1201,60 @@ export default function AskData() {
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
       const { default: html2canvas } = await import('html2canvas');
       const documentPdf = await renderReportPdf(pdf, report, html2canvas);
+      const chart = chartExportData(result.record, result.chartConfig);
+      if (chart) {
+        const canvasElement = chartSectionRef.current?.querySelector('.result-chart-canvas');
+        if (!canvasElement) throw new Error('The chart has not finished rendering.');
+        const bounds = canvasElement.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) throw new Error('The chart is empty.');
+        const captureScale = Math.min(
+          1,
+          1400 / bounds.width,
+          1000 / bounds.height,
+          Math.sqrt(1400000 / (bounds.width * bounds.height)),
+        );
+        const chartCanvas = await html2canvas(canvasElement, {
+          backgroundColor: getComputedStyle(canvasElement.closest('.result-chart-card'))
+            .backgroundColor,
+          scale: captureScale,
+          logging: false,
+        });
+        try {
+          if (!chartCanvas.width || !chartCanvas.height) throw new Error('The chart is empty.');
+          documentPdf.addPage();
+          const pageWidth = documentPdf.internal.pageSize.getWidth();
+          const pageHeight = documentPdf.internal.pageSize.getHeight();
+          documentPdf.setTextColor(35, 50, 70);
+          documentPdf.setFontSize(14);
+          documentPdf.text(
+            `Chart: ${result.presentation?.column_labels?.[chart.y] || chart.y} by ${result.presentation?.column_labels?.[chart.x] || chart.x}`,
+            28,
+            35,
+            { maxWidth: pageWidth - 56 },
+          );
+          documentPdf.setFontSize(9);
+          documentPdf.text(
+            `${chart.type} · ${chart.aggregation} · ${chart.data.length} of ${chart.total} points${result.record.truncated ? ' · Partial query results' : ''}`,
+            28,
+            52,
+          );
+          const scale = Math.min(
+            (pageWidth - 56) / chartCanvas.width,
+            (pageHeight - 95) / chartCanvas.height,
+          );
+          documentPdf.addImage(
+            chartCanvas.toDataURL('image/png'),
+            'PNG',
+            28,
+            65,
+            chartCanvas.width * scale,
+            chartCanvas.height * scale,
+          );
+        } finally {
+          chartCanvas.width = 0;
+          chartCanvas.height = 0;
+        }
+      }
       documentPdf.save(reportFilename(result.record.question, 'pdf'));
     } catch {
       setError('We could not prepare the PDF. Please try downloading the CSV instead.');
@@ -1124,13 +1264,14 @@ export default function AskData() {
     }
   };
 
+  const resultRecord = result?.record;
   useEffect(() => {
-    if (!result) return undefined;
+    if (!resultRecord) return undefined;
     const timer = window.setTimeout(() => {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 90);
     return () => window.clearTimeout(timer);
-  }, [result]);
+  }, [resultRecord]);
 
   useEffect(() => {
     return () => {
@@ -1321,15 +1462,51 @@ export default function AskData() {
             </div>
           )}
 
+          {analyses.length > 1 && (
+            <section className="analysis-selector" aria-label="Separate analyses">
+              <strong>{analyses.length} analyses</strong>
+              <p>Choose an analysis to view its answer.</p>
+              <div>
+                {analyses.map((item, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    aria-pressed={selectedAnalysis === index}
+                    onClick={() => {
+                      setSelectedAnalysis(index);
+                      setResult(item.result || null);
+                      setClarification(item.notice || null);
+                    }}
+                  >
+                    <span>Analysis {index + 1}</span>
+                    <small>{item.question}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
           {clarification && (
             <div
               className="ask-clarification animate-fade-slide"
               role="region"
-              aria-label="Clarify your question"
+              aria-label={
+                clarification.status === 'answer_unavailable' ? 'Answer' : 'Clarify your question'
+              }
               aria-live="polite"
             >
-              <h3 style={{ marginBottom: '0.5rem' }}>Choose one detail to continue</h3>
+              <h3 style={{ marginBottom: '0.5rem' }}>
+                {clarification.status === 'answer_unavailable'
+                  ? 'Answer'
+                  : 'Choose one detail to continue'}
+              </h3>
               <p style={{ marginBottom: '1rem' }}>{clarification.message}</p>
+              {clarification.limitations?.length > 0 && (
+                <ul className="answer-limitations">
+                  {clarification.limitations.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              )}
               <ScopeWarning message={clarification.scope_warning} />
               {clarification.interpreted_request && (
                 <p className="clarification-context" style={{ marginBottom: '0.75rem' }}>
@@ -1348,7 +1525,7 @@ export default function AskData() {
                     className="btn btn-secondary"
                     disabled={loading}
                     onClick={() => {
-                      void handleAsk(question, [
+                      void handleAsk(analyses[selectedAnalysis]?.question || question, [
                         ...(clarification.clarifications || []),
                         { reason: clarification.reason, choice: suggestion },
                       ]);
@@ -1424,19 +1601,37 @@ export default function AskData() {
       )}
 
       {result && (
-        <section ref={resultRef} className="ask-results" aria-label="Query results" tabIndex="-1">
+        <section
+          ref={resultRef}
+          className="ask-results report-results"
+          aria-label="Query results"
+          tabIndex="-1"
+        >
           <div className="ask-results-heading">
-            <span>{verificationBadge.verified ? 'Verified output' : 'Query results'}</span>
-            <p>Generated from your active workspace</p>
+            <h2>Query results</h2>
+            <p>{activeWorkspace?.name || 'Active workspace'}</p>
           </div>
           <div className="result-stack animate-fade-slide">
             <ScopeWarning message={result.record.scope_warning} />
+            {result.record.answer_status === 'partial' && (
+              <section
+                className="result-answer-limitations"
+                aria-label="Answer limitations"
+                role="status"
+              >
+                <strong>Partial answer</strong>
+                <p>The results below cover the parts supported by your data.</p>
+                <ul>
+                  {result.record.limitations?.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {(result.record.interpreted_request || result.record.assumptions?.length > 0) && (
               <details className="query-details interpretation-details">
                 <summary>
-                  <span className="query-details-title">
-                    <Sparkles size={18} /> {resultLabels.interpretation}
-                  </span>
+                  <span className="query-details-title">{resultLabels.interpretation}</span>
                   <span className="query-details-hint">
                     {resultLabels.view_details} <ChevronDown size={16} />
                   </span>
@@ -1457,20 +1652,17 @@ export default function AskData() {
             <section
               className={`result-summary-card${speechState === 'playing' ? ' is-speaking' : ''}`}
             >
-              <div className="result-summary-heading">
-                <div className="result-summary-icon">
-                  <Sparkles size={19} />
-                </div>
-                <div>
-                  <span className="result-overline">{resultLabels.executive_summary}</span>
+              <header className="result-summary-header">
+                <div className="result-summary-heading">
+                  <h3 className="result-overline">{resultLabels.executive_summary}</h3>
                   <p>
                     {verificationBadge.verified
                       ? resultLabels.validated_answer
                       : 'Read-only query results'}
                   </p>
                 </div>
-              </div>
-              <span className={verificationBadge.className}>{verificationBadge.label}</span>
+                <span className={verificationBadge.className}>{verificationBadge.label}</span>
+              </header>
               {verificationBadge.notice && (
                 <p className="result-verification-notice" role="status">
                   {verificationBadge.notice}
@@ -1485,13 +1677,6 @@ export default function AskData() {
                   </p>
                 )}
               </div>
-              <ResultSpeechControls
-                speechState={speechState}
-                speechError={speechError}
-                onPlay={playResultSpeech}
-                onPauseResume={pauseOrResumeResultSpeech}
-                onStop={stopReadingResult}
-              />
               {presentation.highlights?.length > 0 && (
                 <div className="result-highlights">
                   {presentation.highlights.map(([label, value], index) => (
@@ -1502,6 +1687,13 @@ export default function AskData() {
                   ))}
                 </div>
               )}
+              <ResultSpeechControls
+                speechState={speechState}
+                speechError={speechError}
+                onPlay={playResultSpeech}
+                onPauseResume={pauseOrResumeResultSpeech}
+                onStop={stopReadingResult}
+              />
             </section>
 
             {result.record.sql && (
@@ -1541,7 +1733,24 @@ export default function AskData() {
                     {resultLabels.read_only_query}
                   </span>
                   {result.record.rows?.length > 0 && (
-                    <div className="result-export-actions" aria-label="Download report">
+                    <div className="result-export-actions" aria-label="Report actions">
+                      {defaultChart(result.record) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            chartSectionRef.current?.focus({ preventScroll: true });
+                            chartSectionRef.current?.scrollIntoView({
+                              behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')
+                                .matches
+                                ? 'auto'
+                                : 'smooth',
+                              block: 'start',
+                            });
+                          }}
+                        >
+                          Jump to chart
+                        </button>
+                      )}
                       <button type="button" onClick={downloadReportCsv}>
                         <Download size={14} /> Download CSV
                       </button>
@@ -1584,6 +1793,27 @@ export default function AskData() {
                 )}
               </div>
             </section>
+
+            <div ref={chartSectionRef} className="result-chart-anchor" tabIndex={-1}>
+              <Suspense fallback={<p role="status">Loading visualization…</p>}>
+                <ResultCharts
+                  key={result.record.id || JSON.stringify(result.record)}
+                  record={result.record}
+                  presentation={presentation}
+                  config={result.chartConfig}
+                  onConfigChange={(chartConfig) => {
+                    const updated = { ...result, chartConfig };
+                    setResult(updated);
+                    if (analyses.length)
+                      setAnalyses((current) =>
+                        current.map((item, index) =>
+                          index === selectedAnalysis ? { ...item, result: updated } : item,
+                        ),
+                      );
+                  }}
+                />
+              </Suspense>
+            </div>
           </div>
         </section>
       )}

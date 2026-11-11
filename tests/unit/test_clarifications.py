@@ -92,3 +92,10 @@ def test_calendar_choice_preserves_requested_period_granularity(period):
     planned, next_step = resolve_clarifications(SCHEMA, question, [{'reason': offered['reason'], 'choice': choice}])
     assert planned == question.replace('fiscal '+period, 'calendar '+period)
     assert next_step is None
+
+def test_scholarship_fee_adjustment_is_not_an_eligibility_request():
+    assert question_clarification(SCHEMA, 'Which school classes have the highest outstanding fees after accounting for scholarship adjustments and payment deadlines?') is None
+
+
+def test_attendance_marks_relationship_does_not_need_a_comparison_baseline():
+    assert question_clarification(SCHEMA, 'Do students with better attendance achieve higher marks after accounting for previous academic performance and class level?') is None

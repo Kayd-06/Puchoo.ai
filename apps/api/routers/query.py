@@ -39,6 +39,7 @@ from apps.core.semantic_layer import (
 )
 from apps.core.query_planning import (
     QueryPlanError,
+    ComplexityDecision,
     build_plan_sql_request,
     classify_complexity,
     plan_complex_query,
@@ -309,6 +310,19 @@ def generate_query(
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="Clarification no longer matches this question. Please ask again.") from None
+        routine_clarification = bool(clarification and clarification["reason"] in {
+            "ambiguous_metric", "ambiguous_education_metric", "missing_comparison_baseline",
+        })
+        if routine_clarification:
+            # Resolve ordinary analytics definitions through the disclosed-default planner.
+            # Institution-specific policy decisions still use explicit clarification.
+            clarification = None
+        if clarification and clarification["reason"] == "concept_not_in_data":
+            return {
+                "status": "answer_unavailable", "question": question,
+                "message": _translate_for_display(clarification.get("answer", clarification["message"]), language_code),
+                "limitations": [], "suggestions": [],
+            }
         if clarification:
             return {
                 "status": "clarification_required",
@@ -320,6 +334,8 @@ def generate_query(
             }
         deterministic_sql = schema_guided_fallback_sql(schema, planning_question)
         decision = classify_complexity(planning_question, schema)
+        if routine_clarification and not deterministic_sql:
+            decision = ComplexityDecision("planned", max(decision.score, 3), decision.reasons + ("routine_definition",))
         client = None if deterministic_sql else get_sql_client()
         retrieved_context = []
         if not deterministic_sql:
@@ -355,6 +371,14 @@ def generate_query(
             if not hasattr(client, "generate_plan"):
                 raise SQLGenerationError("Complex-query planning requires a planner-capable model provider.")
             structured_plan = plan_complex_query(client, schema=schema, question=planning_question)
+            if structured_plan.answer_status == "unavailable":
+                return {
+                    "status": "answer_unavailable", "question": question,
+                    "message": _translate_for_display(structured_plan.unavailable_reason, language_code),
+                    "limitations": [_translate_for_display(item, language_code) for item in structured_plan.limitations],
+                    "assumptions": [_translate_for_display(item, language_code) for item in structured_plan.assumptions],
+                    "suggestions": [],
+                }
             if structured_plan.needs_clarification:
                 _log_trace({
                     "route": decision.route, "plan_valid": True,
@@ -478,6 +502,8 @@ def generate_query(
             "route": decision.route,
             "selected_tables": selected_tables,
             "assumptions": public_plan.get("assumptions", []),
+            "answer_status": public_plan.get("answer_status", "complete"),
+            "limitations": public_plan.get("limitations", []),
             "interpreted_request": _translate_for_display(public_plan.get("normalized_question", planning_question), language_code),
             "status": "pending_approval",
         }
