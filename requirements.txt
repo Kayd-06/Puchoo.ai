@@ -9,7 +9,7 @@ xlrd>=2.0.2,<3
 
 # Text-to-SQL, verification, and Indian-language voice/output
 anthropic>=1.13.0,<2
-sarvamai>=0.1.28,<0.2
+sarvamai>=0.1.37,<0.2
 SQLAlchemy>=2.0,<3
 psycopg[binary]>=3.3.6,<4
 PyMySQL>=1.2.3,<2
