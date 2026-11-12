@@ -219,3 +219,19 @@ class DirectAnswerPlanTests(unittest.TestCase):
         self.assertEqual(2, len(calls))
         self.assertIn('Server reference date:', calls[0])
         self.assertIn('Net or total sales?', calls[1])
+
+
+class RankFilterTests(unittest.TestCase):
+    def _plan(self, limit):
+        return parse_plan_json(json.dumps({**valid_payload(), 'ranking': {'direction': 'desc', 'limit': limit}}), schema=SCHEMA, original_question='x')
+
+    def test_rank_equals_one_bounds_top_one_per_group(self):
+        sql = "WITH r AS (SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn FROM t) SELECT a FROM r WHERE rn = 1"
+        feedback = plan_constraint_feedback(self._plan(1), sql)
+        self.assertFalse([item for item in feedback if 'partitioned rank' in item])
+        reversed_sql = sql.replace('rn = 1', '1 = rn')
+        self.assertFalse([item for item in plan_constraint_feedback(self._plan(1), reversed_sql) if 'partitioned rank' in item])
+
+    def test_rank_equals_one_does_not_satisfy_top_three(self):
+        sql = "WITH r AS (SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn FROM t) SELECT a FROM r WHERE rn = 1"
+        self.assertTrue([item for item in plan_constraint_feedback(self._plan(3), sql) if 'partitioned rank' in item])

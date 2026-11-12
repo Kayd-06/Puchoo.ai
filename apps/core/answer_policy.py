@@ -4,11 +4,11 @@ from zoneinfo import ZoneInfo
 
 ANSWER_POLICY = """When planning analytics requests, prefer a direct, schema-grounded answer over a clarification question.
 For routine analytics, choose the following conventions and disclose the actual choices in assumptions:
-- For broad business rankings (best/top), use the documented ranking metric, otherwise
-  available sales/revenue amounts or transaction counts, and name that choice explicitly.
-  For broad academic performance requests, show average marks/attendance comparisons;
-  do not invent a pass, promotion or eligibility threshold. A request for association
-  between attendance and marks is a relationship analysis, not a missing baseline.
+- Vague rankings (best/top without a metric), vague student performance and comparisons
+  without a baseline are clarified with the user before planning; when the request names
+  the metric or baseline, use exactly that. Never invent a pass, promotion or eligibility
+  threshold. A request for association between attendance and marks is a relationship
+  analysis, not a missing baseline.
 - Revenue/sales: use a documented revenue field; otherwise net_amount, then total_amount,
   then line_total, using only fields that exist. Do not subtract a discount twice.
 - No period means all recorded data. Relative periods end at the server reference date;

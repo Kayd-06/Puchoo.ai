@@ -93,7 +93,7 @@ Use `.env.example` as the configuration inventory. Backend configuration reads t
 
 A selected hosted SQL provider without its required credentials returns a configuration error for model-dependent questions. English typed questions do not need the speech/translation providers. Non-English queries need translation configured; voice and spoken playback need Gnani.
 
-Analytics requests use disclosed defaults for routine sales metrics, active customers, and calendar periods. Relative dates use the server reference date in Asia/Kolkata. The planner can return a complete answer, an explicitly labeled partial answer with omitted inputs, or a direct explanation that the data cannot support an answer. Missing campaign attribution, refunds, or policy rules are never fabricated. Essential institution-specific rules may still require clarification.
+Analytics requests use disclosed defaults for routine sales metrics, active customers, and calendar periods. Vague rankings ("best region"), vague performance wording ("doing well") and comparisons without a baseline still ask a follow-up with choice buttons. Several separate questions sent together run as separate analyses. Relative dates use the server reference date in Asia/Kolkata. The planner can return a complete answer, an explicitly labeled partial answer with omitted inputs, or a direct explanation that the data cannot support an answer. Missing campaign attribution, refunds, or policy rules are never fabricated. Essential institution-specific rules may still require clarification.
 
 ### Data flow and persistence
 

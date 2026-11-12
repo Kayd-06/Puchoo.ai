@@ -99,3 +99,19 @@ def test_scholarship_fee_adjustment_is_not_an_eligibility_request():
 
 def test_attendance_marks_relationship_does_not_need_a_comparison_baseline():
     assert question_clarification(SCHEMA, 'Do students with better attendance achieve higher marks after accounting for previous academic performance and class level?') is None
+
+
+def test_missing_data_check_runs_before_vague_metric_rules():
+    clarification = question_clarification(SCHEMA, 'Which students are doing well and what is the profit?')
+    assert clarification['reason'] == 'concept_not_in_data'
+
+
+def test_vague_questions_still_offer_choice_buttons():
+    for question, reason in (
+        ('Show the best region', 'ambiguous_metric'),
+        ('Which students are doing well in class 10?', 'ambiguous_education_metric'),
+        ('Show students with higher attendance in class 10', 'missing_comparison_baseline'),
+    ):
+        clarification = question_clarification(SCHEMA, question)
+        assert clarification['reason'] == reason
+        assert clarification['suggestions']

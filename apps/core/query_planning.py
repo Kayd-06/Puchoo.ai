@@ -344,7 +344,8 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
         tokens = [token for token in re.findall(r"[a-z_][a-z0-9_]*", metric.lower()) if len(token) > 2]
         if tokens and not any(token in sql_lower for token in tokens):
             feedback.append(f"Preserve the planned metric: {metric}.")
-    if plan.group_by and "group by" not in sql_lower:
+    # A per-group window (PARTITION BY) also satisfies planned grouping.
+    if plan.group_by and "group by" not in sql_lower and "partition by" not in sql_lower:
         feedback.append("The structured plan requires grouping; add the planned GROUP BY dimensions.")
     if plan.ranking:
         if "order by" not in sql_lower:
@@ -389,6 +390,11 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
                         # rank BETWEEN 1 AND N (or any lower bound <= 1).
                         low, high = whole_number(predicate.args.get("low")), whole_number(predicate.args.get("high"))
                         bounded = bounded or (low is not None and low <= 1 and high == wanted)
+                    elif isinstance(predicate, exp.EQ) and wanted == 1:
+                        # "rank = 1" is the usual top-1-per-group filter.
+                        left, right = predicate.this, predicate.expression
+                        bound = whole_number(right) if is_rank(left) else whole_number(left) if is_rank(right) else None
+                        bounded = bounded or bound == 1
                     elif isinstance(predicate, (exp.LTE, exp.LT, exp.GTE, exp.GT)):
                         left, right = predicate.this, predicate.expression
                         # Normalize "N >= rank" / "N + 1 > rank" to "rank <= N" / "rank < N + 1".

@@ -114,11 +114,38 @@ a name. For top-N within each group, use ROW_NUMBER/RANK and filter that rank in
 an outer query rather than applying one global LIMIT. Return SQL only."""
 
 
+def _missing_concept(q: str, available: str) -> dict[str, Any] | None:
+    """Report a requested business concept whose inputs are absent from the schema."""
+
+    concept_requirements = {
+        "profit": (("revenue", "sales", "total_amount", "line_total"), ("cost", "cost_price", "unit_cost")),
+        "margin": (("revenue", "sales", "total_amount", "line_total"), ("cost", "cost_price", "unit_cost")),
+        "churn": (("churn", "cancel", "ended", "churn_date", "cancellation_date"),),
+        "customer lifetime value": (("customer",), ("revenue", "sales", "total_amount", "line_total")),
+        "satisfaction": (("satisfaction", "feedback", "survey", "rating"),),
+        "forecast": (("forecast", "projection", "predicted"),),
+    }
+    for concept, requirement_groups in concept_requirements.items():
+        if concept in q and any(not any(term in available for term in group) for group in requirement_groups):
+            return {
+                "reason": "concept_not_in_data",
+                "answer": f"I cannot calculate {concept} because its required inputs are not in the connected data.",
+                "message": f"I cannot calculate {concept} from the available columns. Connect data containing its required inputs or tell me which existing fields define it.",
+                "suggestions": ["Show available tables and fields", f"Define {concept} using existing columns"],
+            }
+
+    return None
+
+
 def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
     """Detect requests that cannot be answered faithfully without user input."""
 
     q = question.lower().strip()
     available = schema.lower()
+    # Missing data is checked first so another clarification cannot hide it.
+    missing_concept = _missing_concept(q, available)
+    if missing_concept:
+        return missing_concept
 
     education_subject = bool(re.search(r"\b(student|class|course|school|college)s?\b", q))
     performance_classification = bool(
@@ -222,23 +249,6 @@ def question_clarification(schema: str, question: str) -> dict[str, Any] | None:
             "message": "Which metric should determine the ranking? For example: revenue, quantity, invoice count, or average value.",
             "suggestions": ["Rank by total revenue", "Rank by number of transactions", "Rank by average value"],
         }
-
-    concept_requirements = {
-        "profit": (("revenue", "sales", "total_amount", "line_total"), ("cost", "cost_price", "unit_cost")),
-        "margin": (("revenue", "sales", "total_amount", "line_total"), ("cost", "cost_price", "unit_cost")),
-        "churn": (("churn", "cancel", "ended", "churn_date", "cancellation_date"),),
-        "customer lifetime value": (("customer",), ("revenue", "sales", "total_amount", "line_total")),
-        "satisfaction": (("satisfaction", "feedback", "survey", "rating"),),
-        "forecast": (("forecast", "projection", "predicted"),),
-    }
-    for concept, requirement_groups in concept_requirements.items():
-        if concept in q and any(not any(term in available for term in group) for group in requirement_groups):
-            return {
-                "reason": "concept_not_in_data",
-                "answer": f"I cannot calculate {concept} because its required inputs are not in the connected data.",
-                "message": f"I cannot calculate {concept} from the available columns. Connect data containing its required inputs or tell me which existing fields define it.",
-                "suggestions": ["Show available tables and fields", f"Define {concept} using existing columns"],
-            }
 
     return None
 
@@ -344,9 +354,13 @@ def local_semantic_feedback(question: str, sql: str, schema: str = "") -> list[s
             question_lower,
         ))
         if asks_to_filter_average:
-            average_aliases = re.findall(r"avg\s*\([^)]*\)\s+as\s+([a-z_][\w]*)", sql_lower)
+            # Include window averages, e.g. AVG(x) OVER (PARTITION BY region) AS region_avg.
+            average_aliases = re.findall(
+                r"avg\s*\([^)]*\)(?:\s*over\s*\([^)]*\))?\s+as\s+([a-z_][\w]*)", sql_lower
+            )
+            # Any WHERE clause may filter the alias, not only the last one.
             where_parts = re.split(r"\bwhere\b", sql_lower)
-            where_sql = where_parts[-1] if len(where_parts) > 1 else ""
+            where_sql = " where ".join(where_parts[1:])
             filters_average_alias = any(
                 re.search(rf"\b(?:\w+\.)?{re.escape(alias)}\b\s*(?:>=|<=|>|<)", where_sql)
                 or re.search(rf"(?:>=|<=|>|<)\s*(?:\w+\.)?{re.escape(alias)}\b", where_sql)
