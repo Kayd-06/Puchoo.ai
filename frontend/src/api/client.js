@@ -47,7 +47,11 @@ export async function fetchApi(endpoint, options = {}) {
       if (response.status === 401) {
         window.dispatchEvent(new Event('puchoo:unauthorized'));
       }
-      throw new Error(data.detail || data.message || `API request failed (${response.status})`);
+      const failure = new Error(
+        data.detail || data.message || `API request failed (${response.status})`,
+      );
+      failure.status = response.status;
+      throw failure;
     }
 
     return data;
@@ -77,7 +81,11 @@ export async function fetchApiBlob(endpoint, options = {}) {
         ? await response.json()
         : { detail: (await response.text()).trim() };
       if (response.status === 401) window.dispatchEvent(new Event('puchoo:unauthorized'));
-      throw new Error(data.detail || data.message || `API request failed (${response.status})`);
+      const failure = new Error(
+        data.detail || data.message || `API request failed (${response.status})`,
+      );
+      failure.status = response.status;
+      throw failure;
     }
 
     if (!contentType.toLowerCase().startsWith('audio/wav')) {

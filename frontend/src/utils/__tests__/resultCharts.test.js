@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chartColumns, chartData, chartTypes, defaultChart } from '../resultCharts';
+import {
+  chartColumns,
+  chartData,
+  chartExportData,
+  chartTypes,
+  defaultChart,
+  resolveChart,
+} from '../resultCharts';
 
 describe('query result charts', () => {
   it('recommends a chronological line and excludes IDs from measures', () => {
@@ -116,4 +123,31 @@ it('exports the selected chart metrics, aggregation, ordering and point limit', 
   expect(result.total).toBe(12);
   expect(result.data).toHaveLength(10);
   expect(result.data[0]).toMatchObject({ label: 'R11', value: 11, secondary: 22 });
+});
+
+it('exports the same chart the screen shows when no settings were changed', () => {
+  const record = {
+    columns: ['day', 'sales'],
+    rows: [
+      { day: '2026-01-01', sales: 1 },
+      { day: '2026-01-02', sales: 2 },
+    ],
+  };
+  expect(resolveChart(record, undefined).type).toBe('line');
+  expect(chartExportData(record).type).toBe('line');
+});
+
+it('reports nothing to export when repeated categories have no aggregation', () => {
+  const record = {
+    columns: ['region', 'sales'],
+    rows: [
+      { region: 'North', sales: 1 },
+      { region: 'North', sales: 2 },
+    ],
+  };
+  expect(resolveChart(record).drawable).toBe(false);
+  expect(chartExportData(record)).toBeNull();
+  expect(
+    chartExportData(record, { ...resolveChart(record).initial, aggregation: 'sum' }).data,
+  ).toEqual([expect.objectContaining({ label: 'North', value: 3 })]);
 });

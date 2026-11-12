@@ -111,42 +111,77 @@ export function defaultChart(record) {
     : null;
 }
 
-export function chartExportData(record, config = {}) {
+const COMPARISON_TYPES = ['grouped', 'stacked', 'combo'];
+const AGGREGATIONS = ['none', 'sum', 'average', 'count', 'min', 'max'];
+const SORTS = ['original', 'ascending', 'descending', 'label'];
+const LIMITS = [10, 20, 50, 100, 500];
+
+// One resolver for the on-screen chart and every export, so they cannot drift.
+export function resolveChart(record, config) {
   const initial = defaultChart(record);
   if (!initial) return null;
+  const saved = config && Object.keys(config).length ? config : initial;
   const { types, dimensions, measures } = chartColumns(record);
-  const y = measures.includes(config.y) ? config.y : initial.y;
+  const y = measures.includes(saved.y) ? saved.y : initial.y;
   const x =
-    dimensions.includes(config.x) && config.x !== y ? config.x : dimensions.find((c) => c !== y);
-  const aggregation = ['none', 'sum', 'average', 'count', 'min', 'max'].includes(config.aggregation)
-    ? config.aggregation
-    : 'none';
-  const raw = chartData(record, x, y, aggregation, config.type === 'scatter');
-  const candidates = measures.filter((c) => c !== y && c !== x);
-  const secondary = candidates.includes(config.secondary) ? config.secondary : candidates[0];
+    dimensions.includes(saved.x) && saved.x !== y ? saved.x : dimensions.find((c) => c !== y);
+  const aggregation = AGGREGATIONS.includes(saved.aggregation) ? saved.aggregation : 'none';
+  const raw = chartData(record, x, y, aggregation, saved.type === 'scatter');
+  const secondaryOptions = measures.filter((c) => c !== y && c !== x);
+  const secondary = secondaryOptions.includes(saved.secondary)
+    ? saved.secondary
+    : secondaryOptions[0];
   const options = chartTypes(raw, types[x], secondary && aggregation !== 'count' ? 2 : 1);
-  const type = options.includes(config.type) ? config.type : options[0];
-  const comparison = ['grouped', 'stacked', 'combo'].includes(type);
+  const type = options.includes(saved.type) ? saved.type : options[0];
+  const comparison = COMPARISON_TYPES.includes(type);
   const other = comparison
     ? new Map(chartData(record, x, secondary, aggregation).map((p) => [p.label, p.value]))
     : null;
   let data = raw.map((p) => (comparison ? { ...p, secondary: other.get(p.label) ?? null } : p));
-  if (config.sort === 'label')
+  const sort = SORTS.includes(saved.sort) ? saved.sort : 'original';
+  if (sort === 'label')
     data.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  else if (['ascending', 'descending'].includes(config.sort))
+  else if (sort !== 'original')
     data.sort((a, b) =>
       a.value === null
         ? 1
         : b.value === null
           ? -1
-          : config.sort === 'ascending'
+          : sort === 'ascending'
             ? a.value - b.value
             : b.value - a.value,
     );
-  const limit = [10, 20, 50, 100, 500].includes(Number(config.limit)) ? Number(config.limit) : 50;
+  const limit = LIMITS.includes(Number(saved.limit)) ? Number(saved.limit) : 50;
   const total = data.length;
   data = data.slice(0, limit);
-  return data.some((p) => p.value !== null || (comparison && p.secondary !== null))
-    ? { x, y, secondary: comparison ? secondary : null, aggregation, type, data, total }
-    : null;
+  const drawable = data.some((p) => p.value !== null || (comparison && p.secondary !== null));
+  return {
+    initial,
+    saved,
+    types,
+    dimensions,
+    measures,
+    x,
+    y,
+    aggregation,
+    raw,
+    secondaryOptions,
+    secondary,
+    options,
+    type,
+    comparison,
+    sort,
+    limit,
+    data,
+    total,
+    drawable,
+  };
+}
+
+// Returns the plotted points, or null when nothing can be drawn.
+export function chartExportData(record, config) {
+  const chart = resolveChart(record, config);
+  if (!chart?.drawable) return null;
+  const { x, y, secondary, aggregation, type, data, total, comparison } = chart;
+  return { x, y, secondary: comparison ? secondary : null, aggregation, type, data, total };
 }

@@ -1,5 +1,5 @@
 import { splitAnalyses } from '../utils/splitAnalyses';
-import { chartExportData, defaultChart } from '../utils/resultCharts';
+import { chartExportData } from '../utils/resultCharts';
 import { universePolicy } from '../utils/universePolicy';
 import '../styles/askComposer.css';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -47,6 +47,7 @@ import '../styles/chatActions.css';
 import '../styles/queryReport.css';
 
 const ResultCharts = lazy(() => import('../components/ResultCharts'));
+const STOP_ANALYSIS_STATUSES = new Set([401, 403, 503]);
 
 const DEFAULT_RESULT_LABELS = {
   executive_summary: 'Executive summary',
@@ -816,7 +817,25 @@ export default function AskData() {
     throw new Error('The query could not be executed after an automatic correction.');
   };
 
-  const handleAsk = async (resolvedQuestion, clarificationAnswers = []) => {
+  // Generate one question and run it without replacing the visible result.
+  const runAnalysisPart = async (query, answers, token) => {
+    const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        question: query,
+        language_code: questionLanguage,
+        clarifications: answers,
+      }),
+    });
+    if (!requestCurrent(token)) return null;
+    if (['clarification_required', 'answer_unavailable'].includes(proposal.status)) {
+      return { notice: proposal };
+    }
+    const answer = await executeProposal(proposal, token, false);
+    return requestCurrent(token) ? { result: answer } : null;
+  };
+
+  const handleAsk = async (resolvedQuestion, clarificationAnswers = [], analysisIndex = null) => {
     const submittedQuestion = typeof resolvedQuestion === 'string' ? resolvedQuestion : question;
     if (
       !submittedQuestion.trim() ||
@@ -825,6 +844,8 @@ export default function AskData() {
       (queryInFlightRef.current && requestCurrent(queryInFlightRef.current))
     )
       return;
+    // A clarification inside a multi-question run reruns only that analysis.
+    const rerunPart = analysisIndex !== null ? analyses[analysisIndex] : null;
     const token = historyToken(scope);
     queryInFlightRef.current = token;
     setLoading(true);
@@ -832,40 +853,50 @@ export default function AskData() {
     stopReadingResult();
     setResult(null);
     setClarification(null);
-    setAnalyses([]);
-    setSelectedAnalysis(0);
+    if (!rerunPart) {
+      setAnalyses([]);
+      setSelectedAnalysis(0);
+    }
     try {
-      const questionForQuery = continuationMatches(scope, continuation)
-        ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${submittedQuestion.trim()}`
-        : submittedQuestion.trim();
-      const questions =
-        clarificationAnswers.length || continuationMatches(scope, continuation)
-          ? [questionForQuery]
-          : splitAnalyses(questionForQuery);
-      if (questions.length > 1) {
+      if (rerunPart) {
+        const outcome = await runAnalysisPart(rerunPart.query, clarificationAnswers, token);
+        if (!outcome || !requestCurrent(token)) return;
+        setAnalyses((current) =>
+          current.map((item, index) =>
+            index === analysisIndex
+              ? { ...item, result: outcome.result || null, notice: outcome.notice || null }
+              : item,
+          ),
+        );
+        if (outcome.result) setResult(outcome.result);
+        else setClarification(outcome.notice);
+        return;
+      }
+      const followUp = continuationMatches(scope, continuation);
+      const withContext = (text) =>
+        followUp
+          ? `Previous question: ${continuation.interpretedRequest || continuation.question}\n\nFollow-up question: ${text}`
+          : text;
+      const questionForQuery = withContext(submittedQuestion.trim());
+      const parts = clarificationAnswers.length
+        ? [submittedQuestion.trim()]
+        : splitAnalyses(submittedQuestion.trim());
+      if (parts.length > 1) {
         const items = [];
-        for (const part of questions) {
+        for (const [index, part] of parts.entries()) {
           if (!requestCurrent(token)) return;
+          // Only the first part can continue the previous answer; the rest stand alone.
+          const query = index === 0 ? withContext(part) : part;
           try {
-            const proposal = await fetchApi(`/query/${activeWorkspaceId}/generate`, {
-              method: 'POST',
-              body: JSON.stringify({
-                question: part,
-                language_code: questionLanguage,
-                clarifications: [],
-              }),
-            });
-            if (!requestCurrent(token)) return;
-            if (['clarification_required', 'answer_unavailable'].includes(proposal.status)) {
-              items.push({ question: part, notice: proposal });
-            } else {
-              const answer = await executeProposal(proposal, token, false);
-              if (!requestCurrent(token)) return;
-              items.push({ question: part, result: answer });
-            }
+            const outcome = await runAnalysisPart(query, [], token);
+            if (!outcome) return;
+            items.push({ question: part, query, ...outcome });
           } catch (partError) {
+            // Session, permission, safety and service errors stop the whole run.
+            if (STOP_ANALYSIS_STATUSES.has(partError.status)) throw partError;
             items.push({
               question: part,
+              query,
               notice: {
                 status: 'answer_unavailable',
                 message: partError.message || 'This analysis could not be completed.',
@@ -1525,10 +1556,13 @@ export default function AskData() {
                     className="btn btn-secondary"
                     disabled={loading}
                     onClick={() => {
-                      void handleAsk(analyses[selectedAnalysis]?.question || question, [
+                      const answers = [
                         ...(clarification.clarifications || []),
                         { reason: clarification.reason, choice: suggestion },
-                      ]);
+                      ];
+                      if (analyses.length > 1)
+                        void handleAsk(analyses[selectedAnalysis].query, answers, selectedAnalysis);
+                      else void handleAsk(question, answers);
                     }}
                   >
                     {suggestion}
@@ -1734,7 +1768,7 @@ export default function AskData() {
                   </span>
                   {result.record.rows?.length > 0 && (
                     <div className="result-export-actions" aria-label="Report actions">
-                      {defaultChart(result.record) && (
+                      {chartExportData(result.record, result.chartConfig) && (
                         <button
                           type="button"
                           onClick={() => {

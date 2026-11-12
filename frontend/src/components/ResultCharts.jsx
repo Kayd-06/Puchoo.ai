@@ -1,12 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import { ChartNoAxesCombined, Download, RotateCcw, SlidersHorizontal } from 'lucide-react';
-import { chartColumns, chartData, chartTypes, defaultChart } from '../utils/resultCharts';
-import ResultChartPlot, {
-  chartColors,
-  chartNames,
-  comparisonTypes,
-  formatChartNumber,
-} from './ResultChartPlot';
+import { defaultChart, resolveChart } from '../utils/resultCharts';
+import ResultChartPlot, { chartColors, chartNames, formatChartNumber } from './ResultChartPlot';
 import './resultCharts.css';
 
 export default function ResultCharts({ record, presentation = {}, config, onConfigChange }) {
@@ -17,8 +12,26 @@ export default function ResultCharts({ record, presentation = {}, config, onConf
   const chartRef = useRef(null);
   const [downloadError, setDownloadError] = useState('');
   if (!initial) return null;
-  const { types, dimensions, measures } = chartColumns(record);
-  const saved = config || localConfig || initial;
+  const chart = resolveChart(record, config || localConfig || initial);
+  const {
+    saved,
+    dimensions,
+    measures,
+    x,
+    y,
+    aggregation,
+    raw,
+    secondaryOptions,
+    secondary,
+    options,
+    type,
+    comparison,
+    sort,
+    limit,
+    data,
+    total: totalPoints,
+    drawable,
+  } = chart;
   const colorIndex =
     Number.isInteger(saved.colorIndex) &&
     saved.colorIndex >= 0 &&
@@ -26,44 +39,6 @@ export default function ResultCharts({ record, presentation = {}, config, onConf
       ? saved.colorIndex
       : 0;
   const colors = [...chartColors.slice(colorIndex), ...chartColors.slice(0, colorIndex)];
-  const y = measures.includes(saved.y) ? saved.y : initial.y;
-  const x =
-    dimensions.includes(saved.x) && saved.x !== y ? saved.x : dimensions.find((c) => c !== y);
-  const aggregation = ['none', 'sum', 'average', 'count', 'min', 'max'].includes(saved.aggregation)
-    ? saved.aggregation
-    : 'none';
-  const raw = chartData(record, x, y, aggregation, saved.type === 'scatter');
-  const secondaryOptions = measures.filter((c) => c !== y && c !== x);
-  const secondary = secondaryOptions.includes(saved.secondary)
-    ? saved.secondary
-    : secondaryOptions[0];
-  const options = chartTypes(raw, types[x], secondary && aggregation !== 'count' ? 2 : 1);
-  const type = options.includes(saved.type) ? saved.type : options[0];
-  const comparison = comparisonTypes.includes(type);
-  const secondData = comparison
-    ? new Map(chartData(record, x, secondary, aggregation).map((p) => [p.label, p.value]))
-    : null;
-  let data = raw.map((p) =>
-    comparison ? { ...p, secondary: secondData.get(p.label) ?? null } : p,
-  );
-  const sort = ['original', 'ascending', 'descending', 'label'].includes(saved.sort)
-    ? saved.sort
-    : 'original';
-  if (sort === 'label')
-    data.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  else if (sort !== 'original')
-    data.sort((a, b) =>
-      a.value === null
-        ? 1
-        : b.value === null
-          ? -1
-          : sort === 'ascending'
-            ? a.value - b.value
-            : b.value - a.value,
-    );
-  const limit = [10, 20, 50, 100, 500].includes(Number(saved.limit)) ? Number(saved.limit) : 50;
-  const totalPoints = data.length;
-  data = data.slice(0, limit);
   const label = (column) => presentation.column_labels?.[column] || column;
   const metricLabel = (column) =>
     aggregation === 'count'
@@ -116,7 +91,6 @@ export default function ResultCharts({ record, presentation = {}, config, onConf
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setDownloadError('');
   };
-  const drawable = data.some((p) => p.value !== null || (comparison && p.secondary !== null));
   const missingX = record.rows.filter(
     (row) => row[x] === null || row[x] === undefined || row[x] === '',
   ).length;
