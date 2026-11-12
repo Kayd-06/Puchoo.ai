@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import '../styles/connectTabs.css';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Check, FileSpreadsheet, Server, ShieldCheck, Upload, X } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
@@ -262,7 +263,7 @@ export default function ConnectData() {
                     {selectedFiles.map((file) => (
                       <span key={`${file.name}-${file.size}`}>
                         <FileSpreadsheet size={14} />
-                        {fileLabel(file)}
+                        <span className="connect-file-name">{fileLabel(file)}</span>
                         <button
                           type="button"
                           onClick={() =>
@@ -303,59 +304,80 @@ export default function ConnectData() {
                 mode.
               </p>
               <div className="connect-server-grid">
-                <input
-                  type="text"
-                  placeholder="Workspace name"
-                  value={serverForm.name}
-                  onChange={(event) => updateServerForm('name', event.target.value)}
-                />
-                <select
-                  value={serverForm.engine}
-                  onChange={(event) => {
-                    const engine = event.target.value;
-                    updateServerForm('engine', engine);
-                    updateServerForm('port', engine === 'mysql' ? '3306' : '5432');
-                  }}
-                  aria-label="Database engine"
-                >
-                  <option value="postgresql">PostgreSQL</option>
-                  <option value="mysql">MySQL</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder="Host (db.example.com)"
-                  value={serverForm.host}
-                  onChange={(event) => updateServerForm('host', event.target.value)}
-                />
-                <input
-                  type="number"
-                  placeholder="Port"
-                  min="1"
-                  max="65535"
-                  value={serverForm.port}
-                  onChange={(event) => updateServerForm('port', event.target.value)}
-                  aria-label="Database port"
-                />
-                <input
-                  type="text"
-                  placeholder="Database name"
-                  value={serverForm.database}
-                  onChange={(event) => updateServerForm('database', event.target.value)}
-                />
-                <input
-                  type="text"
-                  placeholder="Read-only username"
-                  autoComplete="username"
-                  value={serverForm.username}
-                  onChange={(event) => updateServerForm('username', event.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  autoComplete="current-password"
-                  value={serverForm.password}
-                  onChange={(event) => updateServerForm('password', event.target.value)}
-                />
+                <label>
+                  Workspace name
+                  <input
+                    type="text"
+                    placeholder="Workspace name"
+                    value={serverForm.name}
+                    onChange={(event) => updateServerForm('name', event.target.value)}
+                  />
+                </label>
+                <label>
+                  Database engine
+                  <select
+                    value={serverForm.engine}
+                    onChange={(event) => {
+                      const engine = event.target.value;
+                      updateServerForm('engine', engine);
+                      updateServerForm('port', engine === 'mysql' ? '3306' : '5432');
+                    }}
+                    aria-label="Database engine"
+                  >
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                  </select>
+                </label>
+                <label>
+                  Server host
+                  <input
+                    type="text"
+                    placeholder="Host (db.example.com)"
+                    value={serverForm.host}
+                    onChange={(event) => updateServerForm('host', event.target.value)}
+                  />
+                </label>
+                <label>
+                  Database port
+                  <input
+                    type="number"
+                    placeholder="Port"
+                    min="1"
+                    max="65535"
+                    value={serverForm.port}
+                    onChange={(event) => updateServerForm('port', event.target.value)}
+                    aria-label="Database port"
+                  />
+                </label>
+                <label>
+                  Database name
+                  <input
+                    type="text"
+                    placeholder="Database name"
+                    value={serverForm.database}
+                    onChange={(event) => updateServerForm('database', event.target.value)}
+                  />
+                </label>
+                <label>
+                  Read-only username
+                  <input
+                    type="text"
+                    placeholder="Read-only username"
+                    autoComplete="username"
+                    value={serverForm.username}
+                    onChange={(event) => updateServerForm('username', event.target.value)}
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    autoComplete="current-password"
+                    value={serverForm.password}
+                    onChange={(event) => updateServerForm('password', event.target.value)}
+                  />
+                </label>
               </div>
               <label className="connect-ssl">
                 <input type="checkbox" checked readOnly disabled /> TLS is required by the server

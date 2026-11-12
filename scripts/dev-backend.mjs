@@ -1,15 +1,31 @@
-import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { backendPort } from "./dev-config.mjs";
 
-const isWindows = process.platform === 'win32';
+const isWindows = process.platform === "win32";
 const virtualenvPython = isWindows
-  ? (existsSync('.venv\\Scripts\\python.exe') ? '.venv\\Scripts\\python.exe' : 'venv\\Scripts\\python.exe')
-  : (existsSync('.venv/bin/python') ? '.venv/bin/python' : 'python3');
+  ? existsSync(".venv\\Scripts\\python.exe")
+    ? ".venv\\Scripts\\python.exe"
+    : "venv\\Scripts\\python.exe"
+  : existsSync(".venv/bin/python")
+    ? ".venv/bin/python"
+    : "python3";
 
 const server = spawn(
   virtualenvPython,
-  ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload', '--timeout-graceful-shutdown', '5'],
-  { stdio: 'inherit' },
+  [
+    "-m",
+    "uvicorn",
+    "backend.main:app",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(backendPort()),
+    "--reload",
+    "--timeout-graceful-shutdown",
+    "5",
+  ],
+  { stdio: "inherit" },
 );
 
-server.on('exit', (code) => process.exit(code ?? 1));
+server.on("exit", (code) => process.exit(code ?? 1));

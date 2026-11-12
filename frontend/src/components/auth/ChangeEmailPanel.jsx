@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Mail, X } from 'lucide-react';
 import PasswordField from './PasswordField';
@@ -16,15 +16,65 @@ export default function ChangeEmailPanel() {
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
+  const dialogRef = useRef(null);
+  const openerRef = useRef(null);
 
-  function close() {
+  const close = useCallback(() => {
     setOpen(false);
     setStep('details');
     setEmail('');
     setPassword('');
     setCode('');
     setMessage('');
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function onKeyDown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = [
+        ...dialogRef.current.querySelectorAll(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+        ),
+      ];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || !dialogRef.current.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last?.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !dialogRef.current.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      if (openerRef.current?.isConnected) openerRef.current.focus();
+    };
+  }, [open, close]);
+  useEffect(() => {
+    if (open)
+      (
+        dialogRef.current?.querySelector('input:not(:disabled)') ||
+        dialogRef.current?.querySelector('button')
+      )?.focus();
+  }, [open, step]);
+
   async function requestCode(event) {
     event.preventDefault();
     setMessage('');
@@ -73,13 +123,21 @@ export default function ChangeEmailPanel() {
 
   return (
     <>
-      <button type="button" className="settings-action" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="settings-action"
+        onClick={(event) => {
+          openerRef.current = event.currentTarget;
+          setOpen(true);
+        }}
+      >
         Change email
       </button>
       {open &&
         createPortal(
           <div
             className="settings-email-overlay fixed inset-0 z-[80] grid place-items-center bg-black/75 p-4 backdrop-blur-sm"
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="email-change-title"

@@ -40,7 +40,7 @@ Create `.env` only if it does not already exist; preserve existing local configu
 Open two terminals at the repository root:
 
 ```bash
-# Terminal 1: FastAPI, http://127.0.0.1:8000
+# Terminal 1: FastAPI, http://127.0.0.1:8001
 npm run dev:backend
 ```
 
@@ -55,10 +55,10 @@ The backend launcher detects `.venv` (or the legacy Windows `venv` directory). O
 python -m alembic -c backend/alembic.ini upgrade head
 ```
 
-Open [localhost:5173](http://localhost:5173). Vite proxies `/api` to `127.0.0.1:8000`. Check backend health with:
+Open [localhost:5173](http://localhost:5173). Vite proxies `/api` to `127.0.0.1:8001`. Port 8001 keeps Puchoo separate from other FastAPI projects on port 8000. To use another port, set `PUCHOO_API_PORT` to the same value in both terminal sessions before starting the servers. Restart Vite after changing the port. Check backend health with:
 
 ```bash
-curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8001/api/health
 ```
 
 To create the frontend production bundle:
@@ -93,6 +93,8 @@ Use `.env.example` as the configuration inventory. Backend configuration reads t
 
 A selected hosted SQL provider without its required credentials returns a configuration error for model-dependent questions. English typed questions do not need the speech/translation providers. Non-English queries need translation configured; voice and spoken playback need Gnani.
 
+Analytics requests use disclosed defaults for routine sales metrics, active customers, and calendar periods. Vague rankings ("best region"), vague performance wording ("doing well") and comparisons without a baseline still ask a follow-up with choice buttons. Several separate questions sent together run as separate analyses. Relative dates use the server reference date in Asia/Kolkata. The planner can return a complete answer, an explicitly labeled partial answer with omitted inputs, or a direct explanation that the data cannot support an answer. Missing campaign attribution, refunds, or policy rules are never fabricated. Essential institution-specific rules may still require clarification.
+
 ### Data flow and persistence
 
 - The configured SQL model receives the question and a selected schema summary. Verification can send SQL and up to 50 result rows to the verifier provider.
@@ -101,6 +103,10 @@ A selected hosted SQL provider without its required credentials returns a config
 - Relational history and browser chat state can retain displayed results. Clearing the visible chat and deleting saved history are separate actions.
 - Server database credentials remain in process memory; server sources require reconnection after restart.
 - Runtime state lives under configured paths, including the application database and `.pucho`. Keep these private and outside the served frontend directory.
+
+## Responsive interface
+
+Phone and tablet layouts below 1024px use a workspace drawer for navigation and active-source switching. Larger screens retain the sidebar. Account forms, settings, source connections, and results reflow for narrow screens; wide query tables scroll within their result cards. Touch controls, keyboard focus handling, and safe-area spacing support compact devices without changing role permissions.
 
 ## Accounts and roles
 

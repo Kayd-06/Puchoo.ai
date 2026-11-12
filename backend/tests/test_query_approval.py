@@ -670,6 +670,49 @@ def test_ambiguity_is_not_bypassed_by_autonomous_mode(env, monkeypatch):
     assert env.executions == []
 
 
+@pytest.mark.parametrize(('question', 'reason', 'choice'), [
+    ('Show the best region', 'ambiguous_metric', 'Rank by total revenue'),
+    ('Which students are doing well in class 10?', 'ambiguous_education_metric', 'Use average marks'),
+    ('Show students with higher attendance in class 10', 'missing_comparison_baseline', 'Compare with class average'),
+])
+def test_vague_questions_keep_choice_buttons_and_never_reach_the_planner(env, monkeypatch, question, reason, choice):
+    import json
+    planner_calls = []
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **kwargs: planner_calls.append(kwargs) or json.dumps(_order_plan()), raising=False)
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    response = env.generate(question=question)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['status'] == 'clarification_required'
+    assert body['reason'] == reason
+    assert choice in body['suggestions']
+    assert planner_calls == []
+    assert env.executions == []
+
+
+def test_claude_style_client_without_a_planner_gets_buttons_for_vague_questions(env, monkeypatch):
+    # The Claude client has no generate_plan; vague questions must not route to the planner.
+    assert not hasattr(env.fake, 'generate_plan')
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    for question in ('Show the best region', 'Which students are doing well?'):
+        response = env.generate(question=question)
+        assert response.status_code == 200, response.text
+        assert response.json()['status'] == 'clarification_required'
+        assert response.json()['suggestions']
+    assert env.executions == []
+
+
+def test_missing_data_is_reported_even_when_a_vague_metric_also_matches(env):
+    response = env.generate(question='Which students are doing well and what is the profit?')
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['status'] == 'answer_unavailable'
+    assert body['reason'] == 'concept_not_in_data'
+    assert 'profit' in body['message']
+    assert body['suggestions'] == ['Show available tables and fields', 'Define profit using existing columns']
+    assert env.executions == []
+
+
 def test_deterministic_query_does_not_require_a_provider(env, monkeypatch):
     monkeypatch.setattr(query_router, 'schema_guided_fallback_sql', lambda *_: 'SELECT id, region, amount FROM orders ORDER BY id')
     def unavailable():
@@ -1135,4 +1178,79 @@ def test_provider_misconfiguration_returns_actionable_503_without_provider_call(
     assert expected in detail
     assert 'definitions are insufficient' not in detail
     assert 'obsolete-synthetic' not in detail
+    assert env.executions == []
+
+def test_missing_campaign_data_returns_direct_answer_without_sql(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(answer_status='unavailable', limitations=['Campaign attribution is not recorded.'], unavailable_reason='The available data cannot determine whether the campaign caused additional profit.')), raising=False)
+    response = env.generate(question='Did the latest campaign change regional amounts?')
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'answer_unavailable'
+    assert 'cannot determine' in response.json()['message']
+    assert 'pending_id' not in response.json()
+    assert env.executions == []
+
+
+def test_partial_plan_preserves_limitations_through_execution(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(answer_status='partial', limitations=['Refund amounts are not recorded; totals exclude refunds.'])), raising=False)
+    response = env.generate(question='Compare regional amounts including refunds')
+    assert response.status_code == 200, response.text
+    assert response.json()['answer_status'] == 'partial'
+    approved = env.approve(response.json())
+    assert approved.status_code == 200, approved.text
+    assert approved.json()['record']['limitations'] == ['Refund amounts are not recorded; totals exclude refunds.']
+
+
+def test_partial_answer_limitations_are_translated_for_display(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('comparison',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(answer_status='partial', limitations=['Refund amounts are not recorded.'])), raising=False)
+    monkeypatch.setattr(query_router, '_translate_for_display', lambda text, language_code, **_: f'[{language_code}] {text}')
+    response = env.generate(question='Compare regional amounts including refunds')
+    assert response.status_code == 200, response.text
+    assert response.json()['limitations'] == ['[None] Refund amounts are not recorded.']
+    approved = env.approve(response.json())
+    assert approved.status_code == 200, approved.text
+    assert approved.json()['record']['limitations'] == ['[None] Refund amounts are not recorded.']
+
+
+def test_top_one_per_group_with_rank_equals_one_is_accepted(env, monkeypatch):
+    import json
+    monkeypatch.setattr(query_router, 'classify_complexity', lambda *_: ComplexityDecision('planned', 5, ('ranking',)))
+    monkeypatch.setattr(env.fake, 'generate_plan', lambda **_: json.dumps(_order_plan(
+        normalized_question='Largest order amount in each region', metrics=['amount'],
+        ranking={'direction': 'desc', 'limit': 1})), raising=False)
+    env.fake.sql = (
+        "WITH ranked AS (SELECT region, id, amount, "
+        "ROW_NUMBER() OVER (PARTITION BY region ORDER BY amount DESC) AS rn FROM orders) "
+        "SELECT region, id, amount FROM ranked WHERE rn = 1 ORDER BY region"
+    )
+    response = env.generate(question='Which order has the largest amount in each region?')
+    assert response.status_code == 200, response.text
+    approved = env.approve(response.json())
+    assert approved.status_code == 200, approved.text
+    assert [(row['region'], row['amount']) for row in approved.json()['record']['rows']] == [('north', 10), ('south', 20)]
+
+
+def test_window_average_comparison_is_accepted(env, monkeypatch):
+    env.fake.sql = (
+        "WITH region_orders AS (SELECT id, region, amount, "
+        "AVG(amount) OVER (PARTITION BY region) AS region_avg_amount FROM orders) "
+        "SELECT id, region, amount FROM region_orders WHERE amount > region_avg_amount ORDER BY id"
+    )
+    response = env.generate(question='Which orders have an amount above the average amount of their region?')
+    assert response.status_code == 200, response.text
+    approved = env.approve(response.json())
+    assert approved.status_code == 200, approved.text
+    assert approved.json()['record']['rows'] == [{'id': 1, 'region': 'north', 'amount': 10}]
+
+
+def test_failed_multi_question_message_suggests_splitting(env):
+    env.fake.sql = "SELECT region FROM orders WHERE 1 = 0"
+    response = env.generate(question='Which region is largest by amount?Which orders are below the average amount?')
+    assert response.status_code == 400
+    assert 'separate questions' in response.json()['detail']
     assert env.executions == []

@@ -290,3 +290,93 @@ html[data-theme='light'] #root .history-page-clean {
     margin-left: 0;
   }
 }
+
+/* One toolbar surface with consistent search and action sizing in both themes. */
+#root .app-container .history-page-clean .history-toolbar {
+  padding: 14px;
+  border: 1px solid var(--history-border);
+  border-radius: 14px;
+  background: var(--history-surface);
+  align-items: center;
+}
+#root .app-container .history-page-clean .history-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+}
+#root .app-container .history-page-clean .history-search > svg {
+  flex-shrink: 0;
+}
+#root .app-container .history-page-clean .history-search input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+#root .app-container .history-page-clean .history-search input:focus-visible {
+  outline: none;
+}
+#root .app-container .history-page-clean .history-search:focus-within {
+  border-color: var(--control-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--control-focus) 14%, transparent);
+}
+#root .app-container .history-page-clean .history-filters {
+  min-width: 0;
+  overflow: visible;
+  background: transparent;
+  gap: 6px;
+}
+#root .app-container .history-page-clean .history-filters button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+#root .app-container .history-page-clean .history-filter-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-size: 11px;
+  line-height: 1;
+}
+#root .app-container .history-page-clean .history-clear {
+  align-self: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+#root .app-container .history-page-clean .history-clear:disabled {
+  border-style: solid;
+  box-shadow: none;
+}
+@media (max-width: 600px) {
+  #root .app-container .history-page-clean .history-toolbar {
+    padding: 12px;
+  }
+  #root .app-container .history-page-clean .history-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #root .app-container .history-page-clean .history-filters button {
+    padding-inline: 8px;
+    white-space: normal;
+  }
+  #root .app-container .history-page-clean .history-clear {
+    width: 100%;
+    justify-content: center;
+  }
+}

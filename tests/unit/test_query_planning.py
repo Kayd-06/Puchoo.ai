@@ -191,3 +191,47 @@ class CompletePlanContextTests(unittest.TestCase):
         with patch.dict('os.environ', {'LOCAL_SQL_SCHEMA_MAX_TABLES': '2'}):
             with self.assertRaises(QueryPlanError):
                 select_plan_schema(SCHEMA, plan)
+
+class DirectAnswerPlanTests(unittest.TestCase):
+    def test_missing_data_is_an_explicit_non_query_outcome(self):
+        payload = {**valid_payload(), 'answer_status': 'unavailable', 'limitations': ['Campaign dates and attribution are not recorded.'], 'unavailable_reason': 'Campaign profit cannot be determined from this data.'}
+        plan = parse_plan_json(json.dumps(payload), schema=SCHEMA, original_question='Did the campaign cause more profit?')
+        self.assertEqual('unavailable', plan.answer_status)
+        self.assertIn('Campaign dates', plan.limitations[0])
+
+    def test_unavailable_outcome_requires_a_direct_explanation(self):
+        for reason in (None, '', 25):
+            with self.subTest(reason=reason), self.assertRaises(QueryPlanError):
+                parse_plan_json(json.dumps({**valid_payload(), 'answer_status': 'unavailable', 'unavailable_reason': reason}), schema=SCHEMA, original_question='x')
+
+    def test_partial_answer_requires_disclosed_limitations(self):
+        with self.assertRaises(QueryPlanError):
+            parse_plan_json(json.dumps({**valid_payload(), 'answer_status': 'partial'}), schema=SCHEMA, original_question='x')
+
+    def test_planner_gets_current_date_and_one_bounded_retry_for_defaults(self):
+        calls = []
+        class Client:
+            def generate_plan(self, **kwargs):
+                calls.append(kwargs['question'])
+                return json.dumps({**valid_payload(), 'needs_clarification': len(calls) == 1, 'clarification_question': 'Net or total sales?' if len(calls) == 1 else None, 'assumptions': ['Sales uses total_amount; all recorded dates.']})
+        plan = plan_complex_query(Client(), schema=SCHEMA, question='Compare regional sales')
+        self.assertFalse(plan.needs_clarification)
+        self.assertEqual(2, len(calls))
+        self.assertIn('Server reference date:', calls[0])
+        self.assertIn('Net or total sales?', calls[1])
+
+
+class RankFilterTests(unittest.TestCase):
+    def _plan(self, limit):
+        return parse_plan_json(json.dumps({**valid_payload(), 'ranking': {'direction': 'desc', 'limit': limit}}), schema=SCHEMA, original_question='x')
+
+    def test_rank_equals_one_bounds_top_one_per_group(self):
+        sql = "WITH r AS (SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn FROM t) SELECT a FROM r WHERE rn = 1"
+        feedback = plan_constraint_feedback(self._plan(1), sql)
+        self.assertFalse([item for item in feedback if 'partitioned rank' in item])
+        reversed_sql = sql.replace('rn = 1', '1 = rn')
+        self.assertFalse([item for item in plan_constraint_feedback(self._plan(1), reversed_sql) if 'partitioned rank' in item])
+
+    def test_rank_equals_one_does_not_satisfy_top_three(self):
+        sql = "WITH r AS (SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC) AS rn FROM t) SELECT a FROM r WHERE rn = 1"
+        self.assertTrue([item for item in plan_constraint_feedback(self._plan(3), sql) if 'partitioned rank' in item])

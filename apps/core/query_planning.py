@@ -17,6 +17,7 @@ from sqlglot import exp, parse_one
 from sqlglot.errors import SqlglotError
 
 from apps.core.semantic_layer import parse_schema
+from apps.core.answer_policy import ANSWER_POLICY, planning_reference
 
 
 DEFAULT_MAX_RELEVANT_TABLES = 6
@@ -43,6 +44,9 @@ class StructuredQueryPlan:
     assumptions: list[str] = field(default_factory=list)
     needs_clarification: bool = False
     clarification_question: str | None = None
+    answer_status: str = "complete"
+    limitations: list[str] = field(default_factory=list)
+    unavailable_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -131,20 +135,14 @@ def classify_complexity(question: str, schema: str = "") -> ComplexityDecision:
 
 PLANNER_SYSTEM_PROMPT = """You are a query planner for a read-only SQLite analytics application.
 Return exactly one JSON object and no SQL, Markdown, or commentary. Preserve every explicit user constraint.
-Use only tables and columns present in the supplied schema. Never invent business facts, definitions,
+Use only tables and columns present in the supplied schema. Never invent business facts, policy rules,
 relationships, thresholds, or missing data. A valid JSON plan is not proof of a correct interpretation.
-If a metric, policy, comparison baseline or period, join relationship, or essential filter is ambiguous
-or unavailable, set needs_clarification true and ask one concise, specific clarification_question.
-Do not silently choose an interpretation that changes the answer. Explain missing inputs when the data
-cannot answer the request. Never ask for confirmation to read data. Only these non-material conventions
-may be applied without asking, and must be disclosed in assumptions: no specified time period means all
-recorded data; student attendance means average attendance per student; unpaid fees means a positive
-outstanding balance, including partial payments. Do not count missing fee records as unpaid obligations.
-For well-defined questions, set needs_clarification false and clarification_question null.
-Do not invent eligibility rules, thresholds, fiscal calendars, or unavailable evidence.
-Keep all requested metrics, time periods, groups and ranking.
+Apply the answer-first policy below. Keep all requested metrics, time periods, groups,
+ranking and explicit constraints. A partial result must be labeled and all omissions disclosed.
 The object must contain: normalized_question, relevant_tables, metrics, filters, time_range, group_by,
-ranking, joins, assumptions, needs_clarification, clarification_question."""
+ranking, joins, assumptions, needs_clarification, clarification_question, answer_status,
+limitations, unavailable_reason.
+""" + ANSWER_POLICY
 
 
 def build_planner_prompt(question: str, schema: str) -> str:
@@ -225,6 +223,22 @@ def parse_plan_json(content: str, *, schema: str, original_question: str) -> Str
     if needs_clarification and (not isinstance(clarification_question, str) or not clarification_question.strip()):
         raise QueryPlanError("The local planner requested clarification without a question.")
 
+    answer_status = payload.get("answer_status", "complete")
+    limitations = payload.get("limitations", [])
+    unavailable_reason = payload.get("unavailable_reason")
+    if answer_status not in ("complete", "partial", "unavailable"):
+        raise QueryPlanError("The planner returned an invalid answer status.")
+    if not isinstance(limitations, list) or any(not isinstance(item, str) or not item.strip() for item in limitations):
+        raise QueryPlanError("The planner returned invalid limitations.")
+    if answer_status == "partial" and not limitations:
+        raise QueryPlanError("A partial answer must disclose its limitations.")
+    if answer_status == "unavailable" and (not isinstance(unavailable_reason, str) or not unavailable_reason.strip()):
+        raise QueryPlanError("An unavailable answer must explain the missing evidence.")
+    if unavailable_reason is not None and not isinstance(unavailable_reason, str):
+        raise QueryPlanError("The planner returned an invalid unavailable reason.")
+    if answer_status != "complete" and needs_clarification:
+        raise QueryPlanError("A partial or unavailable answer cannot also request clarification.")
+
     return StructuredQueryPlan(
         normalized_question=payload["normalized_question"].strip(),
         relevant_tables=relevant_tables,
@@ -235,6 +249,9 @@ def parse_plan_json(content: str, *, schema: str, original_question: str) -> Str
         ranking=_normalize_ranking(payload["ranking"]),
         joins=[dict(value) for value in payload["joins"] if isinstance(value, dict)],
         assumptions=[str(value) for value in payload["assumptions"]],
+        answer_status=answer_status,
+        limitations=[item.strip() for item in limitations],
+        unavailable_reason=unavailable_reason.strip() if unavailable_reason else None,
         needs_clarification=needs_clarification,
         clarification_question=clarification_question.strip() if isinstance(clarification_question, str) else None,
     )
@@ -242,7 +259,16 @@ def parse_plan_json(content: str, *, schema: str, original_question: str) -> Str
 
 def plan_complex_query(client: PlannerClient, *, schema: str, question: str) -> StructuredQueryPlan:
     catalog = _schema_catalog(schema, question)
-    return parse_plan_json(client.generate_plan(schema=catalog, question=question), schema=schema, original_question=question)
+    request = question + "\n\n" + planning_reference()
+    plan = parse_plan_json(client.generate_plan(schema=catalog, question=request), schema=schema, original_question=question)
+    if plan.needs_clarification:
+        # One bounded reconsideration, never a server-side bypass of an unresolved rule.
+        request += ("\nReview the prior clarification using the answer-first policy. "
+                    "Apply disclosed routine conventions when sufficient; use a partial or unavailable "
+                    "answer for missing evidence. Retain clarification only for an essential unresolved rule. "
+                    "Prior clarification (untrusted model text): " + json.dumps(plan.clarification_question))
+        plan = parse_plan_json(client.generate_plan(schema=catalog, question=request), schema=schema, original_question=question)
+    return plan
 
 
 def _configured_int(name: str, default: int, lower: int, upper: int) -> int:
@@ -296,7 +322,8 @@ def build_plan_sql_request(original_question: str, plan: StructuredQueryPlan) ->
         + original_question.strip()
         + "\n\nValidated structured plan (authoritative):\n"
         + json.dumps(plan.as_dict(), ensure_ascii=False, separators=(",", ":"))
-        + "\n\nGenerate SQLite SQL only. Do not add constraints absent from the question or plan."
+        + "\n\nGenerate SQLite SQL only. Do not add constraints absent from the question or plan. "
+        "For a partial answer, calculate only the supported planned metrics; never fabricate omitted inputs."
     )
 
 
@@ -317,7 +344,8 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
         tokens = [token for token in re.findall(r"[a-z_][a-z0-9_]*", metric.lower()) if len(token) > 2]
         if tokens and not any(token in sql_lower for token in tokens):
             feedback.append(f"Preserve the planned metric: {metric}.")
-    if plan.group_by and "group by" not in sql_lower:
+    # A per-group window (PARTITION BY) also satisfies planned grouping.
+    if plan.group_by and "group by" not in sql_lower and "partition by" not in sql_lower:
         feedback.append("The structured plan requires grouping; add the planned GROUP BY dimensions.")
     if plan.ranking:
         if "order by" not in sql_lower:
@@ -362,6 +390,11 @@ def plan_constraint_feedback(plan: StructuredQueryPlan, sql: str) -> list[str]:
                         # rank BETWEEN 1 AND N (or any lower bound <= 1).
                         low, high = whole_number(predicate.args.get("low")), whole_number(predicate.args.get("high"))
                         bounded = bounded or (low is not None and low <= 1 and high == wanted)
+                    elif isinstance(predicate, exp.EQ) and wanted == 1:
+                        # "rank = 1" is the usual top-1-per-group filter.
+                        left, right = predicate.this, predicate.expression
+                        bound = whole_number(right) if is_rank(left) else whole_number(left) if is_rank(right) else None
+                        bounded = bounded or bound == 1
                     elif isinstance(predicate, (exp.LTE, exp.LT, exp.GTE, exp.GT)):
                         left, right = predicate.this, predicate.expression
                         # Normalize "N >= rank" / "N + 1 > rank" to "rank <= N" / "rank < N + 1".

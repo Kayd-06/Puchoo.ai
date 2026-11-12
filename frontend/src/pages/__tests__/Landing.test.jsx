@@ -86,3 +86,14 @@ it('stops and restarts walkthrough autoplay on reduced-motion changes and cleans
   );
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it('dismisses mobile navigation outside the header and restores desktop state on resize', () => {
+  render(<Landing />);
+  const toggle = screen.getByRole('button', { name: 'Open navigation' });
+  fireEvent.click(toggle);
+  fireEvent.pointerDown(document.body);
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(toggle);
+  fireEvent(window, new Event('resize'));
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});

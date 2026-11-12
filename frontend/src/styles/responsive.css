@@ -1,0 +1,731 @@
+/* Shared responsive boundaries. Page-specific content stays scrollable instead
+   of clipping the document or shrinking controls below touch target sizes. */
+#root
+  .app-container
+  :is(.main-content, .page-container, .ask-page, .history-page, .settings-page, .connect-page) {
+  min-width: 0;
+  max-width: 100%;
+}
+#root :is(.app-container, .auth-shell) :is(input, textarea, select) {
+  max-width: 100%;
+}
+#root .result-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+#root .result-table-scroll:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: -2px;
+}
+#root .workspace-picker-menu {
+  max-height: min(320px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+#root .workspace-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  min-height: 44px;
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+#root .workspace-navigation-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  padding: 0;
+  width: min(340px, calc(100vw - 32px));
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  border: 0;
+  border-radius: 0 20px 20px 0;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+#root .workspace-navigation-drawer::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+#root .workspace-drawer-content {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#root .workspace-drawer-close {
+  position: absolute;
+  z-index: 3;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+}
+#root .workspace-navigation-drawer .app-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 100%;
+  margin: 0;
+  padding: 24px 16px !important;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+#root .workspace-navigation-drawer .app-sidebar-brand {
+  display: flex;
+  padding: 8px 40px 28px 8px !important;
+  margin: 0 !important;
+}
+#root .workspace-navigation-drawer .app-sidebar-brand span {
+  display: block;
+}
+#root .workspace-navigation-drawer .app-sidebar-section-label {
+  display: block;
+}
+#root .workspace-navigation-drawer .app-sidebar-nav {
+  display: flex;
+  flex: 0 0 auto !important;
+  flex-direction: column !important;
+  gap: 6px;
+  padding: 0 !important;
+  overflow: visible;
+}
+#root .workspace-navigation-drawer .app-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px;
+}
+#root .workspace-navigation-drawer .app-sidebar-link > span {
+  display: block;
+}
+#root .workspace-navigation-drawer .app-sidebar-bottom {
+  display: block;
+  margin-top: auto;
+  padding: 24px 0 0;
+}
+#root .workspace-navigation-drawer .workspace-picker-menu {
+  position: static;
+  margin-top: 8px;
+  max-height: 30dvh;
+  transform-origin: top;
+}
+#root .workspace-navigation-drawer .workspace-picker {
+  display: block;
+}
+#root .workspace-navigation-drawer .workspace-picker-option {
+  min-height: 44px;
+}
+#root .workspace-navigation-drawer .workspace-access-note {
+  display: flex;
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  #root .app-container > .app-sidebar {
+    width: 210px;
+    flex-basis: 210px;
+    padding-inline: 12px;
+  }
+  #root .app-container .page-container {
+    padding-inline: 20px;
+  }
+  #root .app-container .settings-page-refined {
+    padding-inline: 20px;
+  }
+}
+@media (max-width: 1023px) {
+  #root .app-container {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    padding: 0;
+    overflow: visible;
+  }
+  #root .app-container > .main-content {
+    width: 100%;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    border-radius: 0;
+  }
+  #root .app-container .app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    min-height: 64px;
+    height: auto;
+    gap: 12px;
+    padding: 10px max(16px, env(safe-area-inset-left));
+    border-width: 0 0 1px;
+    border-radius: 0;
+  }
+  #root .app-container .app-topbar-actions {
+    flex: 0 1 auto;
+    gap: 8px !important;
+  }
+  #root .app-container .page-container {
+    padding: 24px max(20px, env(safe-area-inset-left)) calc(32px + env(safe-area-inset-bottom));
+  }
+  #root .app-container :is(button, .btn, .ui-action, .ask-connect-action, .ask-primary-action) {
+    min-height: 44px;
+  }
+  #root
+    .app-container
+    :is(
+      button.notification-bell-button,
+      .topbar-icon-button,
+      .topbar-account-button,
+      .settings-photo-close,
+      .workspace-member-remove
+    ) {
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+  }
+  #root .app-container :is(input:not([type='checkbox']):not([type='radio']), textarea, select) {
+    font-size: 16px;
+  }
+  #root .app-container :is(.topbar-notification-panel, .topbar-account-panel) {
+    position: fixed;
+    top: 74px;
+    right: max(16px, env(safe-area-inset-right));
+    left: auto;
+    width: min(380px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    max-height: calc(100dvh - 100px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  #root .app-container :is(.ask-stage, .connect-stage) {
+    min-height: 0;
+    padding: clamp(32px, 7vw, 64px) 20px;
+  }
+  #root
+    .app-container
+    :is(
+      .ask-stage-content,
+      .connect-stage-content,
+      .ask-results,
+      .result-summary-card,
+      .result-table-card
+    ) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  #root .app-container :is(.ask-stage h1, .connect-stage-header h1) {
+    font-size: clamp(32px, 6vw, 58px);
+    line-height: 1.1;
+  }
+  #root
+    .app-container
+    :is(
+      .ask-stage p,
+      .connect-stage p,
+      .history-question,
+      .workspace-member-identity,
+      .settings-profile-identity
+    ) {
+    overflow-wrap: anywhere;
+  }
+  #root
+    .app-container
+    :is(
+      .ask-prompt-controls,
+      .ask-prompt-meta,
+      .ask-prompt-actions,
+      .result-table-heading,
+      .result-table-actions,
+      .result-export-actions,
+      .result-speech-actions
+    ) {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  #root .app-container .result-table-heading {
+    align-items: flex-start;
+  }
+  #root .app-container .result-table-actions {
+    margin-left: 0;
+  }
+  #root .app-container .result-highlights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #root .app-container .result-highlights > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  #root .app-container .query-details-body pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  #root .app-container .settings-page-refined {
+    padding: 24px 12px;
+  }
+  #root .app-container .settings-flow {
+    min-width: 0;
+    gap: 24px;
+  }
+  #root
+    .app-container
+    :is(
+      .settings-profile-topline,
+      .settings-photo-actions,
+      .workspace-invite-heading,
+      .settings-section-footer
+    ) {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  #root .app-container .settings-hero-copy h1 {
+    font-size: clamp(36px, 6vw, 64px);
+    line-height: 1.1;
+  }
+  #root .app-container .workspace-role-tabs {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  #root .app-container .workspace-code-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  #root .app-container .workspace-code-row input {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
+  #root .app-container .workspace-member-identity {
+    min-width: 0;
+  }
+  #root .app-container .workspace-member-identity span {
+    overflow-wrap: anywhere;
+  }
+  #root .app-container .history-page-clean {
+    padding: 24px 0;
+  }
+  #root .app-container .history-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .app-container .history-filters {
+    flex-wrap: wrap;
+  }
+  #root .app-container .history-card-actions {
+    flex-wrap: wrap;
+  }
+  #root .app-container .history-card-actions .btn {
+    white-space: normal;
+  }
+  #root .auth-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  #root .auth-brand-panel {
+    min-height: 0;
+    padding: 24px;
+  }
+  #root .auth-brand-panel > .relative.mt-16 {
+    margin-top: 24px;
+    max-width: 640px;
+  }
+  #root .auth-brand-panel h1 {
+    font-size: clamp(28px, 5vw, 42px);
+    line-height: 1.05;
+  }
+  #root .auth-brand-panel p {
+    font-size: 14px;
+  }
+  #root .auth-form-panel {
+    align-items: flex-start;
+    overflow: visible;
+    padding: 32px 24px calc(32px + env(safe-area-inset-bottom));
+  }
+  #root .auth-form-content {
+    padding-block: 0;
+  }
+  #root .auth-form-content > h2 {
+    font-size: clamp(28px, 4vw, 36px);
+    line-height: 1.15;
+  }
+  #root .auth-form-panel :is(button, a) {
+    min-height: 44px;
+  }
+  .settings-email-overlay {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-block: 24px;
+  }
+  .settings-email-overlay .settings-email-dialog {
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+    margin-block: auto;
+  }
+  .settings-email-dialog :is(input, select, textarea) {
+    font-size: 16px;
+  }
+  .settings-email-dialog button {
+    min-height: 44px;
+  }
+  .member-role-menu {
+    max-width: calc(100vw - 32px);
+    max-height: min(300px, 50dvh);
+    overflow-y: auto;
+  }
+  .member-role-menu button {
+    min-height: 44px;
+  }
+  #root .puchoo-reference-page .puchoo-editorial-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  #root .puchoo-reference-page .puchoo-editorial-grid > div {
+    max-width: 620px;
+  }
+  #root
+    .puchoo-reference-page
+    :is(.puchoo-proof-section, .puchoo-gnani-section, .puchoo-faq-section) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .puchoo-reference-page .puchoo-proof-section {
+    min-height: 0;
+  }
+  #root .puchoo-reference-page .puchoo-proof-card {
+    min-height: 370px;
+  }
+  #root .puchoo-reference-page .puchoo-proof-copy {
+    max-width: 720px;
+    padding: 56px 32px;
+  }
+  #root
+    .puchoo-reference-page
+    :is(.puchoo-demo-section, .puchoo-voice-grid, .puchoo-gnani-section, .puchoo-faq-section) {
+    min-width: 0;
+  }
+  #root
+    .puchoo-reference-page
+    :is(a.puchoo-reference-cta, button, summary, .puchoo-letter-footer-links a) {
+    min-height: 44px;
+  }
+}
+@media (max-width: 600px) {
+  #root .app-container .page-container {
+    padding: 16px 12px calc(24px + env(safe-area-inset-bottom));
+  }
+  #root .app-container .app-topbar-actions {
+    gap: 4px !important;
+  }
+  #root .app-container .account-trigger-name {
+    display: none;
+  }
+  #root .app-container :is(.ask-stage, .connect-stage) {
+    padding: 28px 12px;
+  }
+  #root .app-container .ask-prompt-shell {
+    padding: 14px;
+  }
+  #root .app-container .ask-prompt-shell textarea {
+    min-height: 108px;
+    padding: 0;
+    font-size: 16px;
+  }
+  #root .app-container .ask-prompt-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #root .app-container .ask-prompt-meta {
+    justify-content: flex-start;
+  }
+  #root .app-container .ask-prompt-actions {
+    justify-content: flex-end;
+    width: 100%;
+  }
+  #root .app-container .ask-query-mode {
+    margin-right: auto;
+  }
+  #root .app-container .voice-provider {
+    display: none;
+  }
+  #root .app-container .result-highlights {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .app-container :is(.result-summary-card, .result-table-card) {
+    padding: 18px 14px;
+    border-radius: 16px;
+  }
+  #root .app-container .result-table-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #root .app-container :is(.continuation-banner, .settings-photo-workspace) {
+    grid-template-columns: minmax(0, 1fr);
+    flex-wrap: wrap;
+  }
+  #root .app-container .connect-server-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .app-container .connect-tablist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  #root .app-container .connect-tablist button {
+    white-space: normal;
+  }
+  #root .app-container .connect-dropzone {
+    padding: 28px 12px;
+  }
+  #root .app-container .connect-selected-files > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  #root .app-container .settings-page-refined {
+    padding-inline: 0;
+  }
+  #root .app-container :is(.settings-section, .settings-profile, .settings-history) {
+    padding: 18px 14px;
+  }
+  #root .app-container .settings-profile-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  #root
+    .app-container
+    :is(.settings-profile-topline, .settings-photo-row, .settings-section-footer) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #root .app-container .settings-history {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  #root .app-container .settings-history > .settings-action {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  #root .app-container .settings-profile-identity h2 {
+    overflow-wrap: anywhere;
+  }
+  #root .auth-brand-panel {
+    padding: 20px;
+  }
+  #root .auth-form-panel {
+    padding-inline: 20px;
+  }
+  #root .auth-signup-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #root .auth-signup-form > .auth-form-wide {
+    grid-column: auto;
+  }
+  #root .otp-cells {
+    gap: 5px;
+  }
+  #root .otp-cells > span {
+    height: 48px;
+    border-radius: 8px;
+  }
+  .settings-email-overlay .settings-email-dialog {
+    padding: 20px;
+  }
+  #root
+    .puchoo-reference-page
+    :is(
+      .puchoo-editorial-grid h2,
+      .puchoo-demo-intro h2,
+      .puchoo-language-header h2,
+      .puchoo-closing-section h2
+    ) {
+    font-size: clamp(36px, 10vw, 54px);
+    line-height: 1.05;
+  }
+  #root .puchoo-reference-page .puchoo-reference-copy {
+    padding-inline: 20px;
+  }
+  #root .puchoo-reference-page .puchoo-reference-copy h1 {
+    font-size: clamp(36px, 10vw, 52px);
+    line-height: 1.02;
+  }
+  #root .puchoo-reference-page .puchoo-demo-body {
+    padding: 24px 18px;
+  }
+  #root .puchoo-reference-page .puchoo-proof-top {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  #root .puchoo-reference-page .puchoo-letter-footer-meta {
+    align-items: flex-start;
+  }
+  #root .puchoo-reference-page .puchoo-letter-footer-links {
+    flex-wrap: wrap;
+    gap: 28px;
+  }
+}
+@media (max-height: 600px) and (max-width: 1023px) {
+  #root .app-container :is(.topbar-notification-panel, .topbar-account-panel) {
+    top: 66px;
+    max-height: calc(100dvh - 80px);
+  }
+  #root .workspace-navigation-drawer .app-sidebar-bottom {
+    margin-top: 20px;
+  }
+}
+#root .workspace-drawer-close {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+@media (max-width: 1023px) {
+  #root .app-container .result-summary-heading {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  #root .app-container .result-summary-copy {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  #root .app-container .connect-server-form h1 {
+    font-size: clamp(32px, 6vw, 54px);
+    line-height: 1.1;
+  }
+  #root .app-container .connect-server-form :is(input, select) {
+    min-width: 0;
+    min-height: 44px;
+  }
+}
+@media (max-width: 600px) {
+  #root .app-container .workspace-members-refined .workspace-member {
+    grid-template-columns: 36px minmax(0, 1fr) 44px;
+  }
+  #root .app-container .workspace-members-refined .workspace-member-role {
+    width: min(110px, 100%);
+    min-width: 0;
+  }
+  #root .app-container .workspace-members-refined .workspace-member-remove {
+    grid-column: 3;
+    width: 44px;
+  }
+}
+@media (max-width: 1023px) {
+  #root .app-container .app-topbar {
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  #root .app-container .page-container {
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  #root .workspace-drawer-content {
+    padding-left: env(safe-area-inset-left);
+  }
+  #root .app-container :is(.topbar-notification-panel, .topbar-account-panel) {
+    top: calc(74px + env(safe-area-inset-top));
+    max-height: calc(100dvh - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  #root .app-container .notification-delete {
+    width: 44px;
+    min-width: 44px;
+    flex-basis: 44px;
+    margin-inline: 0;
+  }
+  #root .auth-brand-panel {
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+  #root .auth-form-panel {
+    padding-left: max(24px, env(safe-area-inset-left));
+    padding-right: max(24px, env(safe-area-inset-right));
+  }
+  #root .auth-form-panel button {
+    min-width: 44px;
+  }
+  #root .puchoo-reference-page .puchoo-segmented-header {
+    padding-top: calc(22px + env(safe-area-inset-top));
+  }
+  #root .puchoo-reference-page .puchoo-letter-footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 600px) {
+  #root .app-container .page-container {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+}
+@media (max-width: 1023px) {
+  /* These component styles load lazily, so the header boundary is explicit. */
+  #root .app-container .app-topbar button.notification-bell-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+}
+@media (max-width: 480px) {
+  #root .app-container .workspace-menu-trigger {
+    min-width: 44px;
+    justify-content: center;
+  }
+  #root .app-container .workspace-menu-trigger > span {
+    display: none;
+  }
+}
+#root .app-container .connect-server-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--control-secondary-fg);
+  font-size: 13px;
+}
+#root .app-container .connect-server-grid > label:last-child {
+  grid-column: 1 / -1;
+}
+#root .app-container .connect-file-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+@media (max-width: 1023px) {
+  #root .app-container .connect-selected-files > div button {
+    width: 44px;
+    min-width: 44px;
+    flex-shrink: 0;
+  }
+}
+
+/* Email form layout is shared by both themes. */
+.settings-email-dialog input {
+  padding: 10px 12px;
+  min-height: 42px;
+  width: 100%;
+}
+.settings-email-dialog form {
+  display: grid;
+  gap: 16px;
+}
+.settings-email-dialog form label {
+  display: block;
+  margin-bottom: 6px;
+}
+.settings-email-dialog .ui-action-primary {
+  padding: 10px 16px;
+}

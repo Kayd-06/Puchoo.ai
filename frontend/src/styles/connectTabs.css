@@ -1,0 +1,77 @@
+/* A compact segmented control; geometry is shared by both themes. */
+#root .app-container .connect-page .connect-tablist {
+  --tab-track: #0b0b0b;
+  --tab-border: #353535;
+  --tab-text: #a9a9a9;
+  --tab-selected: #292929;
+  --tab-selected-text: #f0f0f0;
+  --tab-hover: #191919;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 370px);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--tab-border);
+  border-radius: 13px;
+  background: var(--tab-track);
+  box-shadow: none;
+}
+html[data-theme='light'] #root .app-container .connect-page .connect-tablist {
+  --tab-track: #e0e5eb;
+  --tab-border: #c7cfd9;
+  --tab-text: #566270;
+  --tab-selected: #f2f4f6;
+  --tab-selected-text: #304f73;
+  --tab-hover: #e9edf2;
+}
+#root .app-container .connect-page .connect-tablist button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--tab-text);
+  font: 500 13px/1.35 var(--font-sans);
+  white-space: normal;
+  box-shadow: none;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+#root .app-container .connect-page .connect-tablist button svg {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+}
+#root .app-container .connect-page .connect-tablist button:hover:not(.is-active) {
+  background: var(--tab-hover);
+  color: var(--tab-selected-text);
+}
+#root .app-container .connect-page .connect-tablist button.is-active {
+  background: var(--tab-selected);
+  border-color: var(--tab-border);
+  color: var(--tab-selected-text);
+  box-shadow: 0 1px 3px #00000012;
+}
+#root .app-container .connect-page .connect-tablist button:focus-visible {
+  outline: 2px solid var(--control-focus);
+  outline-offset: -3px;
+}
+@media (max-width: 360px) {
+  #root .app-container .connect-page .connect-tablist button {
+    gap: 6px;
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #root .app-container .connect-page .connect-tablist button {
+    transition: none;
+  }
+}

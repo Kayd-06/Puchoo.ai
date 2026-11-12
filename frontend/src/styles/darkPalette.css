@@ -1,0 +1,47 @@
+/* Shared neutral surfaces keep the workspace pitch black across every route. */
+html[data-theme='dark'] {
+  --bg-main: #000;
+  --bg-surface: #000;
+  --bg-surface-raised: #121212;
+}
+html[data-theme='dark'] #root .app-container {
+  --control-secondary-bg: #151515;
+  --control-hover-bg: #252525;
+  --control-disabled-bg: #202020;
+  --control-line: #555;
+  background: #000;
+}
+html[data-theme='dark']
+  #root
+  .app-container
+  :is(
+    .main-content,
+    .page-container,
+    .app-sidebar,
+    .app-topbar,
+    .ask-stage,
+    .ask-results,
+    .connect-stage,
+    .history-page,
+    .settings-page,
+    .settings-section,
+    .history-card,
+    .result-summary-card,
+    .result-table-card,
+    .topbar-account-panel,
+    .topbar-notification-panel,
+    .workspace-picker-menu
+  ) {
+  background: #000;
+}
+html[data-theme='dark']
+  #root
+  .app-container
+  :is(.topbar-account-button, .workspace-picker-trigger, .notification-bell-button:hover) {
+  background: #151515;
+  border-color: #454545;
+  color: #eee;
+}
+html[data-theme='dark'] #root .app-container .topbar-account-button:hover {
+  background: #252525;
+}

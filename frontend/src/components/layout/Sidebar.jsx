@@ -57,7 +57,7 @@ const SELECTOR_SPARKS = [
 ];
 const PICKER_CLOSE_DURATION = 180;
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }) {
   const { workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useAppContext();
   const { user } = useAuth();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -114,6 +114,7 @@ export default function Sidebar() {
     if (workspaceId !== activeWorkspaceId) setBurstKey((current) => current + 1);
     setActiveWorkspaceId(workspaceId || null);
     closePicker();
+    onNavigate?.();
   };
 
   return (
@@ -140,6 +141,7 @@ export default function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={onNavigate}
               className={({ isActive }) => `app-sidebar-link${isActive ? ' is-active' : ''}`}
             >
               <Icon size={18} strokeWidth={1.8} />
@@ -220,7 +222,7 @@ export default function Sidebar() {
             </span>
           </div>
         ) : can(user, 'manage_data_sources') ? (
-          <NavLink to="/connect" className="workspace-empty">
+          <NavLink to="/connect" className="workspace-empty" onClick={onNavigate}>
             <Plus size={15} /> Connect data
           </NavLink>
         ) : (

@@ -25,11 +25,11 @@
 }
 #root .app-container button.theme-toggle.theme-switch.is-dark,
 #root button.theme-toggle.theme-switch.is-dark {
-  border-color: #475572;
-  background: #596889;
+  border-color: #454545;
+  background: #171717;
   box-shadow:
-    inset 2px 3px 7px #293751,
-    inset -1px -1px 3px #8592ae;
+    inset 2px 3px 7px #000000,
+    inset -1px -1px 3px #373737;
 }
 #root .theme-switch .theme-switch-track {
   position: absolute;
@@ -38,10 +38,10 @@
   justify-content: space-between;
   align-items: center;
   padding: 0 6px;
-  color: #8c96a7;
+  color: #667080;
 }
 #root .theme-switch.is-dark .theme-switch-track {
-  color: #a5b2d2;
+  color: #a3a3a3;
 }
 #root .theme-switch .theme-switch-thumb {
   position: absolute;
@@ -57,15 +57,20 @@
   box-shadow:
     2px 5px 8px #17263b40,
     inset 1px 1px 2px #ffffff;
-  color: #ed990b;
+  color: #815b14;
   transform: translateX(0);
   transition:
     transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
     color 0.2s ease;
 }
 #root .theme-switch.is-dark .theme-switch-thumb {
+  background: #303030;
+  border-color: #505050;
+  box-shadow:
+    0 2px 6px #00000066,
+    inset 0 1px 1px #ffffff20;
   transform: translateX(26px);
-  color: #4861b4;
+  color: #eeeeee;
 }
 #root .theme-switch .theme-switch-thumb svg {
   stroke-width: 2.2;
@@ -76,7 +81,7 @@
   top: 5px;
   font-size: 6px;
   line-height: 1;
-  color: #4861b4;
+  color: #eeeeee;
 }
 #root button.theme-toggle.theme-switch:hover .theme-switch-thumb {
   box-shadow:
@@ -84,7 +89,7 @@
     inset 1px 1px 2px #ffffff;
 }
 #root button.theme-toggle.theme-switch:focus-visible {
-  outline: 3px solid #6b9fdd;
+  outline: 3px solid #888888;
   outline-offset: 5px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -92,4 +97,17 @@
   #root .theme-switch .theme-switch-thumb {
     transition: none;
   }
+}
+
+#root button.theme-toggle.theme-switch::after {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+  border-radius: inherit;
+}
+
+#root button.theme-toggle.theme-switch.is-dark:hover .theme-switch-thumb {
+  box-shadow:
+    0 2px 8px #00000080,
+    inset 0 1px 1px #ffffff30;
 }

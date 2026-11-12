@@ -309,6 +309,17 @@ def generate_query(
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="Clarification no longer matches this question. Please ask again.") from None
+        # Vague rankings, performance wording and comparisons keep their
+        # choice-button clarifications; the server never picks a default for them.
+        if clarification and clarification["reason"] == "concept_not_in_data":
+            # Missing inputs are a direct answer, with the same follow-up choices.
+            return {
+                "status": "answer_unavailable", "question": question,
+                "reason": clarification["reason"],
+                "clarifications": [item.model_dump() for item in request.clarifications],
+                "message": _translate_for_display(clarification.get("answer", clarification["message"]), language_code),
+                "limitations": [], "suggestions": clarification.get("suggestions", []),
+            }
         if clarification:
             return {
                 "status": "clarification_required",
@@ -355,6 +366,14 @@ def generate_query(
             if not hasattr(client, "generate_plan"):
                 raise SQLGenerationError("Complex-query planning requires a planner-capable model provider.")
             structured_plan = plan_complex_query(client, schema=schema, question=planning_question)
+            if structured_plan.answer_status == "unavailable":
+                return {
+                    "status": "answer_unavailable", "question": question,
+                    "message": _translate_for_display(structured_plan.unavailable_reason, language_code),
+                    "limitations": [_translate_for_display(item, language_code) for item in structured_plan.limitations],
+                    "assumptions": [_translate_for_display(item, language_code) for item in structured_plan.assumptions],
+                    "suggestions": [],
+                }
             if structured_plan.needs_clarification:
                 _log_trace({
                     "route": decision.route, "plan_valid": True,
@@ -478,6 +497,8 @@ def generate_query(
             "route": decision.route,
             "selected_tables": selected_tables,
             "assumptions": public_plan.get("assumptions", []),
+            "answer_status": public_plan.get("answer_status", "complete"),
+            "limitations": [_translate_for_display(item, language_code) for item in public_plan.get("limitations", [])],
             "interpreted_request": _translate_for_display(public_plan.get("normalized_question", planning_question), language_code),
             "status": "pending_approval",
         }
@@ -534,6 +555,9 @@ def generate_query(
         raise HTTPException(status_code=422, detail="I could not build a complete, grounded plan for that question. Please specify the metric, filters and comparison period, or split it into smaller questions. No query was run.") from None
     except (QueryExecutionError, SQLGenerationError, ValueError) as exc:
         logger.exception("query generation failed: %s", type(exc).__name__)
+        if question.count("?") >= 2:
+            # One SQL statement cannot answer unrelated questions; say so plainly.
+            raise HTTPException(status_code=400, detail="This message contains separate questions that one query cannot answer together. Ask them one at a time. No query was run.") from None
         raise HTTPException(status_code=400, detail="I could not produce a complete query grounded in this workspace. Please clarify the requested metric or filters. No query was run.") from None
 
 class ApproveRequest(BaseModel):

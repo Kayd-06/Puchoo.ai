@@ -6,6 +6,8 @@ import './styles/site.css';
 import './styles/buttons.css';
 import './styles/history.css';
 import './styles/lightPalette.css';
+import './styles/darkPalette.css';
+import './styles/responsive.css';
 
 applyStoredTheme();
 

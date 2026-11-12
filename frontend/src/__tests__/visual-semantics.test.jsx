@@ -44,7 +44,7 @@ it('keeps narrow account and member controls compact without orphaned text', () 
 
 it('runs a generated read-only query directly without a second confirmation panel', () => {
   const markup = source('src/pages/AskData.jsx');
-  expect(markup).toMatch(/const executeProposal = async \(proposal, token\)/);
+  expect(markup).toMatch(/const executeProposal = async \(proposal, token(?:, show = true)?\)/);
   expect(markup).toMatch(/await executeProposal\(proposal, token\)/);
   expect(markup).not.toMatch(/query-approval-panel/);
   expect(markup).not.toMatch(/Ready to run this query\?/);
@@ -133,4 +133,15 @@ it('keeps the data-source background word outline-only and highlights it only on
   expect(css).toMatch(
     /\.connect-tablist,[\s\S]*?\.connect-submit,[\s\S]*?\{[^}]*pointer-events:\s*auto/s,
   );
+});
+
+it('shares workspace geometry and typography between themes', () => {
+  const css = source('src/styles/lightPalette.css');
+  const blocks = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  for (const [, selector, declarations] of blocks) {
+    if (!selector.includes("data-theme='light'") || !selector.includes('#root')) continue;
+    expect(declarations).not.toMatch(
+      /(?:^|;)\s*(?:font(?:-[\w-]+)?|line-height|letter-spacing|padding(?:-[\w-]+)?|margin(?:-[\w-]+)?|(?:min-|max-)?(?:width|height)|align-(?:self|items))\s*:/,
+    );
+  }
 });

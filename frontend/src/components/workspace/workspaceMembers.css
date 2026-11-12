@@ -11,13 +11,13 @@
   --member-danger-bg: #38232e;
 }
 html[data-theme='light'] .workspace-members-refined {
-  --member-bg: #faf8f2;
-  --member-card: #faf8f2;
-  --member-line: #e3e0d9;
-  --member-fg: #322f28;
-  --member-muted: #6e6b64;
-  --member-accent: #5d5a53;
-  --member-accent-bg: #f3f0e9;
+  --member-bg: #f2f4f6;
+  --member-card: #f2f4f6;
+  --member-line: #cdd3db;
+  --member-fg: #27313d;
+  --member-muted: #566270;
+  --member-accent: #3f5f86;
+  --member-accent-bg: #e5e9ee;
   --member-danger: #a72c44;
   --member-danger-bg: #fff0f2;
 }

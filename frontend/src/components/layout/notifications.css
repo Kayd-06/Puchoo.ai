@@ -38,7 +38,7 @@ html[data-theme='light'] #root .app-container button.notification-bell-button.is
   box-sizing: content-box;
 }
 html[data-theme='light'] #root .notification-bell-button .topbar-notification-count {
-  border-color: #faf8f2;
+  border-color: #f2f4f6;
   background: #e52945;
 }
 .notification-sr-only {
@@ -103,7 +103,7 @@ html[data-theme='light'] #root .notification-bell-button .topbar-notification-co
   font-size: 0.78rem;
 }
 html[data-theme='light'] #root .topbar-notification-panel {
-  background: #faf8f2;
+  background: #f2f4f6;
   color: #35322b;
   border-color: #e4e1da;
 }
@@ -118,7 +118,7 @@ html[data-theme='light'] #root .notification-row .topbar-notification-item span 
   color: #6b6861;
 }
 html[data-theme='light'] #root .notification-row .topbar-notification-item.is-unread {
-  background: #faf7f0;
+  background: #e5e9ee;
 }
 html[data-theme='light'] #root .notification-delete,
 html[data-theme='light'] #root .notification-error {

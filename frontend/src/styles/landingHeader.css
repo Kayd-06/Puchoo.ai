@@ -1,0 +1,192 @@
+/* Landing navigation: quiet typography, clear hierarchy, one primary action. */
+#root .puchoo-reference-page .puchoo-segmented-header {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px clamp(24px, 4vw, 64px);
+  border-bottom: 1px solid #ffffff14;
+  background: transparent;
+}
+#root .puchoo-reference-page .puchoo-nav-left {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  min-width: 0;
+  margin: 0;
+}
+#root .puchoo-reference-page .puchoo-nav-brand {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  color: #e8edf1;
+  font: 600 19px/1.2 var(--font-sans);
+  letter-spacing: -0.045em;
+  text-decoration: none;
+}
+#root .puchoo-reference-page .puchoo-nav-brand::after {
+  content: none;
+}
+#root .puchoo-reference-page .puchoo-nav-brand img {
+  display: block;
+  width: 32px;
+  height: 36px;
+  object-fit: contain;
+}
+#root .puchoo-reference-page .puchoo-nav-segments {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#root .puchoo-reference-page .puchoo-nav-segments a {
+  position: relative;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a9b4be;
+  font: 500 13px/1.5 var(--font-sans);
+  box-shadow: none;
+}
+#root .puchoo-reference-page .puchoo-nav-segments a:hover {
+  color: #f1f4f6;
+  background: #ffffff08;
+}
+#root .puchoo-reference-page .puchoo-nav-segments a[aria-current] {
+  color: #f1f4f6;
+}
+#root .puchoo-reference-page .puchoo-nav-segments a[aria-current]::after {
+  content: '';
+  position: absolute;
+  inset: auto 12px 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: #a9c4d6;
+}
+#root .puchoo-reference-page .puchoo-nav-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 20px;
+}
+#root .puchoo-reference-page .puchoo-nav-login {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #c7d0d8;
+  font: 500 13px/1.5 var(--font-sans);
+  text-decoration: none;
+}
+#root .puchoo-reference-page .puchoo-nav-login:hover {
+  color: #fff;
+}
+#root .puchoo-reference-page .puchoo-nav-action {
+  min-height: 44px;
+  padding: 10px 16px;
+  gap: 12px;
+  border: 1px solid #bdd0de;
+  border-radius: 6px;
+  background: #cfdee8;
+  color: #172c3c;
+  font: 600 13px/1.5 var(--font-sans);
+  box-shadow: none;
+}
+#root .puchoo-reference-page .puchoo-nav-action:hover {
+  background: #e1eaf0;
+}
+#root .puchoo-reference-page .puchoo-segmented-header :is(a, button):focus-visible,
+#root .puchoo-reference-page .puchoo-reference-menu a:focus-visible {
+  outline: 2px solid #b8d3e6;
+  outline-offset: 3px;
+}
+#root .puchoo-reference-page .puchoo-reference-menu {
+  top: calc(max(20px, env(safe-area-inset-top)) + 74px);
+  right: 24px;
+  left: 24px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #34404b;
+  border-radius: 10px;
+  background: #101820;
+  box-shadow: 0 16px 40px #00000050;
+  max-height: calc(100dvh - 112px);
+  overflow-y: auto;
+}
+#root .puchoo-reference-page .puchoo-reference-menu a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 5px;
+  color: #d6dfe6;
+  font: 500 14px/1.5 var(--font-sans);
+}
+#root .puchoo-reference-page .puchoo-reference-menu a:hover {
+  background: #ffffff09;
+  color: #fff;
+}
+@media (max-width: 900px) {
+  #root .puchoo-reference-page .puchoo-segmented-header {
+    gap: 12px;
+    padding: max(20px, env(safe-area-inset-top)) 24px 20px;
+  }
+  #root .puchoo-reference-page .puchoo-nav-segments {
+    display: none;
+  }
+  #root .puchoo-reference-page .puchoo-nav-actions {
+    gap: 16px;
+  }
+  #root .puchoo-reference-page .puchoo-segmented-header > .puchoo-nav-mobile-toggle {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid #3b4650;
+    border-radius: 6px;
+    background: transparent;
+    color: #d6dfe6;
+    box-shadow: none;
+  }
+}
+@media (max-width: 480px) {
+  #root .puchoo-reference-page .puchoo-segmented-header {
+    gap: 10px;
+    padding-inline: max(16px, env(safe-area-inset-left));
+  }
+  #root .puchoo-reference-page .puchoo-nav-brand {
+    gap: 7px;
+    font-size: 17px;
+  }
+  #root .puchoo-reference-page .puchoo-nav-login {
+    display: none;
+  }
+  #root .puchoo-reference-page .puchoo-nav-action {
+    gap: 7px;
+    padding-inline: 11px;
+    font-size: 12px;
+  }
+  #root .puchoo-reference-page .puchoo-nav-action svg {
+    display: none;
+  }
+  #root .puchoo-reference-page .puchoo-reference-menu {
+    right: 16px;
+    left: 16px;
+  }
+}
